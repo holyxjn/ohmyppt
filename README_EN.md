@@ -20,9 +20,9 @@
     Prompt in → Deck out 👇
   </p>
 
-  <img src="https://raw.githubusercontent.com/arcsin1/oh-my-ppt/main/docs/video/ohmyppt.gif" alt="Oh My PPT" width="600" />
+  <img src="https://arcsin1.github.io/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [Watch demo video](https://raw.githubusercontent.com/arcsin1/oh-my-ppt/main/docs/video/ohmyppt.mp4)
+  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4)
 </div>
 
 ---
