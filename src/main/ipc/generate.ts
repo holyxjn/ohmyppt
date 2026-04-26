@@ -120,7 +120,7 @@ const normalizeKeyPoints = (value: unknown): string[] => {
   return value
     .map((item) => String(item ?? "").trim())
     .filter((item) => item.length > 0)
-    .slice(0, 4)
+    .slice(0, 6)
     .map((item) => (item.length > 24 ? `${item.slice(0, 24).trimEnd()}…` : item));
 };
 
@@ -313,9 +313,9 @@ export const planDeckWithLLM = async (args: {
     if (!title) {
       throw new Error(`LLM plan_deck 第 ${index + 1} 项缺少 title，期望格式: { title, keyPoints[] }`);
     }
-    if (keyPoints.length < 2 || keyPoints.length > 4) {
+    if (keyPoints.length < 1) {
       throw new Error(
-        `LLM plan_deck 第 ${index + 1} 项 keyPoints 数量非法（当前 ${keyPoints.length}），要求 2-4 条。`
+        `LLM plan_deck 第 ${index + 1} 项 keyPoints 为空，至少需要 1 条。`
       );
     }
     return {

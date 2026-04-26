@@ -11,7 +11,7 @@ export function buildPlanningUserPrompt(args: {
     hasExplicitPageHint ? "用户已给出页面线索，请优先沿用其分页意图。" : "",
     "",
     "请规划每页标题与关键点（短句，不写长段）。",
-    "输出必须是 JSON 数组，且每项严格为 { title, keyPoints }；keyPoints 为 2-4 条字符串。",
+    "输出必须是 JSON 数组，且每项严格为 { title, keyPoints }；keyPoints 为 1-6 条字符串。",
     `数组长度必须恰好为 ${args.totalPages}。`,
     "用户需求：",
     args.userMessage,
