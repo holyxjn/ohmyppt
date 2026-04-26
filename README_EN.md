@@ -41,12 +41,12 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 <a id="features"></a>
 ## ✅ What It Can Do
 
-💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
-🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
-🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles  
-✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  
-🎬 **Page transition effects** — Built-in transitions during preview for a polished presentation feel  
-📄 **Export to PDF** — One click export with quick sharing
+- 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
+- 🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
+- 🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles  
+- ✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  
+- 🎬 **Page transition effects** — Built-in transitions during preview for a polished presentation feel  
+- 📄 **Export to PDF** — One click export with quick sharing
 
 <a id="workflow"></a>
 ## 🔄 Workflow
