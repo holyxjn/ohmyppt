@@ -4,7 +4,7 @@ import log from "electron-log/main.js";
 import type { PPTDatabase } from "../db/database";
 import type { AgentManager } from "../agent";
 import { resolveModel } from "../agent";
-import type { GenerateChunkEvent, GenerateStartPayload, GeneratedPagePayload } from "@shared/generation";
+import type { GenerateChunkEvent, GenerateStartPayload, GeneratedPagePayload, UploadedAsset } from "@shared/generation";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -34,6 +34,21 @@ import { buildDesignContractWithLLM, planDeckWithLLM, runDeepAgentDeckGeneration
 export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManager: AgentManager) {
   const ENCRYPTED_API_KEY_PREFIX = "enc:v1:";
   const MAX_SESSION_RUN_EVENTS = 500;
+  const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
+  const ALLOWED_DOC_EXTENSIONS = new Set([".md", ".txt", ".text"]);
+  const IMAGE_MIME_BY_EXT: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+  };
+  const DOC_MIME_BY_EXT: Record<string, string> = {
+    ".md": "text/markdown",
+    ".txt": "text/plain",
+    ".text": "text/plain",
+  };
   const getPageSourceUrl = (htmlPath?: string) => {
     if (!htmlPath || !fs.existsSync(htmlPath)) return undefined;
     return pathToFileURL(htmlPath).toString();
@@ -304,6 +319,133 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
   };
 
+  const toSafeAssetBaseName = (value: string): string => {
+    const parsed = path.parse(value);
+    const fallback = parsed.name || "image";
+    const safe = fallback
+      .normalize("NFKD")
+      .replace(/[^\w\u4e00-\u9fff.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72);
+    return safe || "image";
+  };
+
+  const resolveSessionProjectDir = async (sessionId: string): Promise<string> => {
+    const session = await db.getSession(sessionId);
+    if (!session) throw new Error("Session not found");
+    const project = await db.getProject(sessionId);
+    const outputPath = typeof project?.output_path === "string" ? project.output_path.trim() : "";
+    if (outputPath) return path.resolve(outputPath);
+    return path.resolve(await resolveStoragePath(), sessionId);
+  };
+
+  const formatImagePathsForPrompt = (imagePaths?: string[]): string => {
+    const validPaths = Array.isArray(imagePaths)
+      ? imagePaths
+          .map((item) => String(item || "").trim())
+          .filter((item) => item.startsWith("./images/"))
+          .slice(0, 10)
+      : [];
+    if (validPaths.length === 0) return "";
+    return [
+      "",
+      "本次消息可用图片路径：",
+      ...validPaths.map((imagePath, index) => `- ${index + 1}. ${imagePath}`),
+      "",
+      "图片使用规则：",
+      "- 如需使用图片，请引用上面的相对路径。",
+      "- 禁止使用 file://、绝对路径或 base64。",
+      "- 不要重新引入远程图片资源，优先使用这些本地图片。",
+    ].join("\n");
+  };
+
+  const buildAssetTimestamp = (): string => {
+    const now = new Date();
+    return [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+      "-",
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+      String(now.getSeconds()).padStart(2, "0"),
+    ].join("");
+  };
+
+  const uploadSessionFiles = async (
+    sessionId: string,
+    files: Array<{ path?: unknown; name?: unknown }>,
+    target: "images" | "docs"
+  ): Promise<UploadedAsset[]> => {
+    if (!sessionId) throw new Error("sessionId 不能为空");
+    if (files.length === 0) return [];
+    if (files.length > 10) throw new Error("一次最多上传 10 个素材");
+
+    const projectDir = await resolveSessionProjectDir(sessionId);
+    const targetDir = path.join(projectDir, target);
+    await fs.promises.mkdir(targetDir, { recursive: true });
+    const targetRoot = await fs.promises.realpath(targetDir);
+
+    const uploadedAssets: UploadedAsset[] = [];
+    for (const file of files) {
+      const sourcePathRaw = typeof file.path === "string" ? file.path.trim() : "";
+      if (!sourcePathRaw) throw new Error("无法读取拖入文件路径");
+      const sourcePath = path.resolve(sourcePathRaw);
+      if (!fs.existsSync(sourcePath)) throw new Error(`素材文件不存在: ${sourcePath}`);
+      const stat = await fs.promises.stat(sourcePath);
+      if (!stat.isFile()) throw new Error(`素材不是文件: ${sourcePath}`);
+      if (stat.size > 20 * 1024 * 1024) throw new Error("单个素材不能超过 20MB");
+
+      const ext = path.extname(sourcePath).toLowerCase();
+      if (target === "images" && !ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+        throw new Error("暂只支持 png、jpg、jpeg、webp、gif、svg 图片素材");
+      }
+      if (target === "docs" && !ALLOWED_DOC_EXTENSIONS.has(ext)) {
+        throw new Error("暂只支持 md、txt 文档素材");
+      }
+
+      const originalName =
+        typeof file.name === "string" && file.name.trim().length > 0
+          ? file.name.trim()
+          : path.basename(sourcePath);
+      const id = crypto.randomUUID();
+      const fileName = `${buildAssetTimestamp()}-${id.slice(0, 8)}-${toSafeAssetBaseName(originalName)}${ext}`;
+      const targetPath = path.join(targetDir, fileName);
+      if (!isPathInside(path.resolve(targetPath), targetRoot)) {
+        throw new Error("素材目标路径不合法");
+      }
+      await fs.promises.copyFile(sourcePath, targetPath);
+
+      uploadedAssets.push({
+        id,
+        fileName,
+        originalName,
+        relativePath: `./${target}/${fileName}`,
+        absolutePath: targetPath,
+        mimeType:
+          target === "images"
+            ? IMAGE_MIME_BY_EXT[ext] || "application/octet-stream"
+            : DOC_MIME_BY_EXT[ext] || "text/plain",
+        size: stat.size,
+        createdAt: Math.floor(Date.now() / 1000),
+      });
+    }
+
+    log.info("[assets] uploaded", {
+      sessionId,
+      projectDir,
+      target,
+      count: uploadedAssets.length,
+      files: uploadedAssets.map((asset) => asset.fileName),
+    });
+    return uploadedAssets;
+  };
+
+  const uploadImageAssets = async (
+    sessionId: string,
+    files: Array<{ path?: unknown; name?: unknown }>
+  ): Promise<UploadedAsset[]> => uploadSessionFiles(sessionId, files, "images");
+
   const resolveExistingFileRealPath = async (filePath: string): Promise<string> => {
     const absolutePath = path.resolve(filePath);
     if (!fs.existsSync(absolutePath)) {
@@ -430,8 +572,10 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   const ensureSessionAssets = async (projectDir: string): Promise<void> => {
     const assetsDir = path.join(projectDir, "assets");
     const imagesDir = path.join(projectDir, "images");
+    const docsDir = path.join(projectDir, "docs");
     await fs.promises.mkdir(assetsDir, { recursive: true });
     await fs.promises.mkdir(imagesDir, { recursive: true });
+    await fs.promises.mkdir(docsDir, { recursive: true });
     await Promise.all(
       SESSION_ASSET_FILE_NAMES.map(async (fileName) => {
         const sourcePath = resolveSessionAssetSourcePath(fileName);
@@ -443,6 +587,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       projectDir,
       assetsDir,
       imagesDir,
+      docsDir,
       count: SESSION_ASSET_FILE_NAMES.length,
       env: is.dev ? "dev" : "prod",
     });
@@ -771,6 +916,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     projectId: string;
     messageScope: GenerateChatType;
     messagePageId?: string;
+    imagePaths: string[];
     topic: string;
     deckTitle: string;
   };
@@ -815,12 +961,20 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   ): Promise<GenerationContext> => {
     const input = payload as GenerateStartPayload;
     const sessionId = String(input?.sessionId || "").trim();
-    const userMessage = typeof input?.userMessage === "string" ? input.userMessage : "";
+    const rawUserMessage = typeof input?.userMessage === "string" ? input.userMessage : "";
+    const rawImagePaths = Array.isArray(input?.imagePaths)
+      ? input.imagePaths
+          .map((item) => String(item || "").trim())
+          .filter((item) => item.startsWith("./images/"))
+          .slice(0, 10)
+      : [];
     const requestedType = input?.type === "page" ? "page" : input?.type === "deck" ? "deck" : undefined;
     const effectiveMode: GenerateMode =
       requestedType === "page"
         ? "edit"
         : "generate";
+    const imagePaths = effectiveMode === "edit" ? rawImagePaths : [];
+    const userMessage = `${rawUserMessage}${formatImagePathsForPrompt(imagePaths)}`;
     const selectedPageId =
       typeof input?.selectedPageId === "string" && input.selectedPageId.trim().length > 0
         ? input.selectedPageId.trim()
@@ -849,7 +1003,8 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       mode: effectiveMode,
       chatType: input?.chatType === "page" ? "page" : "main",
       chatPageId: input?.chatPageId || null,
-      hasUserMessage: typeof userMessage === "string" && userMessage.trim().length > 0,
+      hasUserMessage: rawUserMessage.trim().length > 0,
+      imagePaths,
       selectedPageId: selectedPageId || null,
       selector: selector || null,
       elementTag: elementTag || null,
@@ -898,7 +1053,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
 
     const runId = crypto.randomUUID();
     const styleSkill = loadStyleSkill(styleId);
-    const userProvidedOutlineTitles = extractOutlineTitles(userMessage);
+    const userProvidedOutlineTitles = extractOutlineTitles(rawUserMessage);
     const totalPages = Number(sessionRecord.page_count ?? sessionRecord.pageCount);
 
     const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim();
@@ -925,11 +1080,12 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
 
     await db.addMessage(sessionId, {
       role: "user",
-      content: userMessage,
+      content: rawUserMessage,
       type: "text",
       chat_scope: normalizedChatType,
       page_id: normalizedChatType === "page" ? normalizedChatPageId : undefined,
       selector: normalizedChatType === "page" ? selector : undefined,
+      image_paths: imagePaths,
     });
     await db.updateSessionStatus(sessionId, "active");
 
@@ -970,6 +1126,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       projectId,
       messageScope: normalizedChatType,
       messagePageId: normalizedChatType === "page" ? normalizedChatPageId : undefined,
+      imagePaths,
       topic,
       deckTitle,
     };
@@ -1773,6 +1930,39 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   ipcMain.handle("session:delete", async (_event, sessionId) => {
     await db.deleteSession(sessionId);
     return { success: true };
+  });
+
+  ipcMain.handle("assets:upload", async (_event, payload: unknown) => {
+    const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+    const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+    const files = Array.isArray(record.files) ? record.files as Array<Record<string, unknown>> : [];
+    return { assets: await uploadImageAssets(sessionId, files) };
+  });
+
+  ipcMain.handle("assets:chooseAndUpload", async (event, payload: unknown) => {
+    const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+    const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+    if (!sessionId) throw new Error("sessionId 不能为空");
+
+    const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    const result = await dialog.showOpenDialog(win, {
+      title: "选择图片素材",
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "svg"] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { assets: [], cancelled: true };
+    }
+    const assets = await uploadImageAssets(
+      sessionId,
+      result.filePaths.map((filePath) => ({
+        path: filePath,
+        name: path.basename(filePath),
+      }))
+    );
+    return { assets, cancelled: false };
   });
 
   // ========== Generation Flow ==========

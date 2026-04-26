@@ -14,6 +14,12 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { ScrollArea } from '../components/ui/ScrollArea'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../components/ui/DropdownMenu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
 import { PreviewIframe } from '../components/preview/PreviewIframe'
 import {
@@ -26,10 +32,13 @@ import {
   ExternalLink,
   FileDown,
   Crosshair,
-  X
+  X,
+  Plus,
+  Image as ImageIcon,
+  FileText
 } from 'lucide-react'
 import { useSessionStore, useGenerateStore } from '../store'
-import type { GenerateChunkEvent } from '@shared/generation.js'
+import type { GenerateChunkEvent, UploadedAsset } from '@shared/generation.js'
 import { useToastStore } from '../store'
 
 export function SessionDetailPage() {
@@ -58,6 +67,9 @@ export function SessionDetailPage() {
   const [selectorLabel, setSelectorLabel] = useState('')
   const [elementTag, setElementTag] = useState('')
   const [elementText, setElementText] = useState('')
+  const [pendingAssets, setPendingAssets] = useState<UploadedAsset[]>([])
+  const [assetDragActive, setAssetDragActive] = useState(false)
+  const [isUploadingAssets, setIsUploadingAssets] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeChatRef = useRef<{ chatType: 'main' | 'page'; pageId?: string }>({ chatType: 'page' })
   const {
@@ -113,6 +125,7 @@ export function SessionDetailPage() {
     setMessages([])
     useGenerateStore.getState().setPages([])
     setSelectedPageNumber(null)
+    setPendingAssets([])
     void loadSession(id)
   }, [id, loadSession, setMessages])
 
@@ -258,14 +271,69 @@ export function SessionDetailPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [currentMessages, isGenerating, progress?.progress, consoleOpen])
 
+  const isSupportedImageFile = (file: File) => {
+    if (file.type.startsWith('image/')) return true
+    return /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)
+  }
+
+  const uploadFiles = async (files: File[]) => {
+    if (!id || files.length === 0) return
+    const imageFiles = files.filter(isSupportedImageFile).slice(0, 10)
+    if (imageFiles.length === 0) {
+      toastWarning('暂只支持图片素材')
+      return
+    }
+    const payloadFiles = imageFiles
+      .map((file) => ({
+        path: window.electron?.getPathForFile?.(file) || '',
+        name: file.name
+      }))
+      .filter((file) => file.path)
+    if (payloadFiles.length === 0) {
+      toastError('无法读取图片路径')
+      return
+    }
+    setIsUploadingAssets(true)
+    try {
+      const result = await ipc.uploadAssets({ sessionId: id, files: payloadFiles })
+      if (result.assets.length > 0) {
+        setPendingAssets((assets) => [...assets, ...result.assets])
+        toastSuccess(`已添加 ${result.assets.length} 个素材`)
+      }
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : '素材上传失败')
+    } finally {
+      setIsUploadingAssets(false)
+      setAssetDragActive(false)
+    }
+  }
+
+  const handleChooseAssets = async () => {
+    if (!id || isUploadingAssets) return
+    setIsUploadingAssets(true)
+    try {
+      const result = await ipc.chooseAndUploadAssets(id)
+      if (result.cancelled) return
+      if (result.assets.length > 0) {
+        setPendingAssets((assets) => [...assets, ...result.assets])
+        toastSuccess(`已添加 ${result.assets.length} 个素材`)
+      }
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : '素材上传失败')
+    } finally {
+      setIsUploadingAssets(false)
+    }
+  }
+
   const handleSend = async () => {
     if (!id) return
     if (chatType === 'main') {
       toastInfo('主会话已禁用发送，请先切换到“当前页”上下文。')
       return
     }
-    if (!input.trim()) return
-    const content = input.trim()
+    if (!input.trim() && pendingAssets.length === 0) return
+    const content = input.trim() || '使用已上传素材'
+    const assetsForMessage = pendingAssets
     const hasSelector = Boolean(selectedSelector?.trim())
     const selectorForMessage = hasSelector ? selectedSelector!.trim() : null
     const effectiveChatType: 'main' | 'page' = hasSelector ? 'page' : chatType
@@ -288,6 +356,7 @@ export function SessionDetailPage() {
       chat_scope: effectiveChatType,
       page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
       selector: effectiveChatType === 'page' ? selectorForMessage : null,
+      image_paths: assetsForMessage.map((asset) => asset.relativePath),
       role: 'user',
       content,
       type: 'text',
@@ -297,6 +366,7 @@ export function SessionDetailPage() {
       created_at: Math.floor(Date.now() / 1000)
     })
     setInput('')
+    setPendingAssets([])
     setSelectedSelector(null)
     setSelectorLabel('')
     setElementTag('')
@@ -312,7 +382,8 @@ export function SessionDetailPage() {
       htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
       selector: selectorForMessage || undefined,
       elementTag: hasSelector ? elementTag || undefined : undefined,
-      elementText: hasSelector ? elementText || undefined : undefined
+      elementText: hasSelector ? elementText || undefined : undefined,
+      imagePaths: assetsForMessage.map((asset) => asset.relativePath)
     })
   }
 
@@ -326,7 +397,9 @@ export function SessionDetailPage() {
       ? `当前页 · P${selectedPage.pageNumber}`
       : '主会话 · 用于全局结构与 index 调整'
   const inputPlaceholder =
-    chatType === 'page'
+    pendingAssets.length > 0
+      ? '描述你想怎么使用这些素材，例如：把第一张图作为封面背景。'
+      : chatType === 'page'
       ? '当前页模式：只会修改当前页内容。可先用“检选”选中元素，再说：改改当前的颜色或者字号等等。'
       : '主会话模式已禁用发送。请先把“上下文”切到“当前页”。'
   const selectorSummary = selectedSelector
@@ -664,6 +737,12 @@ export function SessionDetailPage() {
                         typeof msg.selector === 'string' && msg.selector.trim().length > 0
                           ? msg.selector.trim()
                           : ''
+                      const imagePaths = Array.isArray(msg.image_paths)
+                        ? msg.image_paths
+                            .map((item) => String(item || '').trim())
+                            .filter((item) => item.startsWith('./images/'))
+                            .slice(0, 10)
+                        : []
                       return (
                         <div
                           key={msg.id}
@@ -693,6 +772,25 @@ export function SessionDetailPage() {
                                     {selectorText}
                                   </TooltipContent>
                                 </Tooltip>
+                              )}
+                              {isUser && imagePaths.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {imagePaths.map((imagePath) => (
+                                    <Tooltip key={imagePath}>
+                                      <TooltipTrigger asChild>
+                                        <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-[#f8f0df]/72 px-1.5 py-0.5 text-[10px] font-medium text-[#5f6d4b]">
+                                          <ImageIcon className="h-3 w-3 shrink-0" />
+                                          <span className="min-w-0 max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap">
+                                            {imagePath}
+                                          </span>
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="whitespace-pre-wrap break-all">
+                                        {imagePath}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ))}
+                                </div>
                               )}
                               <p className="whitespace-pre-wrap break-words text-[13px] leading-5">
                                 {cleanMessageContent(msg.content)}
@@ -725,7 +823,30 @@ export function SessionDetailPage() {
                 )}
               </ScrollArea>
 
-              <div className="px-2.5 pb-3">
+              <div
+                className={cn(
+                  'px-2.5 pb-3 transition-colors',
+                  assetDragActive && 'rounded-b-xl bg-[#edf4e3]/55'
+                )}
+                onDragEnter={(event) => {
+                  event.preventDefault()
+                  if (event.dataTransfer.types.includes('Files')) setAssetDragActive(true)
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  if (event.dataTransfer.types.includes('Files')) setAssetDragActive(true)
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    setAssetDragActive(false)
+                  }
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const files = Array.from(event.dataTransfer.files)
+                  void uploadFiles(files)
+                }}
+              >
                 {selectedSelector && (
                   <div className="mb-2 flex items-center gap-2 rounded-md border border-[#d7c6a9]/60 bg-[#f9f1e2]/72 px-2 py-1.5">
                     <span className="shrink-0 rounded bg-[#e4d3b4]/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-[#5f6d4b]">
@@ -764,6 +885,30 @@ export function SessionDetailPage() {
                     主会话已禁用发送。请将“上下文”切换到“当前页”后再继续编辑。
                   </div>
                 )}
+                {pendingAssets.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {pendingAssets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="flex max-w-full items-center gap-1.5 rounded-md border border-[#d3c5aa]/60 bg-[#eef5df]/76 px-2 py-1 text-[11px] text-[#4f6340]"
+                        title={`${asset.originalName}\n${asset.relativePath}`}
+                      >
+                        <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap">
+                          {asset.originalName || asset.fileName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPendingAssets((assets) => assets.filter((item) => item.id !== asset.id))}
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[#657552] hover:bg-[#dbe8c8]"
+                          aria-label="移除素材"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <Textarea
                   placeholder={inputPlaceholder}
                   value={input}
@@ -779,8 +924,37 @@ export function SessionDetailPage() {
                   className="min-h-[96px] resize-none border border-[#d8c9ae]/40 bg-[#f7efdf]/72 px-2.5 py-2 text-[13px] leading-5 text-[#445439] focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
                 <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-                  <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-muted-foreground">
-                    {contextHint}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          disabled={isGenerating || isUploadingAssets || chatType === 'main'}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#d8c9ae]/60 bg-[#fff8ec]/74 text-[#5e704c] shadow-[0_4px_10px_rgba(88,74,54,0.08)] transition-colors hover:bg-[#eef5df] disabled:pointer-events-none disabled:opacity-45"
+                          aria-label="添加素材"
+                          title="添加素材"
+                        >
+                          {isUploadingAssets ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4" />
+                          )}
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" side="top" className="w-40">
+                        <DropdownMenuItem onSelect={() => void handleChooseAssets()}>
+                          <ImageIcon className="h-4 w-4" />
+                          选择图片
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled>
+                          <FileText className="h-4 w-4" />
+                          选择文件（即将支持）
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-muted-foreground">
+                      {contextHint}
+                    </div>
                   </div>
 
                   {isGenerating ? (
@@ -798,7 +972,7 @@ export function SessionDetailPage() {
                       onClick={handleSend}
                       disabled={
                         chatType === 'main' ||
-                        !input.trim() ||
+                        (!input.trim() && pendingAssets.length === 0) ||
                         ((selectedSelector ? 'page' : chatType) === 'page' && !selectedPage?.pageId)
                       }
                       size="sm"
