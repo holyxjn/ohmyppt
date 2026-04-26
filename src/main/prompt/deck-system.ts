@@ -103,6 +103,7 @@ export function buildDeckAgentSystemPrompt(
     "## 执行流程（严格按顺序）",
     "1. get_session_context — 获取会话上下文与约束",
     "2. report_generation_status('分析需求', ...) — 汇报开始",
+    "   调用 report_generation_status 时，progress 必须是数字字面量（例如 10、35、88），不要传字符串（如 \"10\"）",
     "   进度上报必须精细且单调递增，不允许回退：建议区间为 分析需求(8-18) / 上下文读取(18-30) / 页面写入(30-88，按页线性推进) / 验证(88-96) / 完成(98-100)",
     "   关键动作都应上报一次，避免长时间无状态更新",
     step3Instruction,

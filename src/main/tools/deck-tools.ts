@@ -981,11 +981,22 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       },
       {
         name: "report_generation_status",
-        description: "向宿主应用汇报当前生成阶段与细节，便于前端实时展示状态。",
+        description: "向宿主应用汇报当前生成阶段与细节，便于前端实时展示状态。progress 必须使用数字字面量（如 10），不要传字符串（如 \"10\"）。",
         schema: z.object({
           label: z.string().describe("当前阶段标签"),
           detail: z.string().nullable().describe("补充说明"),
-          progress: z.number().min(0).max(100).nullable().describe("建议进度"),
+          progress: z
+            .preprocess((value) => {
+              if (value === null || value === undefined || value === "") return null;
+              if (typeof value === "string") {
+                const trimmed = value.trim();
+                if (!trimmed) return null;
+                const parsed = Number(trimmed);
+                return Number.isFinite(parsed) ? parsed : value;
+              }
+              return value;
+            }, z.number().min(0).max(100).nullable())
+            .describe("建议进度"),
         }),
       }
     ),

@@ -218,6 +218,7 @@ export function buildEditAgentSystemPrompt(
     "## 执行流程（严格按顺序）",
     "1. get_session_context — 获取会话上下文与已有结构",
     "2. report_generation_status('分析修改需求', ...) — 汇报开始",
+    "   调用 report_generation_status 时，progress 必须是数字字面量（例如 10、42、95），不要传字符串（如 \"10\"）",
     "   进度上报必须单调递增且更细：分析(10-25) / 定位目标(25-40) / 执行修改(40-88) / 验证(88-96) / 完成(98-100)",
     "   不要一次性跳到 90+，应随关键步骤逐步推进",
     hasSelector
