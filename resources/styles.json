@@ -1,0 +1,503 @@
+[
+  {
+    "style": "bauhaus",
+    "styleName": "包豪斯",
+    "aliases": [
+      "bauhaus",
+      "包豪斯",
+      "几何",
+      "原色"
+    ],
+    "description": "几何 + 红黄蓝原色，设计感十足。",
+    "category": "大胆 · 宣言",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #991b1b / 正文 #1e3a5f / 强调 #dc2626, #2563eb\n- 背景：linear-gradient(160deg, #fef3c7 0%, #fef9c3 50%, #f0f9ff 100%)\n- 卡片：rgba(255,255,255,0.94)，边框 rgba(0,0,0,0.3)\n\n# bauhaus · 包豪斯\n\n**分类**: Bold & statement\n\n## 视觉特征\n\n- 暖色底，原色强调\n- 几何形状，原色边框\n\n## 适用场景\n\n设计 talk、艺术史/产品美学主题\n\n## 布局建议\n\n- 保持包豪斯风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`perspective-zoom` / `cube-rotate-3d` / `morph-shape`\n\n## 字体建议\n\n几何无衬线\n\n## 不要做\n\n不要用复杂渐变或照片"
+  },
+  {
+    "style": "memphis-pop",
+    "styleName": "孟菲斯波普",
+    "aliases": [
+      "memphis",
+      "pop",
+      "孟菲斯",
+      "波普"
+    ],
+    "description": "孟菲斯波普背景点 + 大字标题，年轻潮流。",
+    "category": "大胆 · 宣言",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0f172a / 正文 #374151 / 强调 #f59e0b, #8b5cf6\n- 背景：linear-gradient(135deg, #fef3c7 0%, #f0abfc 45%, #818cf8 100%)\n- 卡片：rgba(255,255,255,0.92)，边框 rgba(0,0,0,0.25)\n\n# memphis-pop · 孟菲斯波普\n\n**分类**: Bold & statement\n\n## 视觉特征\n\n- 多彩渐变背景，几何点装饰\n- 粗边框卡片，活泼布局\n\n## 适用场景\n\n年轻、潮流、品牌合作\n\n## 布局建议\n\n- 保持孟菲斯波普风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`zoom-pop` / `stagger-list` / `shimmer-sweep`\n\n## 字体建议\n\n粗犷无衬线，大字重\n\n## 不要做\n\n不要用极简或正式风格"
+  },
+  {
+    "style": "sharp-mono",
+    "styleName": "锐利黑白",
+    "aliases": [
+      "sharp",
+      "mono",
+      "黑白",
+      "纯黑白"
+    ],
+    "description": "纯黑白 + 硬阴影，极具冲击力。",
+    "category": "大胆 · 宣言",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #000000 / 正文 #333333 / 强调 #000000, #666666\n- 背景：linear-gradient(160deg, #ffffff 0%, #f5f5f5 55%, #e5e5e5 100%)\n- 卡片：rgba(255,255,255,0.96)，边框 #000000\n\n# sharp-mono · 锐利黑白\n\n**分类**: Bold & statement\n\n## 视觉特征\n\n- 纯白到浅灰渐变，黑色硬边框\n- 硬阴影，高对比\n\n## 适用场景\n\n宣言类、极具冲击力的视觉\n\n## 布局建议\n\n- 保持锐利黑白风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`drop-in` / `zoom-pop` / `card-flip-3d`\n\n## 字体建议\n\nArchivo Black / 粗黑体\n\n## 不要做\n\n不要用柔和颜色或圆角"
+  },
+  {
+    "style": "swiss-grid",
+    "styleName": "瑞士网格",
+    "aliases": [
+      "swiss",
+      "grid",
+      "瑞士",
+      "网格",
+      "swiss-modernism"
+    ],
+    "description": "瑞士网格 + 严谨排版 + 12 栏底纹。",
+    "category": "大胆 · 宣言",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0f172a / 正文 #334155 / 强调 #111827, #ef4444\n- 背景：linear-gradient(160deg, #ffffff 0%, #f8fafc 65%, #f1f5f9 100%)\n- 卡片：rgba(255,255,255,0.96)，边框 rgba(15,23,42,0.14)\n\n# swiss-grid · 瑞士网格\n\n**分类**: Bold & statement\n\n## 视觉特征\n\n- 纯白背景，极弱网格线\n- 严谨边框，理性布局\n\n## 适用场景\n\n严肃排版、设计行业\n\n## 布局建议\n\n- 保持瑞士网格风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `path-draw`\n\n## 字体建议\n\nHelvetica / 无衬线\n\n## 不要做\n\n不要用自由布局或装饰元素"
+  },
+  {
+    "style": "neo-brutalism",
+    "styleName": "新野兽派",
+    "aliases": [
+      "neubrutalism",
+      "brutal",
+      "野兽派",
+      "新野兽派"
+    ],
+    "description": "厚描边、硬阴影、明黄 accent。",
+    "category": "大胆 · 宣言",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0f172a / 正文 #1e293b / 强调 #f97316, #ef4444\n- 背景：linear-gradient(160deg, #fff7ed 0%, #ffedd5 50%, #fde68a 100%)\n- 卡片：rgba(255,255,255,0.96)，边框 rgba(15,23,42,0.65)\n\n# neo-brutalism · 新野兽派\n\n**分类**: Bold & statement\n\n## 视觉特征\n\n- 暖色渐变背景，粗黑边框\n- 硬阴影，高对比卡片\n\n## 适用场景\n\n创业路演、敢说敢做的调性\n\n## 布局建议\n\n- 保持新野兽派风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`glitch-in` / `drop-in` / `card-flip-3d`\n\n## 字体建议\n\n粗犷无衬线或等宽\n\n## 不要做\n\n不要用微妙的设计或柔和颜色"
+  },
+  {
+    "style": "retro-tv",
+    "styleName": "复古电视",
+    "aliases": [
+      "retro",
+      "tv",
+      "复古",
+      "CRT"
+    ],
+    "description": "暖奶油 + CRT 扫描线 + 琥珀橙 accent。",
+    "category": "大胆 · 杂志",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #78350f / 正文 #92400e / 强调 #f59e0b, #d97706\n- 背景：linear-gradient(145deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%)\n- 卡片：rgba(254,243,199,0.85)，边框 rgba(217,119,6,0.3)\n\n# retro-tv · 复古电视\n\n**分类**: Bold & editorial\n\n## 视觉特征\n\n- 暖奶油底，琥珀橙强调\n- 复古卡片，扫描线效果\n\n## 适用场景\n\n怀旧叙事、八零九零年代主题\n\n## 布局建议\n\n- 保持复古电视风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`typewriter` / `fade-up` / `glitch-in`\n\n## 字体建议\n\n复古等宽或衬线\n\n## 不要做\n\n不要用现代或冷色"
+  },
+  {
+    "style": "midcentury",
+    "styleName": "世纪中叶",
+    "aliases": [
+      "midcentury",
+      "复古",
+      "家居"
+    ],
+    "description": "奶油底 + 芥末/青/焦橙，设计史、家居美学。",
+    "category": "大胆 · 杂志",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #78350f / 正文 #92400e / 强调 #ca8a04, #0d9488\n- 背景：linear-gradient(160deg, #fef3c7 0%, #fef9c3 50%, #fef3c7 100%)\n- 卡片：rgba(255,255,255,0.9)，边框 rgba(180,83,9,0.2)\n\n# midcentury · 世纪中叶\n\n**分类**: Bold & editorial\n\n## 视觉特征\n\n- 奶油底，芥末/青/焦橙\n- 复古卡片，几何边框\n\n## 适用场景\n\n设计史、家居美学、复古品牌\n\n## 布局建议\n\n- 保持世纪中叶风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `morph-shape`\n\n## 字体建议\n\n中世纪现代字体\n\n## 不要做\n\n不要用现代或科技感"
+  },
+  {
+    "style": "news-broadcast",
+    "styleName": "新闻播报",
+    "aliases": [
+      "news",
+      "广播",
+      "播报",
+      "突发新闻"
+    ],
+    "description": "白底 + 红色竖条 + 大写标题 + 硬阴影。",
+    "category": "大胆 · 杂志",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #7f1d1d / 正文 #991b1b / 强调 #dc2626, #b91c1c\n- 背景：linear-gradient(145deg, #ffffff 0%, #fef2f2 55%, #fee2e2 100%)\n- 卡片：rgba(255,255,255,0.94)，边框 rgba(220,38,38,0.25)\n\n# news-broadcast · 新闻播报\n\n**分类**: Bold & editorial\n\n## 视觉特征\n\n- 白色底，红色竖条\n- 新闻感卡片，硬边框\n\n## 适用场景\n\n突发新闻、发布通稿、数据播报\n\n## 布局建议\n\n- 保持新闻播报风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`drop-in` / `stagger-list` / `typewriter`\n\n## 字体建议\n\n大写无衬线，粗字重\n\n## 不要做\n\n不要用柔和或暗色"
+  },
+  {
+    "style": "magazine-bold",
+    "styleName": "杂志大字",
+    "aliases": [
+      "magazine",
+      "bold",
+      "大字杂志"
+    ],
+    "description": "奶油底 + 超大衬线 + 橙色 spot。",
+    "category": "大胆 · 杂志",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #451a03 / 正文 #78350f / 强调 #f59e0b, #d97706\n- 背景：linear-gradient(160deg, #fef3c7 0%, #fef9c3 50%, #fefce8 100%)\n- 卡片：rgba(255,255,255,0.92)，边框 rgba(234,179,8,0.2)\n\n# magazine-bold · 杂志大字\n\n**分类**: Bold & editorial\n\n## 视觉特征\n\n- 奶油底，超大衬线标题\n- 杂志感卡片\n\n## 适用场景\n\n专栏文章、封面故事、品牌月刊\n\n## 布局建议\n\n- 保持杂志大字风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`rise-in` / `stagger-list` / `shimmer-sweep`\n\n## 字体建议\n\n超大衬线标题 + 无衬线正文\n\n## 不要做\n\n不要用小字或暗色"
+  },
+  {
+    "style": "arctic-cool",
+    "styleName": "北极冷",
+    "aliases": [
+      "arctic",
+      "冷",
+      "商业分析"
+    ],
+    "description": "蓝/青/石板灰，商业分析、金融、冷静理性。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0c4a6e / 正文 #0369a1 / 强调 #0284c7, #06b6d4\n- 背景：linear-gradient(145deg, #f0f9ff 0%, #e0f2fe 50%, #bae6fd 100%)\n- 卡片：rgba(255,255,255,0.9)，边框 rgba(56,189,248,0.2)\n\n# arctic-cool · 北极冷\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 浅蓝渐变背景，冷色强调\n- 冷静卡片，理性边框\n\n## 适用场景\n\n商业分析、金融、冷静理性\n\n## 布局建议\n\n- 保持北极冷风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `counter-up`\n\n## 字体建议\n\n专业无衬线\n\n## 不要做\n\n不要用暖色或活泼元素"
+  },
+  {
+    "style": "nord",
+    "styleName": "北欧",
+    "aliases": [
+      "nord",
+      "北欧",
+      "清冷"
+    ],
+    "description": "北欧清冷蓝白，冷静理性。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #eceff4 / 正文 #d8dee9 / 强调 #88c0d0, #81a1c1\n- 背景：radial-gradient(circle at 20% 0%, #2e3440 0%, #3b4252 50%, #434c5e 100%)\n- 卡片：rgba(46,52,64,0.75)，边框 rgba(136,148,164,0.2)\n\n# nord · 北欧\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 深灰蓝底，冰蓝强调\n- 冷色卡片，理性边框\n\n## 适用场景\n\n基础设施、云产品\n\n## 布局建议\n\n- 保持北欧风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `path-draw`\n\n## 字体建议\n\n冷静无衬线\n\n## 不要做\n\n不要用暖色或活泼元素"
+  },
+  {
+    "style": "tokyo-night",
+    "styleName": "东京夜",
+    "aliases": [
+      "tokyo",
+      "night",
+      "东京",
+      "蓝夜",
+      "tech-dark"
+    ],
+    "description": "Tokyo Night 蓝夜，偏冷技术分享。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #e2e8f0 / 正文 #cbd5e1 / 强调 #22d3ee, #3b82f6\n- 背景：radial-gradient(circle at 20% 0%, #1e293b 0%, #0f172a 50%, #020617 100%)\n- 卡片：rgba(15,23,42,0.72)，边框 rgba(148,163,184,0.22)\n\n# tokyo-night · 东京夜\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 深蓝黑底，青蓝强调\n- 暗蓝卡片，冷色边框\n\n## 适用场景\n\n偏冷技术分享、基础设施\n\n## 布局建议\n\n- 保持东京夜风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `glitch-in`\n\n## 字体建议\n\n等宽或现代无衬线\n\n## 不要做\n\n不要用暖色调"
+  },
+  {
+    "style": "rose-pine",
+    "styleName": "玫瑰松",
+    "aliases": [
+      "rose",
+      "pine",
+      "玫瑰",
+      "柔和暗色"
+    ],
+    "description": "玫瑰松，柔和暗色，设计+开发交界。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #e0def4 / 正文 #908caa / 强调 #eb6f92, #31748f\n- 背景：radial-gradient(circle at 20% 0%, #191724 0%, #1f1d2e 50%, #26233a 100%)\n- 卡片：rgba(25,23,36,0.75)，边框 rgba(129,123,144,0.2)\n\n# rose-pine · 玫瑰松\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 深紫底，玫瑰粉强调\n- 柔和暗色卡片\n\n## 适用场景\n\n设计+开发交界、审美向技术\n\n## 布局建议\n\n- 保持玫瑰松风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `shimmer-sweep`\n\n## 字体建议\n\n人文无衬线或衬线\n\n## 不要做\n\n不要用硬边框或霓虹色"
+  },
+  {
+    "style": "catppuccin-mocha",
+    "styleName": "Catppuccin 摩卡",
+    "aliases": [
+      "catppuccin",
+      "mocha",
+      "摩卡",
+      "深色开发者"
+    ],
+    "description": "Catppuccin 深色主题，开发者内部分享首选。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #c6d0f5 / 正文 #a5adce / 强调 #8caaee, #99d1db\n- 背景：radial-gradient(circle at 20% 0%, #303446 0%, #24273a 50%, #1e2030 100%)\n- 卡片：rgba(48,52,70,0.75)，边框 rgba(166,173,186,0.2)\n\n# catppuccin-mocha · Catppuccin 摩卡\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 深灰底，柔和粉彩强调色\n- 开发者暗色卡片\n\n## 适用场景\n\n开发者内部分享、长时间观看\n\n## 布局建议\n\n- 保持Catppuccin 摩卡风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `neon-glow`\n\n## 字体建议\n\n等宽或开发者友好字体\n\n## 不要做\n\n不要用太亮或太花的颜色"
+  },
+  {
+    "style": "dracula",
+    "styleName": "Dracula 紫",
+    "aliases": [
+      "dracula",
+      "紫红",
+      "代码分享"
+    ],
+    "description": "经典 Dracula 紫红主色，代码密集型分享。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #f8f8f2 / 正文 #b3b8c3 / 强调 #ff79c6, #bd93f9\n- 背景：radial-gradient(circle at 20% 0%, #282a36 0%, #21222c 50%, #191a21 100%)\n- 卡片：rgba(40,42,54,0.8)，边框 rgba(98,114,164,0.25)\n\n# dracula · Dracula 紫\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 深紫黑底，紫红/薰衣草强调\n- 暗色卡片，紫色边框\n\n## 适用场景\n\n代码密集的技术分享\n\n## 布局建议\n\n- 保持Dracula 紫风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `neon-glow`\n\n## 字体建议\n\n等宽字体，代码友好\n\n## 不要做\n\n不要用浅色背景"
+  },
+  {
+    "style": "gruvbox-dark",
+    "styleName": "Gruvbox 暗",
+    "aliases": [
+      "gruvbox",
+      "复古深色",
+      "terminal"
+    ],
+    "description": "温暖复古深色，Terminal / vim / *nix 社群。",
+    "category": "冷色 · 深色",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #ebdbb2 / 正文 #d5c4a1 / 强调 #fe8019, #b8bb26\n- 背景：radial-gradient(circle at 20% 0%, #282828 0%, #1d2021 50%, #16191a 100%)\n- 卡片：rgba(40,40,40,0.8)，边框 rgba(168,153,132,0.25)\n\n# gruvbox-dark · Gruvbox 暗\n\n**分类**: Cool & dark\n\n## 视觉特征\n\n- 暖深灰底，琥珀/绿强调\n- 复古暗色卡片\n\n## 适用场景\n\nTerminal / vim / *nix 社群\n\n## 布局建议\n\n- 保持Gruvbox 暗风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `typewriter`\n\n## 字体建议\n\n等宽字体，终端感\n\n## 不要做\n\n不要用现代或冷色调"
+  },
+  {
+    "style": "sunset-warm",
+    "styleName": "日落暖",
+    "aliases": [
+      "sunset",
+      "暖",
+      "日落",
+      "生活方式"
+    ],
+    "description": "橘 / 珊瑚 / 琥珀三色渐变，生活方式、正向情绪。",
+    "category": "暖色 · 活力",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #7c2d12 / 正文 #9a3412 / 强调 #f97316, #fbbf24\n- 背景：linear-gradient(135deg, #fed7aa 0%, #fdba74 45%, #fb923c 100%)\n- 卡片：rgba(255,255,255,0.88)，边框 rgba(251,146,60,0.3)\n\n# sunset-warm · 日落暖\n\n**分类**: Warm & vibrant\n\n## 视觉特征\n\n- 橘色渐变背景，暖色强调\n- 暖调卡片，柔和边框\n\n## 适用场景\n\n生活方式、奖项颁发、情绪正向\n\n## 布局建议\n\n- 保持日落暖风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `shimmer-sweep`\n\n## 字体建议\n\n友好无衬线\n\n## 不要做\n\n不要用冷色或暗色"
+  },
+  {
+    "style": "minimal-white",
+    "styleName": "极简白",
+    "aliases": [
+      "minimal",
+      "light",
+      "简约",
+      "简约白",
+      "clean",
+      "minimal-light"
+    ],
+    "description": "极简白，克制高级。强文字层级，极低阴影。",
+    "category": "浅色 · 沉静",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0f172a / 正文 #475569 / 强调 #3b82f6, #60a5fa\n- 背景：linear-gradient(145deg, #ffffff 0%, #f8fafc 55%, #f1f5f9 100%)\n- 卡片：rgba(255,255,255,0.94)，边框 rgba(148,163,184,0.14)\n\n# minimal-white · 极简白\n\n**分类**: Light & calm\n\n## 视觉特征\n\n- **背景**: 纯白到浅灰的微妙渐变\n- **卡片**: 高透明度白色，极弱边框\n- **文字**: 深灰标题 + 中灰正文，强层级对比\n- **强调色**: 蓝色系，克制使用\n- **阴影**: 极低，几乎不可见\n\n## 适用场景\n\n- 内部汇报\n- 一对一技术评审\n- 不抢内容的严肃话题\n- 需要长时间观看的工作坊\n\n## 布局建议\n\n- 大留白，不要填满每个角落\n- 使用简单的卡片容器组织内容\n- 标题字号可以大胆一些（48px+）\n- 正文保持 16-18px 易读尺寸\n\n## 动画建议\n\n- `fade-up` — 默认内容入场\n- `stagger-list` — 列表项依次出现\n- `rise-in` — 标题缓慢升起\n\n## 字体建议\n\n- 标题: Inter / -apple-system / \"Helvetica Neue\"\n- 正文: 同标题，细字重\n- 中文: \"PingFang SC\" / \"Microsoft YaHei\"\n\n## 不要做\n\n- 不要用强烈的渐变或阴影\n- 不要使用超过两种颜色\n- 不要添加装饰性元素（线条、图标等）除非必要"
+  },
+  {
+    "style": "solarized-light",
+    "styleName": "日光浅",
+    "aliases": [
+      "solarized",
+      "日光",
+      "低眩光"
+    ],
+    "description": "经典低眩光配色，长时间观看不疲劳。",
+    "category": "浅色 · 沉静",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #073642 / 正文 #586e75 / 强调 #268bd2, #2aa198\n- 背景：linear-gradient(145deg, #fdf6e3 0%, #eee8d5 55%, #e8e0cc 100%)\n- 卡片：rgba(253,246,227,0.92)，边框 rgba(101,123,131,0.2)\n\n# solarized-light · 日光浅\n\n**分类**: Light & calm\n\n## 视觉特征\n\n- 暖黄底低眩光配色\n- 柔和边框，低对比\n\n## 适用场景\n\n长时间观看的工作坊、教学\n\n## 布局建议\n\n- 保持日光浅风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `blur-in` / `stagger-list`\n\n## 字体建议\n\n等宽或人文无衬线\n\n## 不要做\n\n不要用高对比或刺眼颜色"
+  },
+  {
+    "style": "soft-pastel",
+    "styleName": "柔和马卡龙",
+    "aliases": [
+      "pastel",
+      "soft",
+      "马卡龙",
+      "柔和",
+      "soft-pastel"
+    ],
+    "description": "柔和马卡龙三色渐变，轻松友好。",
+    "category": "浅色 · 沉静",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #831843 / 正文 #9d174d / 强调 #f472b6, #60a5fa\n- 背景：linear-gradient(135deg, #fef3c7 0%, #fce7f3 45%, #dbeafe 100%)\n- 卡片：rgba(255,255,255,0.88)，边框 rgba(217,119,140,0.2)\n\n# soft-pastel · 柔和马卡龙\n\n**分类**: Light & calm\n\n## 视觉特征\n\n- 马卡龙三色渐变背景\n- 圆角卡片，柔和边框\n\n## 适用场景\n\n产品发布、面向消费者、轻松话题\n\n## 布局建议\n\n- 保持柔和马卡龙风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `shimmer-sweep`\n\n## 字体建议\n\n圆润无衬线，友好字重\n\n## 不要做\n\n不要用硬边框或深色"
+  },
+  {
+    "style": "xiaohongshu-white",
+    "styleName": "小红书白",
+    "aliases": [
+      "xiaohongshu",
+      "红书",
+      "小红书",
+      "xhs"
+    ],
+    "description": "小红书白底 + 暖红 accent + 衬线标题。",
+    "category": "浅色 · 沉静",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #7c2d12 / 正文 #92400e / 强调 #fc8181, #f56565\n- 背景：linear-gradient(160deg, #ffffff 0%, #fff5f5 55%, #fff1f0 100%)\n- 卡片：rgba(255,255,255,0.95)，边框 rgba(252,129,129,0.2)\n\n# xiaohongshu-white · 小红书白\n\n**分类**: Light & calm\n\n## 视觉特征\n\n- 白色背景，暖红强调色\n- 衬线标题，暖调卡片\n\n## 适用场景\n\n小红书图文、生活/美学类内容\n\n## 布局建议\n\n- 保持小红书白风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `shimmer-sweep`\n\n## 字体建议\n\n衬线标题 + 现代正文\n\n## 不要做\n\n不要用冷色调或科技感元素"
+  },
+  {
+    "style": "editorial-serif",
+    "styleName": "杂志衬线",
+    "aliases": [
+      "editorial",
+      "serif",
+      "magazine",
+      "杂志",
+      "编排",
+      "衬线"
+    ],
+    "description": "杂志风衬线体 + 奶油底，叙事感强。",
+    "category": "浅色 · 沉静",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #431407 / 正文 #7c2d12 / 强调 #ea580c, #f97316\n- 背景：linear-gradient(160deg, #fef7ed 0%, #fff7ed 52%, #fffbeb 100%)\n- 卡片：rgba(255,250,245,0.9)，边框 rgba(120,53,15,0.18)\n\n# editorial-serif · 杂志衬线\n\n**分类**: Light & calm\n\n## 视觉特征\n\n- 奶油色背景，衬线体标题，强文字层级\n- 卡片用暖色调边框\n\n## 适用场景\n\n品牌故事、文字密度大的长文演讲\n\n## 布局建议\n\n- 保持杂志衬线风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `typewriter`\n\n## 字体建议\n\n衬线标题 + 无衬线正文\n\n## 不要做\n\n不要用无衬线标题，不要冷色调"
+  },
+  {
+    "style": "catppuccin-latte",
+    "styleName": "Catppuccin 拿铁",
+    "aliases": [
+      "catppuccin",
+      "latte",
+      "拿铁",
+      "开发者"
+    ],
+    "description": "Catppuccin 浅色主题，开发者友好。",
+    "category": "浅色 · 沉静",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #4c4f69 / 正文 #5c5f77 / 强调 #1e66f5, #179299\n- 背景：linear-gradient(145deg, #eff1f5 0%, #e6e9ef 55%, #ccd0da 100%)\n- 卡片：rgba(255,255,255,0.85)，边框 rgba(166,173,186,0.25)\n\n# catppuccin-latte · Catppuccin 拿铁\n\n**分类**: Light & calm\n\n## 视觉特征\n\n- 浅灰底，柔和粉彩强调色\n- 开发者友好的卡片样式\n\n## 适用场景\n\n开发者、极客友好的技术分享\n\n## 布局建议\n\n- 保持Catppuccin 拿铁风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `glitch-in`\n\n## 字体建议\n\n等宽或开发者友好字体\n\n## 不要做\n\n不要用太正式或太花哨的风格"
+  },
+  {
+    "style": "engineering-whiteprint",
+    "styleName": "工程白图",
+    "aliases": [
+      "engineering",
+      "工程",
+      "白图",
+      "坐标纸"
+    ],
+    "description": "白底 + 坐标纸网格 + 海军墨线 + 等宽字。",
+    "category": "浅色 · 专业",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #1e3a5f / 正文 #374151 / 强调 #1e40af, #2563eb\n- 背景：linear-gradient(145deg, #ffffff 0%, #fafafa 55%, #f5f5f5 100%)\n- 卡片：rgba(255,255,255,0.94)，边框 rgba(30,58,138,0.2)\n\n# engineering-whiteprint · 工程白图\n\n**分类**: Light & professional\n\n## 视觉特征\n\n- 白色底，网格线，海军墨\n- 工程感卡片\n\n## 适用场景\n\n系统设计、API 文档、架构白皮书\n\n## 布局建议\n\n- 保持工程白图风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `typewriter`\n\n## 字体建议\n\n等宽字体\n\n## 不要做\n\n不要用非等宽或装饰元素"
+  },
+  {
+    "style": "corporate-clean",
+    "styleName": "企业洁净",
+    "aliases": [
+      "corporate",
+      "企业",
+      "正式",
+      "商务"
+    ],
+    "description": "纯白 + 海军蓝 accent，保守专业。",
+    "category": "浅色 · 专业",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0f172a / 正文 #334155 / 强调 #1e3a8a, #3b82f6\n- 背景：linear-gradient(145deg, #ffffff 0%, #f8fafc 55%, #f1f5f9 100%)\n- 卡片：rgba(255,255,255,0.96)，边框 rgba(30,58,138,0.15)\n\n# corporate-clean · 企业洁净\n\n**分类**: Light & professional\n\n## 视觉特征\n\n- 纯白背景，海军蓝强调\n- 保守卡片，细边框\n\n## 适用场景\n\n董事会汇报、B2B 销售、金融保险\n\n## 布局建议\n\n- 保持企业洁净风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `counter-up`\n\n## 字体建议\n\nInter / 专业无衬线\n\n## 不要做\n\n不要用花哨或暗色"
+  },
+  {
+    "style": "japanese-minimal",
+    "styleName": "日式极简",
+    "aliases": [
+      "japanese",
+      "日式",
+      "禅意",
+      "匠人"
+    ],
+    "description": "象牙白 + 朱红 accent + 极大留白。",
+    "category": "浅色 · 专业",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #1c1c1c / 正文 #525252 / 强调 #dc2626, #b91c1c\n- 背景：linear-gradient(145deg, #faf8f5 0%, #f5f0e8 55%, #ede5d8 100%)\n- 卡片：rgba(255,255,255,0.9)，边框 rgba(189,28,28,0.12)\n\n# japanese-minimal · 日式极简\n\n**分类**: Light & professional\n\n## 视觉特征\n\n- 象牙白背景，朱红强调\n- 极简卡片，大留白\n\n## 适用场景\n\n品牌升级、匠人故事、禅意叙事\n\n## 布局建议\n\n- 保持日式极简风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`blur-in` / `fade-up` / `path-draw`\n\n## 字体建议\n\n衬线或人文无衬线\n\n## 不要做\n\n不要用密集布局或多彩"
+  },
+  {
+    "style": "pitch-deck-vc",
+    "styleName": "融资路演",
+    "aliases": [
+      "pitch",
+      "vc",
+      "融资",
+      "路演"
+    ],
+    "description": "YC 风白底 + 蓝紫渐变 accent + 大留白。",
+    "category": "浅色 · 专业",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #1e1b4b / 正文 #4338ca / 强调 #7c3aed, #6366f1\n- 背景：linear-gradient(145deg, #ffffff 0%, #f5f3ff 50%, #ede9fe 100%)\n- 卡片：rgba(255,255,255,0.92)，边框 rgba(139,92,246,0.15)\n\n# pitch-deck-vc · 融资路演\n\n**分类**: Light & professional\n\n## 视觉特征\n\n- 白色底，蓝紫渐变\n- 大留白卡片\n\n## 适用场景\n\n融资路演、种子轮、VC meeting\n\n## 布局建议\n\n- 保持融资路演风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `zoom-pop`\n\n## 字体建议\n\n现代无衬线，大字号\n\n## 不要做\n\n不要用密集内容或小字"
+  },
+  {
+    "style": "academic-paper",
+    "styleName": "学术论文",
+    "aliases": [
+      "academic",
+      "论文",
+      "学术",
+      "研究"
+    ],
+    "description": "论文白 + 衬线正文 + 黑墨 + 蓝链接。",
+    "category": "浅色 · 专业",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #171717 / 正文 #404040 / 强调 #2563eb, #3b82f6\n- 背景：linear-gradient(145deg, #fafafa 0%, #f5f5f5 55%, #e5e5e5 100%)\n- 卡片：rgba(255,255,255,0.95)，边框 rgba(0,0,0,0.1)\n\n# academic-paper · 学术论文\n\n**分类**: Light & professional\n\n## 视觉特征\n\n- 论文白背景，黑墨文字\n- 学术卡片，保守边框\n\n## 适用场景\n\n学术报告、研究分享、会议论文\n\n## 布局建议\n\n- 保持学术论文风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`fade-up` / `stagger-list` / `path-draw`\n\n## 字体建议\n\n衬线正文 + 无衬线标题\n\n## 不要做\n\n不要用非正式或彩色"
+  },
+  {
+    "style": "cyberpunk-neon",
+    "styleName": "赛博霓虹",
+    "aliases": [
+      "cyberpunk",
+      "neon",
+      "赛博",
+      "霓虹",
+      "cyberpunk"
+    ],
+    "description": "纯黑 + 霓虹粉青黄 + 发光 + 等宽字。",
+    "category": "效果 · 戏剧",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #f8fafc / 正文 #cbd5e1 / 强调 #ec4899, #06b6d4\n- 背景：radial-gradient(circle at 30% 10%, #1a1a2e 0%, #0f0f1a 50%, #000000 100%)\n- 卡片：rgba(15,15,26,0.85)，边框 rgba(236,72,153,0.3)\n\n# cyberpunk-neon · 赛博霓虹\n\n**分类**: Effect-heavy / dramatic\n\n## 视觉特征\n\n- 纯黑底，霓虹粉/青/黄\n- 暗色卡片，霓虹边框\n\n## 适用场景\n\n黑客、地下文化、赛博 talk\n\n## 布局建议\n\n- 保持赛博霓虹风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`glitch-in` / `neon-glow` / `stagger-list`\n\n## 字体建议\n\n等宽或赛博感字体\n\n## 不要做\n\n不要用暖色或柔和元素"
+  },
+  {
+    "style": "vaporwave",
+    "styleName": "蒸汽波",
+    "aliases": [
+      "vaporwave",
+      "蒸汽",
+      "美学"
+    ],
+    "description": "深紫 + 粉红青蓝渐变 + 晕染光斑。",
+    "category": "效果 · 戏剧",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #f8fafc / 正文 #e2e8f0 / 强调 #ec4899, #22d3ee\n- 背景：radial-gradient(circle at 30% 0%, #2e1065 0%, #7c3aed 40%, #06b6d4 80%, #0f172a 100%)\n- 卡片：rgba(46,16,101,0.6)，边框 rgba(236,72,153,0.3)\n\n# vaporwave · 蒸汽波\n\n**分类**: Effect-heavy / dramatic\n\n## 视觉特征\n\n- 深紫底，粉红/青蓝渐变\n- 晕染卡片，光斑效果\n\n## 适用场景\n\n音乐、潮流艺术、A E S T H E T I C\n\n## 布局建议\n\n- 保持蒸汽波风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`blur-in` / `gradient-flow` / `shimmer-sweep`\n\n## 字体建议\n\n复古或未来感字体\n\n## 不要做\n\n不要用朴素或正式风格"
+  },
+  {
+    "style": "y2k-chrome",
+    "styleName": "Y2K 铬",
+    "aliases": [
+      "y2k",
+      "chrome",
+      "千禧",
+      "铬"
+    ],
+    "description": "银铬渐变 + 彩虹 accent + 大圆角。",
+    "category": "效果 · 戏剧",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #171717 / 正文 #404040 / 强调 #a855f7, #06b6d4\n- 背景：linear-gradient(135deg, #e5e5e5 0%, #f5f5f5 30%, #d4d4d4 60%, #a8a8a8 100%)\n- 卡片：rgba(255,255,255,0.7)，边框 rgba(255,255,255,0.5)\n\n# y2k-chrome · Y2K 铬\n\n**分类**: Effect-heavy / dramatic\n\n## 视觉特征\n\n- 银铬渐变底，彩虹强调\n- 大圆角卡片，铬边框\n\n## 适用场景\n\n千禧怀旧、时尚品牌、Gen-Z\n\n## 布局建议\n\n- 保持Y2K 铬风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`zoom-pop` / `stagger-list` / `gradient-flow`\n\n## 字体建议\n\nSpace Grotesk / 现代无衬线\n\n## 不要做\n\n不要用传统或暗色"
+  },
+  {
+    "style": "rainbow-gradient",
+    "styleName": "彩虹渐变",
+    "aliases": [
+      "rainbow",
+      "彩虹",
+      "欢乐"
+    ],
+    "description": "白底 + 彩虹流动渐变 accent，欢乐向、节日、庆祝。",
+    "category": "效果 · 重",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #1e3a5f / 正文 #374151 / 强调 #f43f5e, #8b5cf6\n- 背景：linear-gradient(90deg, #fecaca 0%, #fef3c7 17%, #fef9c3 33%, #dcfce7 50%, #dbeafe 67%, #e0e7ff 83%, #fae8ff 100%)\n- 卡片：rgba(255,255,255,0.9)，边框 rgba(255,255,255,0.6)\n\n# rainbow-gradient · 彩虹渐变\n\n**分类**: Effect-heavy\n\n## 视觉特征\n\n- 白色底，彩虹渐变强调\n- 明亮卡片，彩色边框\n\n## 适用场景\n\n欢乐向、节日、庆祝页\n\n## 布局建议\n\n- 保持彩虹渐变风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`zoom-pop` / `stagger-list` / `confetti-burst`\n\n## 字体建议\n\n友好无衬线\n\n## 不要做\n\n不要用暗色或严肃元素"
+  },
+  {
+    "style": "aurora",
+    "styleName": "极光",
+    "aliases": [
+      "aurora",
+      "极光",
+      "封面"
+    ],
+    "description": "极光渐变 + blur + saturate，封面/CTA/结语页。",
+    "category": "效果 · 重",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #1e1b4b / 正文 #312e81 / 强调 #4f46e5, #06b6d4\n- 背景：linear-gradient(135deg, #a7f3d0 0%, #6ee7b7 30%, #6366f1 60%, #a855f7 100%)\n- 卡片：rgba(255,255,255,0.55)，边框 rgba(255,255,255,0.4)\n\n# aurora · 极光\n\n**分类**: Effect-heavy\n\n## 视觉特征\n\n- 极光多色渐变背景\n- 半透明卡片，发光边框\n\n## 适用场景\n\n封面 / CTA / 结语页\n\n## 布局建议\n\n- 保持极光风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`blur-in` / `gradient-flow` / `shimmer-sweep`\n\n## 字体建议\n\n现代无衬线\n\n## 不要做\n\n不要用于正文密集页"
+  },
+  {
+    "style": "blueprint",
+    "styleName": "蓝图",
+    "aliases": [
+      "blueprint",
+      "工程",
+      "架构"
+    ],
+    "description": "蓝图工程 + 网格底纹，系统架构、工程蓝图。",
+    "category": "效果 · 重",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #dbeafe / 正文 #93c5fd / 强调 #60a5fa, #3b82f6\n- 背景：linear-gradient(145deg, #1e3a5f 0%, #1e40af 50%, #1d4ed8 100%)\n- 卡片：rgba(30,58,95,0.7)，边框 rgba(96,165,250,0.3)\n\n# blueprint · 蓝图\n\n**分类**: Effect-heavy\n\n## 视觉特征\n\n- 深蓝底，浅蓝线条\n- 工程感卡片，网格线\n\n## 适用场景\n\n系统架构、工程蓝图\n\n## 布局建议\n\n- 保持蓝图风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`path-draw` / `fade-up` / `stagger-list`\n\n## 字体建议\n\n等宽或技术感字体\n\n## 不要做\n\n不要用暖色或圆角"
+  },
+  {
+    "style": "glassmorphism",
+    "styleName": "磨砂玻璃",
+    "aliases": [
+      "glass",
+      "玻璃",
+      "磨砂",
+      "frosted"
+    ],
+    "description": "毛玻璃 + 多色光斑背景，Apple 式发布会。",
+    "category": "效果 · 重",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #0f172a / 正文 #334155 / 强调 #818cf8, #06b6d4\n- 背景：linear-gradient(140deg, #c7d2fe 0%, #e0e7ff 45%, #cffafe 100%)\n- 卡片：rgba(255,255,255,0.46)，边框 rgba(255,255,255,0.55)\n\n# glassmorphism · 磨砂玻璃\n\n**分类**: Effect-heavy\n\n## 视觉特征\n\n- 多色光斑背景，磨砂卡片\n- 高透明度，模糊边框\n\n## 适用场景\n\nApple 式发布会、产品特性展示\n\n## 布局建议\n\n- 保持磨砂玻璃风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`blur-in` / `shimmer-sweep` / `gradient-flow`\n\n## 字体建议\n\n现代无衬线，细字重\n\n## 不要做\n\n不要用实色背景或硬边框"
+  },
+  {
+    "style": "terminal-green",
+    "styleName": "终端绿",
+    "aliases": [
+      "terminal",
+      "green",
+      "终端",
+      "绿屏"
+    ],
+    "description": "绿屏终端 + 等宽 + 发光文字，CLI/black-hat/复古朋克。",
+    "category": "效果 · 重",
+    "source": "builtin",
+    "styleSkill": "## 主题色\n- 主题色：标题 #4ade80 / 正文 #86efac / 强调 #22c55e, #16a34a\n- 背景：radial-gradient(circle at 20% 0%, #0a1a0a 0%, #0d280d 50%, #0f330f 100%)\n- 卡片：rgba(10,26,10,0.85)，边框 rgba(34,197,94,0.3)\n\n# terminal-green · 终端绿\n\n**分类**: Effect-heavy\n\n## 视觉特征\n\n- 深绿黑底，荧光绿文字\n- 终端感卡片，发光边框\n\n## 适用场景\n\nCLI/black-hat/复古朋克\n\n## 布局建议\n\n- 保持终端绿风格的一致性\n- 使用主题色系统定义的颜色\n- 注意文字层级和留白\n\n## 动画建议\n\n`typewriter` / `neon-glow` / `glitch-in`\n\n## 字体建议\n\n等宽字体，终端感\n\n## 不要做\n\n不要用非等宽或彩色"
+  }
+]

@@ -1,0 +1,72 @@
+appId: com.ohmyppt.app
+productName: OhMyPPT
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!**/*.map'
+  - '!**/*.tsbuildinfo'
+  - '!{docs,logs,ohmyppt.dev.db}'
+  - '!node_modules/tiktoken'
+  - '!node_modules/web-streams-polyfill'
+  - '!thumb.png'
+  - '!docs/images/*'
+  - '!docs/video/*'
+asarUnpack:
+  - resources/**
+forceCodeSigning: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  executableName: ohmyppt
+  icon: build/icons/icon.ico
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  installerIcon: build/icons/icon.ico
+  uninstallerIcon: build/icons/icon.ico
+  installerHeaderIcon: build/icons/icon.ico
+  unicode: true
+  warningsAsErrors: false
+  runAfterFinish: false
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createStartMenuShortcut: true
+  include: installer.nsh
+mac:
+  icon: build/icons/icon.icns
+  identity: null
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icons/icon.png
+  maintainer: arcsin1
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

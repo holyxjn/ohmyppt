@@ -1,0 +1,1186 @@
+import fs from "fs";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
+import * as cheerio from "cheerio";
+import log from "electron-log/main.js";
+import type { SessionDeckGenerationContext, ToolStreamConfig } from "./types";
+import { emitToolStatus } from "./types";
+import { validateHtmlContent } from "./html-utils";
+import { SESSION_ASSET_SCRIPT_SRCS } from "../ipc/page-assets";
+
+const ANIME_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.anime;
+const TAILWIND_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.tailwind;
+const CHARTJS_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.chart;
+const PPT_RUNTIME_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.runtime;
+export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
+  :root {
+    --ppt-page-bg: #ffffff;
+  }
+  html, body {
+    margin: 0;
+    width: 1600px;
+    height: 900px;
+    overflow: hidden;
+    font-family: "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: var(--ppt-page-bg);
+    color: #0f172a;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .ppt-page-root[data-ppt-guard-root="1"] {
+    position: relative;
+    width: 1600px;
+    height: 900px;
+    overflow: hidden;
+    isolation: isolate;
+    background: var(--ppt-page-bg);
+  }
+  .ppt-page-root.p-8 { padding: 2rem; }
+  .ppt-page-root.p-12 { padding: 3rem; }
+  .ppt-page-root[data-ppt-guard-root="1"]:not(.p-8):not(.p-12) {
+    padding: 2rem;
+  }
+  body > .ppt-page-root:not([data-ppt-guard-root="1"]):not(.p-8):not(.p-12) {
+    padding: 2rem;
+  }
+  .ppt-page-fit-scope {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-origin: top left;
+    overflow: hidden;
+  }
+  .ppt-page-content {
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    flex: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    overflow: hidden;
+  }
+  .ppt-page-content > [data-page-scaffold="1"] {
+    width: 100%;
+    min-height: 100%;
+    height: 100%;
+  }
+  .ppt-page-content canvas {
+    display: block;
+    max-width: 100% !important;
+    max-height: 100% !important;
+  }
+  .ppt-page-content [data-block-id*="chart"],
+  .ppt-page-content [data-block-id*="graph"],
+  .ppt-page-content [data-block-id*="plot"] {
+    min-height: 240px;
+    min-width: 0;
+  }
+  [data-role="title"] h1,
+  header[data-block-id="title"] h1 {
+    font-size: 48px !important;
+    line-height: 1.2 !important;
+  }
+  [data-role="title"] h1.text-5xl,
+  header[data-block-id="title"] h1.text-5xl {
+    font-size: 48px !important;
+  }
+</style>`;
+
+function extractBackgroundStyle(styleAttr: string): string {
+  const declarations = styleAttr
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const kept = declarations.filter((decl) => {
+    const normalized = decl.toLowerCase().replace(/\s+/g, " ");
+    return (
+      normalized.startsWith("background:") ||
+      normalized.startsWith("background-color:") ||
+      normalized.startsWith("background-image:")
+    );
+  });
+  return kept.join("; ");
+}
+
+function isBackgroundUtilityClass(cls: string): boolean {
+  const base = cls.split(":").pop() || cls;
+  return (
+    base.startsWith("bg-") ||
+    base.startsWith("from-") ||
+    base.startsWith("via-") ||
+    base.startsWith("to-")
+  );
+}
+
+function syncRootBackgroundFromScaffold(html: string): string {
+  try {
+    const $ = cheerio.load(html, { scriptingEnabled: false });
+    const root = $('.ppt-page-root[data-ppt-guard-root="1"]').first();
+    if (!root.length) return html;
+
+    const scaffold = root.find('[data-page-scaffold="1"]').first();
+    if (!scaffold.length) return html;
+
+    const rootClassRaw = (root.attr("class") || "").trim();
+    const rootClasses = rootClassRaw.split(/\s+/).filter(Boolean);
+    const rootHasBgClass = rootClasses.some((cls) => isBackgroundUtilityClass(cls));
+
+    if (!rootHasBgClass) {
+      const scaffoldClassRaw = (scaffold.attr("class") || "").trim();
+      const scaffoldBgClasses = scaffoldClassRaw
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter((cls) => isBackgroundUtilityClass(cls));
+      if (scaffoldBgClasses.length > 0) {
+        const classSet = new Set(rootClasses);
+        for (const cls of scaffoldBgClasses) classSet.add(cls);
+        root.attr("class", Array.from(classSet).join(" "));
+      }
+    }
+
+    const rootStyleRaw = (root.attr("style") || "").trim();
+    const rootBgStyle = extractBackgroundStyle(rootStyleRaw);
+    if (!rootBgStyle) {
+      const scaffoldStyleRaw = (scaffold.attr("style") || "").trim();
+      const scaffoldBgStyle = extractBackgroundStyle(scaffoldStyleRaw);
+      if (scaffoldBgStyle) {
+        const finalStyle = [rootStyleRaw, scaffoldBgStyle].filter(Boolean).join("; ");
+        root.attr("style", finalStyle);
+      }
+    }
+
+    return $.html();
+  } catch {
+    return html;
+  }
+}
+
+function stripUnsafeHiddenStates(html: string): string {
+  try {
+    const $ = cheerio.load(html, { scriptingEnabled: false });
+    $("*").each((_, node) => {
+      const el = $(node);
+
+      const classRaw = (el.attr("class") || "").trim();
+      if (classRaw) {
+        const kept = classRaw
+          .split(/\s+/)
+          .filter(Boolean)
+          .filter((cls) => {
+            const base = cls.split(":").pop() || cls;
+            return base !== "opacity-0" && base !== "invisible";
+          });
+        if (kept.length > 0) {
+          el.attr("class", kept.join(" "));
+        } else {
+          el.removeAttr("class");
+        }
+      }
+
+      const styleRaw = (el.attr("style") || "").trim();
+      if (styleRaw) {
+        const keptDecls = styleRaw
+          .split(";")
+          .map((decl) => decl.trim())
+          .filter(Boolean)
+          .filter((decl) => {
+            const idx = decl.indexOf(":");
+            if (idx < 0) return true;
+            const key = decl.slice(0, idx).trim().toLowerCase();
+            const value = decl.slice(idx + 1).trim().toLowerCase();
+            if (key === "opacity" && /^0(?:\.0+)?$/.test(value)) return false;
+            if (key === "visibility" && value === "hidden") return false;
+            return true;
+          });
+        if (keptDecls.length > 0) {
+          el.attr("style", keptDecls.join("; "));
+        } else {
+          el.removeAttr("style");
+        }
+      }
+    });
+    return $.html();
+  } catch {
+    return html;
+  }
+}
+
+export const FIT_SCRIPT = `<script id="ppt-page-fit">
+(() => {
+  const WIDTH = 1600;
+  const HEIGHT = 900;
+  const MIN_FONT = 14;
+  const search = new URLSearchParams(window.location.search);
+  const disableFit = search.get("fit") === "off";
+  const findRoot = () =>
+    document.querySelector('.ppt-page-root[data-ppt-guard-root="1"]') ||
+    document.querySelector(".ppt-page-root");
+
+  function fitPage() {
+    const root = findRoot();
+    if (!root) return;
+
+    // Check if a scope wrapper already exists.
+    let scope = root.querySelector(":scope > .ppt-page-fit-scope");
+    let content = null;
+    if (scope) {
+      content =
+        scope.querySelector(":scope > .ppt-page-content") ||
+        scope.querySelector(".ppt-page-content") ||
+        scope;
+    }
+
+    if (!scope) {
+      const directElementChildren = Array.from(root.children);
+      const singleContentChild =
+        directElementChildren.length === 1 &&
+        directElementChildren[0].classList.contains("ppt-page-content")
+          ? directElementChildren[0]
+          : null;
+
+      if (singleContentChild) {
+        content = singleContentChild;
+      } else {
+        // First time: wrap all children in a container div so orphaned closing tags
+        // (e.g. stray </div>, </main>) become text nodes INSIDE the container,
+        // not siblings that break the DOM structure.
+        const container = document.createElement("div");
+        container.className = "ppt-page-content";
+        container.style.cssText = "white-space:normal;word-wrap:normal;";
+        while (root.firstChild) {
+          container.appendChild(root.firstChild);
+        }
+        content = container;
+      }
+
+      const scopeEl = document.createElement("div");
+      scopeEl.className = "ppt-page-fit-scope";
+      scopeEl.appendChild(content);
+      root.appendChild(scopeEl);
+      scope = scopeEl;
+    }
+
+    scope.style.transform = "scale(1)";
+    if (disableFit) {
+      return;
+    }
+    const targetWidth = Math.max(1, Math.floor(scope.clientWidth || root.clientWidth || WIDTH));
+    const targetHeight = Math.max(1, Math.floor(scope.clientHeight || root.clientHeight || HEIGHT));
+    let guard = 0;
+    const measuredContent = content || scope;
+    const textNodes = measuredContent.querySelectorAll("h1, h2, h3, h4, p, li, blockquote, .text");
+    while ((measuredContent.scrollWidth > targetWidth || measuredContent.scrollHeight > targetHeight) && guard < 12) {
+      let changed = false;
+      textNodes.forEach((node) => {
+        const size = Number.parseFloat(getComputedStyle(node).fontSize || "16");
+        if (Number.isFinite(size) && size > MIN_FONT) {
+          node.style.fontSize = Math.max(MIN_FONT, Math.floor(size * 0.94)) + "px";
+          changed = true;
+        }
+      });
+      if (!changed) break;
+      guard += 1;
+    }
+
+    const scale = Math.min(
+      1,
+      targetWidth / Math.max(measuredContent.scrollWidth, 1),
+      targetHeight / Math.max(measuredContent.scrollHeight, 1)
+    );
+    scope.style.transform = "scale(" + scale.toFixed(4) + ")";
+  }
+
+  window.addEventListener("load", () => requestAnimationFrame(fitPage), { once: true });
+  window.addEventListener("resize", fitPage);
+})();
+</script>`;
+
+const DEFAULT_MOTION_SCRIPT = `<script id="ppt-default-motion">
+(() => {
+  function revealFallback(root) {
+    const hiddenTargets = Array.from(root.querySelectorAll("*"))
+      .filter((el) => {
+        const style = getComputedStyle(el);
+        return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) === 0;
+      })
+      .slice(0, 120);
+    hiddenTargets.forEach((el, i) => {
+      const node = el;
+      node.style.transition = "opacity 300ms ease, transform 300ms ease";
+      if (!node.style.transform || node.style.transform === "none") {
+        node.style.transform = "translateY(0)";
+      }
+      window.setTimeout(() => {
+        node.style.opacity = "1";
+      }, i * 8);
+    });
+  }
+
+  function runMotion() {
+    const root = document.querySelector(".ppt-page-root");
+    if (!root) return;
+    const targets = Array.from(
+      root.querySelectorAll(".opacity-0, [data-anime], [data-animate], h1, h2, h3, p, li, .card, .panel, .text-section, .diagram-section, .timeline-node, section, section > *")
+    ).slice(0, 16);
+    if (targets.length === 0) {
+      revealFallback(root);
+      return;
+    }
+    const pptApi = globalThis.PPT;
+    if (pptApi && typeof pptApi.animate === "function") {
+      try {
+        pptApi.animate(targets, {
+          opacity: [0, 1],
+          translateY: [20, 0],
+          easing: "easeOutCubic",
+          duration: 560,
+          delay: (_el, i) => i * 45,
+        });
+        // If custom animation failed and left nodes hidden, force visibility once.
+        window.setTimeout(() => revealFallback(root), 720);
+        return;
+      } catch (_err) {
+        revealFallback(root);
+        return;
+      }
+    }
+    targets.forEach((el, i) => {
+      const node = el;
+      node.style.opacity = "0";
+      node.style.transform = "translateY(14px)";
+      node.style.transition = "opacity 420ms ease, transform 420ms ease";
+      window.setTimeout(() => {
+        node.style.opacity = "1";
+        node.style.transform = "translateY(0)";
+      }, i * 40);
+    });
+    revealFallback(root);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runMotion, { once: true });
+  } else {
+    runMotion();
+  }
+})();
+</script>`;
+
+// Serialized write lock to prevent concurrent write corruption (per project directory)
+const writeLocks = new Map<string, Promise<void>>();
+function serializedWrite<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
+  const chain = writeLocks.get(lockKey) || Promise.resolve();
+  const run = chain.then(fn);
+  const next = run.then(
+    () => undefined,
+    () => undefined
+  );
+  writeLocks.set(lockKey, next);
+  return run.finally(() => {
+    if (writeLocks.get(lockKey) === next) {
+      writeLocks.delete(lockKey);
+    }
+  });
+}
+
+function getAgentNameFromToolConfig(config: unknown): string | undefined {
+  const maybe = config as Record<string, unknown> | undefined;
+  const metadata = maybe?.metadata as Record<string, unknown> | undefined;
+  const configurable = maybe?.configurable as Record<string, unknown> | undefined;
+  const fromMetadata = metadata?.lc_agent_name;
+  const fromConfigurable = configurable?.lc_agent_name;
+  if (typeof fromMetadata === "string" && fromMetadata.trim().length > 0) return fromMetadata.trim();
+  if (typeof fromConfigurable === "string" && fromConfigurable.trim().length > 0) return fromConfigurable.trim();
+  return undefined;
+}
+
+const CANVAS_LOCK_CLASS_PATTERNS = [
+  /^(w|h|min-w|min-h|max-w|max-h)-\[(1600px|900px|100vw|100vh|100dvw|100dvh)\]$/i,
+  /^(w|h|min-w|min-h|max-w|max-h)-screen$/i,
+  /^aspect-\[(16\/9|1600\/900)\]$/i,
+  /^size-\[(1600px|900px)\]$/i,
+];
+
+function stripCanvasLockClasses(classAttr: string): string {
+  const classes = classAttr.split(/\s+/).filter(Boolean);
+  const kept = classes.filter(
+    (cls) => !CANVAS_LOCK_CLASS_PATTERNS.some((pattern) => pattern.test(cls))
+  );
+  return kept.join(" ");
+}
+
+function stripCanvasInlineSizes(styleAttr: string): string {
+  const declarations = styleAttr
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const kept = declarations.filter((decl) => {
+    const normalized = decl.toLowerCase().replace(/\s+/g, " ");
+    if (/^(width|min-width|max-width): (1600px|100vw|100dvw)$/.test(normalized)) return false;
+    if (/^(height|min-height|max-height): (900px|100vh|100dvh)$/.test(normalized)) return false;
+    return true;
+  });
+  return kept.join("; ");
+}
+
+function stripCanvasLockStyles(html: string): string {
+  try {
+    const $ = cheerio.load(html, { scriptingEnabled: false });
+    $("[class]").each((_, node) => {
+      const classValue = ($(node).attr("class") || "").trim();
+      if (!classValue) return;
+      const cleaned = stripCanvasLockClasses(classValue);
+      if (cleaned.length > 0) {
+        $(node).attr("class", cleaned);
+      } else {
+        $(node).removeAttr("class");
+      }
+    });
+    $("[style]").each((_, node) => {
+      const styleValue = ($(node).attr("style") || "").trim();
+      if (!styleValue) return;
+      const cleaned = stripCanvasInlineSizes(styleValue);
+      if (cleaned.length > 0) {
+        $(node).attr("style", cleaned);
+      } else {
+        $(node).removeAttr("style");
+      }
+    });
+    return $.html();
+  } catch {
+    return html;
+  }
+}
+
+const REMOTE_RUNTIME_RESOURCE_RE = /<(script|link)\b[^>]*(?:src|href)\s*=\s*["'](?:https?:)?\/\/[^"']+["'][^>]*>/gi;
+
+function extractRemoteRuntimeResources(content: string): string[] {
+  const hits: string[] = [];
+  let match: RegExpExecArray | null;
+  REMOTE_RUNTIME_RESOURCE_RE.lastIndex = 0;
+  while ((match = REMOTE_RUNTIME_RESOURCE_RE.exec(content)) !== null) {
+    const raw = match[0].replace(/\s+/g, " ").trim();
+    hits.push(raw.length > 200 ? `${raw.slice(0, 200)}…` : raw);
+    if (hits.length >= 8) break;
+  }
+  return hits;
+}
+
+function stabilizeChartCanvases(html: string): string {
+  try {
+    const $ = cheerio.load(html, { scriptingEnabled: false });
+    $("canvas").each((_, node) => {
+      const canvas = $(node);
+      const classRaw = (canvas.attr("class") || "").trim();
+      if (classRaw) {
+        const classSet = new Set(
+          classRaw
+            .split(/\s+/)
+            .filter(Boolean)
+            .filter((cls) => cls !== "flex-1" && cls !== "h-full" && cls !== "min-h-full")
+        );
+        if (classSet.size > 0) canvas.attr("class", Array.from(classSet).join(" "));
+        else canvas.removeAttr("class");
+      }
+
+      const parent = canvas.parent();
+      if (!parent.length) return;
+
+      const parentClassRaw = (parent.attr("class") || "").trim();
+      const parentClassSet = new Set(parentClassRaw.split(/\s+/).filter(Boolean));
+      const hasHeightClass = Array.from(parentClassSet).some(
+        (cls) => /^h-/.test(cls) || /^min-h-/.test(cls) || /^max-h-/.test(cls)
+      );
+      const parentStyle = (parent.attr("style") || "").toLowerCase();
+      const hasHeightStyle = /(?:^|;)\s*(?:height|min-height|max-height)\s*:/.test(parentStyle);
+      if (!hasHeightClass && !hasHeightStyle) {
+        parentClassSet.add("min-h-[240px]");
+        parent.attr("class", Array.from(parentClassSet).join(" "));
+      }
+    });
+    return $.html();
+  } catch {
+    return html;
+  }
+}
+
+// Detect if AI added custom page-level animations (anime.timeline / anime.createTimeline / anime.animate)
+// in a DOMContentLoaded or load listener. If so, skip default motion injection.
+function hasCustomPageAnimation(html: string): boolean {
+  return (
+    /(?:anime\s*\(|anime\.(?:createTimeline|timeline|animate|stagger)\s*\()/m.test(html) ||
+    /PPT\.(?:animate|stagger|createTimeline)\s*\(/m.test(html) ||
+    /data-(?:anime|animate)\b/i.test(html)
+  );
+}
+
+const ensureGlobalRuntime = (html: string, pageId: string): string => {
+  // Strict new-structure mode:
+  // input must be page fragment only, then we always scaffold into one canonical document.
+  const fragment = stripUnsafeHiddenStates(
+    stabilizeChartCanvases(stripCanvasLockStyles(html.trim()))
+  );
+  const skipDefaultMotion = hasCustomPageAnimation(html);
+  const output = buildScaffoldDocument({
+    pageId,
+    innerContent: fragment,
+    includeDefaultMotion: !skipDefaultMotion,
+  });
+  return syncRootBackgroundFromScaffold(output);
+};
+
+// Build the complete scaffold document from a content fragment.
+// This is the ONLY place we construct persisted page documents.
+function buildScaffoldDocument(args: {
+  pageId: string;
+  innerContent: string;
+  includeDefaultMotion: boolean;
+}): string {
+  const { pageId, innerContent, includeDefaultMotion } = args;
+  const motionScript = includeDefaultMotion ? `\n    ${DEFAULT_MOTION_SCRIPT}` : "";
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="${ANIME_ASSET_SRC}"></script>
+    <script src="${TAILWIND_ASSET_SRC}"></script>
+    <script src="${CHARTJS_ASSET_SRC}"></script>
+    <script src="${PPT_RUNTIME_ASSET_SRC}"></script>
+    ${BASE_PAGE_STYLE_TAG}
+  </head>
+  <body data-page-id="${pageId}">
+    <main class="ppt-page-root p-8" data-ppt-guard-root="1">
+      <div class="ppt-page-fit-scope">
+        <div class="ppt-page-content">
+          ${innerContent}
+        </div>
+      </div>
+    </main>
+    ${FIT_SCRIPT}
+    ${motionScript}
+  </body>
+</html>`;
+}
+
+const normalizeAndInjectPageRuntime = (content: string, pageId: string): string =>
+  ensureGlobalRuntime(content, pageId);
+
+function validateIndexShellHtml(content: string): string[] {
+  const errors: string[] = [];
+  if (!/<html[\s>]/i.test(content)) errors.push("缺少 <html> 标签");
+  if (!/<body[\s>]/i.test(content)) errors.push("缺少 <body> 标签");
+  if (!/<\/body>/i.test(content)) errors.push("缺少 </body> 闭合标签");
+  if (!/<\/html>/i.test(content)) errors.push("缺少 </html> 闭合标签");
+  if (!/id=["']frameViewport["']/i.test(content)) errors.push("缺少 frameViewport 容器");
+  if (!/id=["']pages-data["']/i.test(content)) errors.push("缺少 pages-data 元数据脚本");
+  if (!/ppt-preview-frame/i.test(content)) errors.push("缺少 .ppt-preview-frame 预览 iframe 壳");
+  if (!/ppt-controls/i.test(content)) errors.push("缺少 .ppt-controls 控制栏");
+
+  const openScriptCount = (content.match(/<script\b/gi) || []).length;
+  const closeScriptCount = (content.match(/<\/script>/gi) || []).length;
+  if (closeScriptCount < openScriptCount) {
+    errors.push("存在未闭合的 <script> 标签");
+  }
+
+  const pagesDataMatch = content.match(
+    /<script\b[^>]*id=["']pages-data["'][^>]*>([\s\S]*?)<\/script>/i
+  );
+  if (!pagesDataMatch) {
+    errors.push("pages-data 脚本缺失或未闭合");
+  } else {
+    try {
+      const parsed = JSON.parse((pagesDataMatch[1] || "").trim() || "[]");
+      if (!Array.isArray(parsed)) {
+        errors.push("pages-data 必须是 JSON 数组");
+      }
+    } catch (error) {
+      errors.push(`pages-data JSON 解析失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const inlineScriptMatches = Array.from(
+    content.matchAll(
+      /<script\b(?![^>]*\bsrc=)(?![^>]*type=["']application\/json["'])[^>]*>([\s\S]*?)<\/script>/gi
+    )
+  );
+  if (inlineScriptMatches.length === 0) {
+    errors.push("缺少主逻辑内联脚本");
+  } else {
+    for (const [index, match] of inlineScriptMatches.entries()) {
+      const scriptBody = (match[1] || "").trim();
+      if (!scriptBody) {
+        errors.push(`第 ${index + 1} 个内联脚本为空`);
+        continue;
+      }
+      try {
+        // Compile-only syntax check to avoid writing broken index shell.
+        // eslint-disable-next-line no-new-func
+        new Function(scriptBody);
+      } catch (error) {
+        errors.push(`第 ${index + 1} 个内联脚本语法错误: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const mergedInlineScripts = inlineScriptMatches
+      .map((match) => String(match[1] || ""))
+      .join("\n");
+    if (!/hashchange/i.test(mergedInlineScripts)) errors.push("缺少 hashchange 路由监听逻辑");
+    if (!/applyPage/i.test(mergedInlineScripts)) errors.push("缺少 applyPage 页面切换逻辑");
+    if (!/framePool/i.test(mergedInlineScripts)) errors.push("缺少 framePool iframe 池逻辑");
+  }
+
+  return errors;
+}
+
+function clampTransitionDuration(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 420;
+  return Math.max(120, Math.min(1200, Math.round(value as number)));
+}
+
+function patchIndexTransitionStyle(
+  content: string,
+  args: {
+    type: "none" | "fade";
+    durationMs?: number;
+  }
+): string {
+  const withoutOldStyle = content.replace(
+    /\n?\s*<style\b[^>]*id=["']ppt-index-transition-style["'][^>]*>[\s\S]*?<\/style>/gi,
+    ""
+  );
+  if (args.type === "none") {
+    return withoutOldStyle;
+  }
+  const durationMs = clampTransitionDuration(args.durationMs);
+  const style = `
+    <style id="ppt-index-transition-style" data-transition-type="fade">
+      .ppt-preview-frame {
+        display: block !important;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity ${durationMs}ms ease;
+      }
+      .ppt-preview-frame.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+    </style>`;
+  return withoutOldStyle.replace(/<\/head>/i, `${style}\n  </head>`);
+}
+
+export function createSessionBoundDeckTools(context: SessionDeckGenerationContext) {
+  const scopedPageIdsForWrite = (
+    Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+      ? context.allowedPageIds.filter((pid) => Boolean(context.pageFileMap[pid]))
+      : Object.keys(context.pageFileMap)
+  ).sort((a, b) => {
+    const an = Number(a.match(/^page-(\d+)$/i)?.[1] || 0);
+    const bn = Number(b.match(/^page-(\d+)$/i)?.[1] || 0);
+    return an - bn;
+  });
+  let autoPageCursor = 0;
+  const writtenPageIds = new Set<string>();
+  let lastReportedProgress = 0;
+
+  const totalScopedPages = Math.max(
+    1,
+    (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+      ? context.allowedPageIds.length
+      : Object.keys(context.pageFileMap).length) || 1
+  );
+  const isEditMode = context.mode === "edit";
+  const isMainScopeEdit = isEditMode && context.editScope === "main";
+  const hasSelector = Boolean(context.selectedSelector?.trim());
+
+  const parsePageNumber = (pageId?: string): number | null => {
+    if (!pageId) return null;
+    const match = pageId.match(/^page-(\d+)$/i);
+    if (!match) return null;
+    const num = Number(match[1]);
+    return Number.isFinite(num) && num > 0 ? num : null;
+  };
+
+  const inferProgressFromStatus = (args: {
+    label: string;
+    pageId?: string;
+    detail?: string;
+  }): number | undefined => {
+    const { label, pageId } = args;
+    if (/读取会话上下文/.test(label)) return 34;
+    if (/验证完成状态/.test(label)) return 88;
+    if (/所有页面已填充|当前页面已填充/.test(label)) return 95;
+    if (/生成完成|修改完成/.test(label)) return 98;
+    const updateMatch = label.match(/更新\s*(page-\d+)/i);
+    const resolvedPageId = pageId || updateMatch?.[1];
+    const pageNumber = parsePageNumber(resolvedPageId);
+    if (pageNumber) {
+      const fraction = Math.min(1, Math.max(0, (pageNumber - 0.5) / totalScopedPages));
+      return 40 + fraction * 44;
+    }
+    return undefined;
+  };
+
+  const normalizeStatusProgress = (args: {
+    label: string;
+    progress?: number;
+    pageId?: string;
+    detail?: string;
+  }): number => {
+    const inferred = inferProgressFromStatus(args);
+    const rawValue = Number.isFinite(args.progress) ? Number(args.progress) : inferred;
+    if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+      // No explicit or inferred progress — keep last known value so we never regress or emit undefined.
+      return lastReportedProgress;
+    }
+    const rounded = Math.round(rawValue * 10) / 10;
+    const clamped = Math.max(0, Math.min(100, rounded));
+    const monotonic = Math.max(lastReportedProgress, clamped);
+    lastReportedProgress = monotonic;
+    return monotonic;
+  };
+
+  const emitNormalizedToolStatus = (
+    config: unknown,
+    status: {
+      label: string;
+      detail?: string;
+      progress?: number;
+      pageId?: string;
+      agentName?: string;
+    }
+  ): void => {
+    emitToolStatus(config as ToolStreamConfig, {
+      ...status,
+      progress: normalizeStatusProgress(status),
+    });
+  };
+
+  const resolveSingleTargetPageId = (): string | undefined => {
+    if (context.selectedPageId && context.pageFileMap[context.selectedPageId]) {
+      return context.selectedPageId;
+    }
+    if (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length === 1) {
+      const only = context.allowedPageIds[0];
+      if (context.pageFileMap[only]) return only;
+    }
+    return undefined;
+  };
+
+  const resolveWriteTargetPage = (requestedPageId?: string): { pageId: string; isAuto: boolean } => {
+    if (requestedPageId && requestedPageId.trim().length > 0) {
+      return { pageId: requestedPageId.trim(), isAuto: false };
+    }
+    const singleTarget = resolveSingleTargetPageId();
+    if (singleTarget) return { pageId: singleTarget, isAuto: false };
+    if (scopedPageIdsForWrite.length === 0) {
+      throw new Error("当前会话没有可写入页面。");
+    }
+    if (scopedPageIdsForWrite.every((pid) => writtenPageIds.has(pid))) {
+      throw new Error("当前作用域内页面已经全部写入。请调用 verify_completion() 校验，不要继续自动写入。");
+    }
+    while (
+      autoPageCursor < scopedPageIdsForWrite.length - 1 &&
+      writtenPageIds.has(scopedPageIdsForWrite[autoPageCursor])
+    ) {
+      autoPageCursor += 1;
+    }
+    const idx = Math.min(autoPageCursor, scopedPageIdsForWrite.length - 1);
+    const picked = scopedPageIdsForWrite[idx];
+    return { pageId: picked, isAuto: true };
+  };
+
+  const writePageFile = async (args: {
+    pageId?: string;
+    content: string;
+    config: unknown;
+    statusLabel?: string;
+  }): Promise<string> => {
+    if (isMainScopeEdit) {
+      throw new Error("当前为主会话编辑（main），只允许调用 set_index_transition(type, durationMs)。");
+    }
+    const { pageId, content, config, statusLabel } = args;
+    const { pageId: resolvedPageId, isAuto } = resolveWriteTargetPage(pageId);
+    const agentName = getAgentNameFromToolConfig(config);
+    if (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0) {
+      if (!context.allowedPageIds.includes(resolvedPageId)) {
+        throw new Error(
+          `当前任务仅允许修改: ${context.allowedPageIds.join(", ")}；收到: ${resolvedPageId}`
+        );
+      }
+    }
+    const remoteResources = extractRemoteRuntimeResources(content);
+    if (remoteResources.length > 0) {
+      const detail = `检测到 ${remoteResources.length} 个远程 script/link 资源。仅允许使用本地 ./assets/*.js`;
+      emitNormalizedToolStatus(config, {
+        label: `外链资源校验失败 ${resolvedPageId}`,
+        detail,
+        progress: 60,
+        pageId: resolvedPageId,
+      });
+      throw new Error([
+        `检测到禁止的 CDN/远程资源引用 (${resolvedPageId})，已拒绝写入。`,
+        "请移除所有 script/link 的 http(s) 或 // 外链，仅保留本地 ./assets/anime.v4.js、./assets/ppt-runtime.js、./assets/tailwindcss.v3.js、./assets/chart.v4.js。",
+        "示例命中：",
+        ...remoteResources.map((item) => `- ${item}`),
+      ].join("\n"));
+    }
+    const validation = validateHtmlContent(content);
+    if (!validation.valid) {
+      emitNormalizedToolStatus(config, {
+        label: `验证失败 ${resolvedPageId}`,
+        detail: validation.errors.join("; "),
+        progress: 60,
+        pageId: resolvedPageId,
+      });
+      throw new Error(`HTML 验证失败 (${resolvedPageId}): ${validation.errors.join("; ")}。请修正后重试。`);
+    }
+    const targetPath = context.pageFileMap[resolvedPageId];
+    if (!targetPath) {
+      throw new Error(`未知页面 ${resolvedPageId}，可用页面: ${Object.keys(context.pageFileMap).join(", ")}`);
+    }
+    emitNormalizedToolStatus(config, {
+      label: statusLabel || `更新 ${resolvedPageId}`,
+      detail: "正在写入对应 page 文件",
+      pageId: resolvedPageId,
+      agentName,
+    });
+    const result = await serializedWrite(context.projectDir, async () => {
+      const normalized = normalizeAndInjectPageRuntime(content, resolvedPageId);
+      await fs.promises.writeFile(targetPath, normalized, "utf-8");
+      return `Updated ${resolvedPageId} in ${targetPath}`;
+    });
+    writtenPageIds.add(resolvedPageId);
+    if (isAuto) {
+      autoPageCursor = Math.min(autoPageCursor + 1, scopedPageIdsForWrite.length);
+    }
+    log.info("[deepagent] update_page_file", {
+      sessionId: context.sessionId,
+      pageId: resolvedPageId,
+      targetPath,
+      agentName: agentName || "unknown",
+      allowedPageIds: context.allowedPageIds || null,
+    });
+    return result;
+  };
+
+  return [
+    // ── get_session_context ──
+    tool(
+      async (_input, config) => {
+        const scopedPageFileMap =
+          Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+            ? Object.fromEntries(
+                Object.entries(context.pageFileMap).filter(([pageId]) =>
+                  context.allowedPageIds!.includes(pageId)
+                )
+              )
+            : context.pageFileMap;
+        const scopedPageIds = Object.keys(scopedPageFileMap);
+        const selectedPagePath =
+          context.selectedPageId && scopedPageFileMap[context.selectedPageId]
+            ? scopedPageFileMap[context.selectedPageId]
+            : undefined;
+        const pageFiles = scopedPageIds.map((pageId) => ({
+          pageId,
+          hostPath: scopedPageFileMap[pageId],
+          agentPath: `/${pageId}.html`,
+        }));
+        const scopedExistingPageIds =
+          Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+            ? (context.existingPageIds || []).filter((pid) => context.allowedPageIds!.includes(pid))
+            : context.existingPageIds;
+
+        emitNormalizedToolStatus(config, {
+          label: "读取会话上下文",
+          detail: isMainScopeEdit
+            ? `已提供 index 总览壳: ${context.indexPath}`
+            : selectedPagePath
+              ? `已提供目标页文件: ${selectedPagePath}`
+              : "已提供页面文件映射与会话上下文",
+          progress: 34,
+        });
+        const constraints = isMainScopeEdit
+            ? [
+              "当前为主会话编辑（main）：只允许修改 index.html 总览壳",
+              "只允许使用 set_index_transition(type, durationMs)，禁止调用 update_index_file / update_page_file / update_single_page_file",
+              "禁止修改任何 page-x.html 文件",
+              "必须保留 hash 导航、frameViewport、pages-data、controls、全屏/演示模式逻辑",
+              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许本地资源",
+            ]
+          : hasSelector
+            ? [
+              "index.html 只是总览壳，主要内容在 page-x.html",
+              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许 ./assets/*.js 本地资源",
+              "Selector 编辑模式：先用 read_file 读取目标页面，再用 grep 搜索选择器/文本定位，最后用 edit_file(old_string, new_string) 精准替换",
+              "不要调用 write_file / update_page_file / update_single_page_file，edit_file 直接修改即可",
+              "仅修改 selector 命中节点，禁止整页重写、禁止改动无关区域",
+              "尽量不要修改 index.html 的导航与控制逻辑",
+            ]
+            : [
+              "index.html 只是总览壳，主要内容写入 page-x.html",
+              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许 ./assets/*.js 本地资源",
+              "单页任务只允许使用 update_single_page_file(pageId, content)，禁止调用 update_page_file",
+              "单页任务必须写入 selectedPagePath 对应的 page 文件，不需要改 index.html",
+              isEditMode
+                ? "多页/全局编辑使用 update_page_file(pageId, content)，必须显式传 pageId"
+                : "多页生成优先使用 update_page_file(content)（可选传 pageId 覆盖自动定位）",
+              "每页写入后会自动注入动画运行时与防溢出保护",
+              "不要在最终答案里返回大块 HTML，必须把变更落盘",
+              "尽量不要修改 index.html 的导航与控制逻辑",
+            ];
+        return JSON.stringify(
+          {
+            mode: context.mode || "generate",
+            editScope: context.editScope || null,
+            sessionId: context.sessionId,
+            topic: context.topic,
+            deckTitle: context.deckTitle,
+            styleId: context.styleId || "minimal-white",
+            designContract: context.designContract ?? null,
+            outlineTitles: context.outlineTitles,
+            outlineItems: context.outlineItems,
+            hostProjectDir: context.projectDir,
+            hostIndexPath: context.indexPath,
+            agentWorkspaceRoot: "/",
+            agentIndexPath: "/index.html",
+            pageFileMap: scopedPageFileMap,
+            pageFiles,
+            allowedPageIds: context.allowedPageIds ?? null,
+            userMessage: context.userMessage,
+            pageIds: scopedPageIds,
+            selectedPageId: context.selectedPageId ?? undefined,
+            selectedPagePath,
+            selectedPageNumber: context.selectedPageNumber ?? undefined,
+            selectedSelector: context.selectedSelector ?? undefined,
+            elementTag: context.elementTag ?? undefined,
+            elementText: context.elementText ?? undefined,
+            existingPageIds: scopedExistingPageIds ?? undefined,
+            constraints,
+          },
+          null,
+          2
+        );
+      },
+      {
+        name: "get_session_context",
+        description: "获取当前会话的生成上下文、目录路径、index.html 地址、页面标题与约束条件。",
+        schema: z.object({}),
+      }
+    ),
+
+    // ── report_generation_status ──
+    tool(
+      async ({ label, detail, progress }, config) => {
+        emitNormalizedToolStatus(config, {
+          label,
+          detail: detail ?? undefined,
+          progress: progress ?? undefined,
+        });
+        return `Status recorded: ${label}`;
+      },
+      {
+        name: "report_generation_status",
+        description: "向宿主应用汇报当前生成阶段与细节，便于前端实时展示状态。",
+        schema: z.object({
+          label: z.string().describe("当前阶段标签"),
+          detail: z.string().nullable().describe("补充说明"),
+          progress: z.number().min(0).max(100).nullable().describe("建议进度"),
+        }),
+      }
+    ),
+
+    // ── set_index_transition ──
+    tool(
+      async ({ type, durationMs }, config) => {
+        if (!isMainScopeEdit) {
+          throw new Error("仅主会话编辑（main）允许调用 set_index_transition(type, durationMs)。");
+        }
+        if (!fs.existsSync(context.indexPath)) {
+          throw new Error(`index.html 缺失：${context.indexPath}`);
+        }
+        const transitionType = type === "none" ? "none" : "fade";
+        const current = await fs.promises.readFile(context.indexPath, "utf-8");
+        const next = patchIndexTransitionStyle(current, {
+          type: transitionType,
+          durationMs: Number(durationMs),
+        });
+        const indexErrors = validateIndexShellHtml(next);
+        if (indexErrors.length > 0) {
+          emitNormalizedToolStatus(config, {
+            label: "切换动画配置失败",
+            detail: indexErrors.join("; "),
+            progress: 60,
+          });
+          throw new Error(`index.html 验证失败: ${indexErrors.join("; ")}`);
+        }
+        emitNormalizedToolStatus(config, {
+          label: transitionType === "none" ? "关闭切换动画" : "更新切换动画",
+          detail: transitionType === "none" ? "已恢复无过渡切换" : `已设置淡入淡出 ${clampTransitionDuration(Number(durationMs))}ms`,
+          progress: 72,
+        });
+        const result = await serializedWrite(context.projectDir, async () => {
+          await fs.promises.writeFile(context.indexPath, next, "utf-8");
+          return `Updated index transition in ${context.indexPath}`;
+        });
+        log.info("[deepagent] set_index_transition", {
+          sessionId: context.sessionId,
+          indexPath: context.indexPath,
+          type: transitionType,
+          durationMs: transitionType === "none" ? null : clampTransitionDuration(Number(durationMs)),
+          agentName: getAgentNameFromToolConfig(config) || "unknown",
+        });
+        return result;
+      },
+      {
+        name: "set_index_transition",
+        description:
+          "主会话（main）专用受控工具：配置 index.html 页面切换动画。不会重写 index 壳，只 patch 已知过渡样式。",
+        schema: z.object({
+          type: z.enum(["fade", "none"]).describe("切换动画类型：fade 淡入淡出，none 关闭过渡"),
+          durationMs: z.number().optional().describe("动画时长，范围 120-1200ms，默认 420ms"),
+        }),
+      }
+    ),
+
+    // ── update_single_page_file ──
+    tool(
+      async ({ pageId, content }, config) => {
+        if (isMainScopeEdit) {
+          throw new Error("当前为主会话编辑（main），禁止调用 update_single_page_file；请改用 set_index_transition(type, durationMs)。");
+        }
+        const targetPageId = resolveSingleTargetPageId();
+        if (!targetPageId) {
+          throw new Error(
+            isEditMode
+              ? "当前会话未锁定单页。请改用 update_page_file(pageId, content) 并显式传 pageId，或在上下文中指定 selectedPageId。"
+              : "当前会话未锁定单页。请改用 update_page_file(content) 或在上下文中指定 selectedPageId。"
+          );
+        }
+        if (targetPageId && pageId !== targetPageId) {
+          throw new Error(`单页编辑工具仅允许目标页面 ${targetPageId}；收到: ${pageId}`);
+        }
+        return writePageFile({
+          pageId,
+          content,
+          config,
+          statusLabel: `更新单页 ${pageId}`,
+        });
+      },
+      {
+        name: "update_single_page_file",
+        description:
+          "单页编辑专用工具。必须显式传入 pageId 和 content；工具会校验 pageId 是否与当前单页上下文一致，避免误改其他页面。",
+        schema: z.object({
+          pageId: z.string().describe("目标 pageId，例如 page-5（必须与当前单页上下文一致）"),
+          content: z.string().describe("页面 HTML 内容（<main> 内部的片段，不要传 <!doctype>/<html>/<body> 标签）"),
+        }),
+      }
+    ),
+
+    // ── update_page_file ──
+    tool(
+      async ({ pageId, content }, config) => {
+        if (isMainScopeEdit) {
+          throw new Error("当前为主会话编辑（main），禁止调用 update_page_file；请改用 set_index_transition(type, durationMs)。");
+        }
+        if (isEditMode && (!pageId || pageId.trim().length === 0)) {
+          throw new Error("编辑模式调用 update_page_file 时必须显式传 pageId，避免自动游标误写到其它页面。");
+        }
+        const singleTargetPageId = resolveSingleTargetPageId();
+        if (singleTargetPageId) {
+          throw new Error(
+            `当前为单页上下文（${singleTargetPageId}），禁止调用 update_page_file。请改用 update_single_page_file(pageId, content)。`
+          );
+        }
+        return writePageFile({
+          pageId,
+          content,
+          config,
+        });
+      },
+      {
+        name: "update_page_file",
+        description:
+          "多页生成/全局编辑工具（单页上下文禁用）。生成模式可不传 pageId 自动按顺序定位；编辑模式必须显式传 pageId，避免误写其它页面。只需传页面主体内容（<main> 内部），工具会自动包装为完整 HTML 文档并注入运行时。禁止传完整 HTML 文档。写入前会自动验证 HTML。",
+        schema: z.object({
+          pageId: z.string().optional().describe("可选：目标 section id，例如 page-1。不传则自动按上下文/顺序定位。"),
+          content: z.string().describe("页面 HTML 内容（<main> 内部的片段，不要传 <!doctype>/<html>/<body> 标签）"),
+        }),
+      }
+    ),
+
+    // ── verify_completion ──
+    tool(
+      async (_input, config) => {
+        if (isMainScopeEdit) {
+          emitNormalizedToolStatus(config, {
+            label: "验证完成状态",
+            detail: "正在检查 index.html 总览壳结构",
+            progress: 88,
+          });
+          if (!fs.existsSync(context.indexPath)) {
+            return `验证失败：index.html 缺失（${context.indexPath}）。请检查会话文件是否完整。`;
+          }
+          const indexHtml = await fs.promises.readFile(context.indexPath, "utf-8");
+          const indexErrors = validateIndexShellHtml(indexHtml);
+          if (indexErrors.length > 0) {
+            return `验证失败：index.html 结构不完整：${indexErrors.join("; ")}`;
+          }
+          emitNormalizedToolStatus(config, {
+            label: "index 壳验证通过",
+            detail: "index.html 关键结构完整",
+            progress: 95,
+          });
+          return "验证通过：index.html 已更新且结构完整。";
+        }
+        emitNormalizedToolStatus(config, {
+          label: "验证完成状态",
+          detail: "正在检查所有 page 文件是否已填充",
+          progress: 88,
+        });
+        const pageIds = Object.keys(context.pageFileMap);
+        const targetPageIds = Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+          ? pageIds.filter((pid) => context.allowedPageIds!.includes(pid))
+          : pageIds;
+        const results: Array<{ pageId: string; filled: boolean; hasContent: boolean; hasRemoteRuntime: boolean }> = [];
+        for (const pid of targetPageIds) {
+          const pagePath = context.pageFileMap[pid];
+          const exists = fs.existsSync(pagePath);
+          const content = exists ? await fs.promises.readFile(pagePath, "utf-8") : "";
+          const filled = exists && content.trim().length > 0;
+          const hasContent = filled && !content.includes("等待模型填充这一页内容");
+          const hasRemoteRuntime = extractRemoteRuntimeResources(content).length > 0;
+          results.push({ pageId: pid, filled, hasContent, hasRemoteRuntime });
+        }
+        const missingFiles = results.filter((r) => !r.filled).map((r) => r.pageId);
+        const emptyPages = results.filter((r) => r.filled && !r.hasContent).map((r) => r.pageId);
+        const remoteRuntimePages = results.filter((r) => r.hasRemoteRuntime).map((r) => r.pageId);
+        const filledCount = results.filter((r) => r.hasContent).length;
+        if (missingFiles.length > 0) {
+          return `验证发现问题：以下页面文件缺失或为空: ${missingFiles.join(", ")}。请检查 page-x.html 是否已创建。`;
+        }
+        if (emptyPages.length > 0) {
+          return `部分页面尚未填充: ${emptyPages.join(", ")}。已完成 ${filledCount}/${targetPageIds.length} 页。单页任务请用 update_single_page_file(pageId, content)，多页任务请用 update_page_file(content) 继续填充。`;
+        }
+        if (remoteRuntimePages.length > 0) {
+          return `验证失败：以下页面包含禁止的 CDN/远程 script/link 资源: ${remoteRuntimePages.join(", ")}。请移除外链并仅保留本地 ./assets/*.js。`;
+        }
+        const isSinglePageCheck = targetPageIds.length === 1;
+        emitNormalizedToolStatus(config, {
+          label: isSinglePageCheck ? "当前页面已填充" : "所有页面已填充",
+          detail: isSinglePageCheck ? `${targetPageIds[0]} 已完成` : `${filledCount}/${targetPageIds.length} 页已完成`,
+          progress: 95,
+        });
+        return isSinglePageCheck
+          ? `验证通过：${targetPageIds[0]} 已成功填充。${JSON.stringify(results, null, 2)}`
+          : `验证通过：全部 ${targetPageIds.length} 页已成功填充。${JSON.stringify(results, null, 2)}`;
+      },
+      {
+        name: "verify_completion",
+        description: "验证所有 page 文件是否已正确填充内容。建议在 update_single_page_file / update_page_file 调用完成后使用。",
+        schema: z.object({}),
+      }
+    ),
+  ];
+}

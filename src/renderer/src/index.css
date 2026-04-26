@@ -1,0 +1,281 @@
+/* Tailwind CSS v4 - loaded via local package imports */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@font-face {
+  font-family: "Elms Sans";
+  src: url("./assets/fonts/ElmsSans-Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Elms Sans";
+  src: url("./assets/fonts/ElmsSans-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Elms Sans";
+  src: url("./assets/fonts/ElmsSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Custom theme */
+@theme {
+  --color-background: #f5f1e8;
+  --color-foreground: #3e4a32;
+  --color-card: rgba(255, 251, 244, 0.88);
+  --color-card-foreground: #3e4a32;
+  --color-primary: #5d6b4d;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e8e0d0;
+  --color-secondary-foreground: #4f5f42;
+  --color-muted: #efe7d7;
+  --color-muted-foreground: #7a8369;
+  --color-accent: #d4e4c1;
+  --color-accent-foreground: #3e4a32;
+  --color-destructive: #b15a58;
+  --color-destructive-foreground: #ffffff;
+  --color-border: rgba(161, 142, 112, 0.26);
+  --color-input: rgba(78, 96, 64, 0.12);
+  --color-ring: #8fbc8f;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: "Elms Sans", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(212, 228, 193, 0.55), transparent 32%),
+    radial-gradient(circle at 88% 0%, rgba(200, 184, 158, 0.38), transparent 30%),
+    linear-gradient(145deg, #f5f1e8 0%, #f1eadb 48%, #ece3cf 100%);
+}
+
+/* Global scrollbar theme (Windows + macOS + Firefox) */
+:root {
+  --scrollbar-thumb: rgba(116, 136, 90, 0.72);
+  --scrollbar-thumb-hover: rgba(99, 120, 73, 0.86);
+  --scrollbar-track: rgba(232, 223, 205, 0.62);
+}
+
+* {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); /* Firefox */
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(128, 149, 101, 0.9), rgba(106, 127, 80, 0.9));
+  border: 2px solid rgba(242, 233, 217, 0.78);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+#root {
+  min-height: 100%;
+}
+
+:root {
+  --app-titlebar-height: 48px;
+  --app-titlebar-control-safe-area: 136px;
+}
+
+.app-drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Reserve space for custom titlebar on Windows/Linux */
+.app-titlebar-spacer {
+  height: var(--app-titlebar-height);
+  flex-shrink: 0;
+}
+
+.app-titlebar {
+  height: var(--app-titlebar-height);
+  flex-shrink: 0;
+}
+
+.app-titlebar-content {
+  padding-left: 64px;
+  padding-right: var(--app-titlebar-control-safe-area);
+}
+
+.app-shell {
+  animation: shell-enter 280ms ease-out;
+}
+
+.soft-card {
+  background: linear-gradient(165deg, rgba(255, 252, 247, 0.93), rgba(244, 238, 225, 0.88));
+  box-shadow: 0 14px 34px rgba(88, 75, 56, 0.12), 0 2px 8px rgba(79, 66, 49, 0.08);
+  border: 1px solid rgba(173, 154, 123, 0.35);
+  border-radius: 14px;
+}
+
+.soft-card-hover {
+  transition: all 180ms ease;
+}
+
+.soft-card-hover:hover {
+  box-shadow: 0 18px 36px rgba(92, 78, 57, 0.16), 0 4px 12px rgba(83, 70, 52, 0.1);
+  transform: translateY(-2px);
+}
+
+.soft-btn {
+  background: linear-gradient(145deg, rgba(255, 250, 242, 0.98), rgba(238, 227, 206, 0.95));
+  box-shadow: 0 8px 20px rgba(86, 72, 53, 0.13), 0 2px 6px rgba(86, 72, 53, 0.08);
+  border: 1px solid rgba(168, 148, 116, 0.36);
+}
+
+.soft-btn:hover {
+  box-shadow: 0 11px 24px rgba(86, 72, 53, 0.18), 0 3px 8px rgba(86, 72, 53, 0.1);
+  transform: translateY(-2px);
+}
+
+.soft-btn:active {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+  transform: translateY(0);
+}
+
+.soft-input {
+  background: rgba(255, 251, 245, 0.8);
+  box-shadow: inset 0 2px 6px rgba(73, 61, 44, 0.08);
+  border: 1px solid rgba(148, 128, 94, 0.24);
+}
+
+.soft-input:focus {
+  background: rgba(255, 252, 248, 0.97);
+  border-color: #8fbc8f;
+  box-shadow: 0 0 0 3px rgba(143, 188, 143, 0.24);
+}
+
+.soft-surface,
+.soft-surface-subtle,
+.soft-titlebar {
+  background: rgba(255, 251, 244, 0.78);
+  box-shadow: 0 10px 28px rgba(86, 73, 54, 0.13), 0 2px 6px rgba(86, 73, 54, 0.08);
+  border: 1px solid rgba(166, 145, 110, 0.3);
+}
+
+.soft-inset {
+  background: rgba(247, 240, 226, 0.75);
+  box-shadow: inset 0 2px 6px rgba(85, 70, 50, 0.09);
+  border: 1px solid rgba(155, 134, 98, 0.28);
+}
+
+.soft-pill {
+  background: rgba(249, 244, 233, 0.9);
+  border: 1px solid rgba(166, 145, 110, 0.33);
+  box-shadow: 0 6px 14px rgba(85, 71, 51, 0.12), 0 1px 3px rgba(85, 71, 51, 0.06);
+}
+
+.soft-panel-edge {
+  border: 1px solid rgba(166, 145, 110, 0.3);
+}
+
+.organic-serif {
+  font-family: "Elms Sans", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.organic-shape {
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+}
+
+.leaf-shape {
+  border-radius: 5% 95% 10% 90% / 85% 15% 85% 15%;
+}
+
+@keyframes shell-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gen-grid {
+  background-image:
+    linear-gradient(rgba(132, 141, 102, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(132, 141, 102, 0.16) 1px, transparent 1px);
+  background-size: 36px 36px;
+  animation: gen-grid-pan 18s linear infinite;
+}
+
+.gen-orb {
+  animation: gen-orb-float 9s ease-in-out infinite;
+}
+
+.gen-shimmer {
+  background-size: 220% 100%;
+  animation: gen-shimmer-slide 2.2s linear infinite;
+}
+
+@keyframes gen-grid-pan {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-36px, -36px, 0);
+  }
+}
+
+@keyframes gen-orb-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-18px);
+  }
+}
+
+@keyframes gen-shimmer-slide {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 220% 50%;
+  }
+}

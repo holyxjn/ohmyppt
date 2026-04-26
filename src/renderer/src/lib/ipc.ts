@@ -1,0 +1,161 @@
+import type { GenerateChunkEvent, GenerateStartPayload } from '@shared/generation.js'
+
+type IpcRendererLike = Window['electron']['ipcRenderer']
+
+function getIpc(): IpcRendererLike {
+  const ipc = window.electron?.ipcRenderer
+  if (!ipc) {
+    const electronKeys = window.electron ? Object.keys(window.electron).join(', ') : 'none'
+    throw new Error(`Electron preload IPC 不可用。window.electron keys: ${electronKeys}`)
+  }
+  return ipc
+}
+
+export interface StyleCategory {
+  name: string
+  styles: Array<{
+    id: string
+    label: string
+    description: string
+    source?: 'builtin' | 'custom' | 'override'
+    editable?: boolean
+  }>
+}
+
+export interface StyleDetail {
+  id: string
+  styleKey?: string
+  label: string
+  description: string
+  aliases: string[]
+  styleSkill: string
+  source?: 'builtin' | 'custom' | 'override'
+  editable?: boolean
+  category?: string
+}
+
+export interface StyleListItem {
+  id: string
+  label: string
+  description: string
+  category: string
+  source?: 'builtin' | 'custom' | 'override'
+  editable?: boolean
+  createdAt?: number
+  updatedAt?: number
+}
+
+export interface GenerateRunStateSnapshot {
+  sessionId: string
+  runId: string | null
+  status: 'idle' | 'running' | 'completed' | 'failed'
+  hasActiveRun: boolean
+  progress: number
+  totalPages: number
+  events: GenerateChunkEvent[]
+  error: string | null
+  startedAt: number | null
+  updatedAt: number | null
+}
+
+export interface ExportPdfResult {
+  success: boolean
+  cancelled?: boolean
+  path?: string
+  warnings?: string[]
+  pageCount?: number
+}
+
+export interface CreateSessionPayload {
+  topic: string
+  styleId: string
+  pageCount?: number
+  provider: string
+  apiKey: string
+  model?: string
+  baseUrl?: string
+}
+
+export const ipc = {
+  createSession: (payload: CreateSessionPayload) => getIpc().invoke('session:create', payload) as Promise<{ sessionId: string }>,
+  listSessions: () => getIpc().invoke('session:list') as Promise<unknown[]>,
+  getSession: (sessionId: string) =>
+    getIpc().invoke('session:get', sessionId) as Promise<{
+      session: unknown
+      messages: unknown[]
+      generatedPages: Array<{
+        pageNumber: number
+        title: string
+        html: string
+        htmlPath?: string
+        pageId?: string
+        sourceUrl?: string
+      }>
+    }>,
+  getSessionMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) =>
+    getIpc().invoke('session:getMessages', payload) as Promise<unknown[]>,
+  deleteSession: (sessionId: string) => getIpc().invoke('session:delete', sessionId) as Promise<{ success: boolean }>,
+  startGenerate: (payload: GenerateStartPayload) =>
+    getIpc().invoke('generate:start', payload) as Promise<{ success: boolean; runId?: string; alreadyRunning?: boolean }>,
+  getGenerateState: (sessionId: string) =>
+    getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
+  cancelGenerate: (sessionId: string) => getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
+  exportPdf: (sessionId: string) =>
+    getIpc().invoke('export:pdf', { sessionId }) as Promise<ExportPdfResult>,
+  getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
+  saveSettings: (settings: Record<string, unknown>) =>
+    getIpc().invoke('settings:save', settings) as Promise<{ success: boolean }>,
+  verifyApiKey: (payload: { provider: string; apiKey: string; model: string; baseUrl: string }) =>
+    getIpc().invoke('settings:verifyApiKey', payload) as Promise<{ valid: boolean; message?: string }>,
+  chooseStoragePath: () =>
+    getIpc().invoke('settings:chooseStoragePath') as Promise<{ path: string | null; error?: string }>,
+  getStyles: () =>
+    getIpc().invoke('styles:get') as Promise<{
+      categories: Record<string, Array<{
+        id: string
+        label: string
+        description: string
+        source?: 'builtin' | 'custom' | 'override'
+        editable?: boolean
+      }>>
+      defaultStyle: string
+    }>,
+  getStyleDetail: (styleId: string) =>
+    getIpc().invoke('styles:getDetail', styleId) as Promise<StyleDetail>,
+  listStyles: () =>
+    getIpc().invoke('styles:list') as Promise<{ items: StyleListItem[] }>,
+  createStyle: (payload: {
+    id: string
+    label: string
+    description: string
+    category?: string
+    aliases?: string[]
+    styleSkill: string
+  }) =>
+    getIpc().invoke('styles:create', payload) as Promise<{ success: boolean; id: string; source: 'custom' | 'override' }>,
+  updateStyle: (payload: {
+    id: string
+    label: string
+    description: string
+    category?: string
+    aliases?: string[]
+    styleSkill: string
+  }) =>
+    getIpc().invoke('styles:update', payload) as Promise<{ success: boolean; id: string; source: 'custom' | 'override' }>,
+  deleteStyle: (styleId: string) =>
+    getIpc().invoke('styles:delete', styleId) as Promise<{ success: boolean; deleted: boolean; message?: string }>,
+  loadPreview: (htmlPath: string, sessionId?: string) =>
+    getIpc().invoke('preview:load', { htmlPath, sessionId }) as Promise<string>,
+  loadPagePreview: (htmlPath: string, pageId: string, sessionId?: string) =>
+    getIpc().invoke('preview:loadPage', { htmlPath, pageId, sessionId }) as Promise<{ pageNumber: number; pageId: string; title: string; html: string }>,
+  openFile: (filePath: string, sessionId?: string) =>
+    getIpc().invoke('file:open', { path: filePath, sessionId }) as Promise<string>,
+  revealFile: (filePath: string, sessionId?: string) =>
+    getIpc().invoke('file:reveal', { path: filePath, sessionId }) as Promise<{ success: boolean }>,
+  openInBrowser: (filePath: string, hash?: string, sessionId?: string) =>
+    getIpc().invoke('file:openInBrowser', { path: filePath, hash, sessionId }) as Promise<{ success: boolean }>,
+  saveFile: (payload: { path: string; content: string; sessionId?: string }) =>
+    getIpc().invoke('file:save', payload) as Promise<{ success: boolean }>,
+  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void) =>
+    getIpc().on('generate:chunk', (_event, chunk) => callback(chunk as GenerateChunkEvent)),
+}
