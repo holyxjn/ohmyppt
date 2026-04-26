@@ -118,7 +118,7 @@ xattr -cr /Applications/OhMyPPT.app
 
 ## 🙌 需求反馈
 
-如果你有新需求、功能建议或发现问题，欢迎在仓库提交 Issue。
+如果你有新需求、功能建议或发现问题，欢迎在仓库提交 Issue或者联系v:zijian798086。
 
 我会持续跟进并优化体验。
 
