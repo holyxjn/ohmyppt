@@ -20,7 +20,7 @@
     Prompt in → Deck out 👇
   </p>
 
-  <video src="./docs/video/ohmyppt.mp4" controls width="720"></video>
+  <img src="./docs/video/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
   [Watch demo video](./docs/video/ohmyppt.mp4)
 </div>

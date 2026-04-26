@@ -20,9 +20,9 @@
     Prompt in → Deck out 👇
   </p>
 
-  <video src="./docs/video/ohmyppt.mp4" controls width="720"></video>
+  <img src="./docs/video/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [观看演示视频](./docs/video/ohmyppt.mp4)
+  [观看完整演示视频](./docs/video/ohmyppt.mp4)
 </div>
 
 ---
