@@ -22,7 +22,7 @@
 
   <img src="https://arcsin1.github.io/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4)
+  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4) | [Download release package (v0.0.1)](https://github.com/arcsin1/oh-my-ppt/releases/tag/v0.0.1)
 </div>
 
 ---
