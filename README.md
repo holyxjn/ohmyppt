@@ -88,7 +88,8 @@
 
 
 ### 如何添加图片到 PPT 中
-   
+
+   注：图片或者素材只会帮你复制都你的本地创意目录，不会上传到云端
  
   <img src="./docs/images/5.png" alt="Oh My PPT" width="500" />
 
