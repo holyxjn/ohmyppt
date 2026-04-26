@@ -89,9 +89,8 @@
 
 ### 如何添加图片到 PPT 中
    
-   在你的本地文件目录，我会提前放好images/目录，你可以在目录下放图片文件，例如：'./images/1.png'
-
-  <img src="./docs/images/1.png" alt="Oh My PPT" width="500" />
+ 
+  <img src="./docs/images/5.png" alt="Oh My PPT" width="500" />
 
 ### 关于预览模式
    

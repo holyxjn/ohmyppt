@@ -1,3 +1,14 @@
+export interface UploadedAsset {
+  id: string
+  fileName: string
+  originalName: string
+  relativePath: string
+  absolutePath?: string
+  mimeType: string
+  size: number
+  createdAt: number
+}
+
 export interface GenerateStartPayload {
   sessionId: string
   userMessage: string
@@ -9,6 +20,8 @@ export interface GenerateStartPayload {
   selector?: string
   elementTag?: string
   elementText?: string
+  imagePaths?: string[]
+  docPaths?: string[]
 }
 
 export interface GeneratedPagePayload {

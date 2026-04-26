@@ -34,6 +34,7 @@ export interface Message {
   chat_scope: ChatScope;
   page_id: string | null;
   selector: string | null;
+  image_paths: string[] | null;
   role: MessageRole;
   content: string;
   type: MessageType;
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS messages (
   chat_scope TEXT NOT NULL DEFAULT 'main',
   page_id TEXT,
   selector TEXT,
+  image_paths TEXT,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   type TEXT,
@@ -278,6 +280,9 @@ export class PPTDatabase {
     if (!columns.has("selector")) {
       await this.client.execute("ALTER TABLE messages ADD COLUMN selector TEXT");
     }
+    if (!columns.has("image_paths")) {
+      await this.client.execute("ALTER TABLE messages ADD COLUMN image_paths TEXT");
+    }
     if (!columns.has("type")) {
       await this.client.execute("ALTER TABLE messages ADD COLUMN type TEXT");
     }
@@ -435,7 +440,60 @@ export class PPTDatabase {
       .orderBy(asc(schema.messages.createdAt))
       .all();
 
-    return results as unknown as Message[];
+    return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>));
+  }
+
+  private normalizeImagePaths(value: unknown): string[] | null {
+    if (typeof value !== "string" || value.trim().length === 0) return null;
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed)) return null;
+      const valid = parsed
+        .map((item) => String(item || "").trim())
+        .filter((item) => item.startsWith("./images/"))
+        .slice(0, 10);
+      return valid.length > 0 ? valid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeMessageRow(message: Record<string, unknown>): Message {
+    const rawImagePaths = message.imagePaths ?? message.image_paths ?? null;
+    const imagePaths = this.normalizeImagePaths(rawImagePaths);
+    return {
+      id: String(message.id || ""),
+      session_id: String(message.sessionId ?? message.session_id ?? ""),
+      chat_scope: (message.chatScope === "page" || message.chat_scope === "page" ? "page" : "main"),
+      page_id:
+        typeof (message.pageId ?? message.page_id) === "string"
+          ? String(message.pageId ?? message.page_id)
+          : null,
+      selector:
+        typeof message.selector === "string" && message.selector.trim().length > 0
+          ? message.selector.trim()
+          : null,
+      image_paths: imagePaths,
+      role: String(message.role || "system") as MessageRole,
+      content: String(message.content || ""),
+      type: String(message.type || "text") as MessageType,
+      tool_name:
+        typeof (message.toolName ?? message.tool_name) === "string"
+          ? String(message.toolName ?? message.tool_name)
+          : null,
+      tool_call_id:
+        typeof (message.toolCallId ?? message.tool_call_id) === "string"
+          ? String(message.toolCallId ?? message.tool_call_id)
+          : null,
+      token_count:
+        typeof (message.tokenCount ?? message.token_count) === "number"
+          ? Number(message.tokenCount ?? message.token_count)
+          : null,
+      created_at:
+        typeof (message.createdAt ?? message.created_at) === "number"
+          ? Number(message.createdAt ?? message.created_at)
+          : Math.floor(Date.now() / 1000),
+    };
   }
 
   async addMessage(
@@ -450,6 +508,7 @@ export class PPTDatabase {
       chat_scope?: ChatScope;
       page_id?: string | null;
       selector?: string | null;
+      image_paths?: string[] | null;
     }
   ): Promise<string> {
     const id = crypto.randomUUID();
@@ -462,6 +521,15 @@ export class PPTDatabase {
       chatScope === "page" && typeof message.selector === "string" && message.selector.trim().length > 0
         ? message.selector.trim()
         : null;
+    const imagePathsRaw = Array.isArray(message.image_paths) ? message.image_paths : [];
+    const imagePaths =
+      imagePathsRaw.length > 0
+        ? imagePathsRaw
+            .map((item) => String(item || "").trim())
+            .filter((item) => item.startsWith("./images/"))
+            .slice(0, 10)
+        : [];
+    const imagePathsJson = imagePaths.length > 0 ? JSON.stringify(imagePaths) : null;
     if (chatScope === "page" && !pageId) {
       throw new Error("page chat message requires page_id");
     }
@@ -472,6 +540,7 @@ export class PPTDatabase {
       chatScope,
       pageId,
       selector,
+      imagePaths: imagePathsJson,
       role: message.role,
       content: message.content,
       type: message.type || "text",
@@ -504,7 +573,7 @@ export class PPTDatabase {
       .limit(count)
       .all();
 
-    return results as unknown as Message[];
+    return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>));
   }
 
   // ========== Memory ==========

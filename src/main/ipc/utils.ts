@@ -11,16 +11,43 @@ export const normalizeSession = (session: Record<string, unknown> | null | undef
   };
 };
 
-export const normalizeMessage = (message: Record<string, unknown>) => ({
+export const normalizeMessage = (message: Record<string, unknown>) => {
+  const normalizedImagePaths = (() => {
+    const raw = message.image_paths ?? message.imagePaths;
+    if (Array.isArray(raw)) {
+      return raw
+        .map((item) => String(item || "").trim())
+        .filter((item) => item.startsWith("./images/"))
+        .slice(0, 10);
+    }
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((item) => String(item || "").trim())
+            .filter((item) => item.startsWith("./images/"))
+            .slice(0, 10);
+        }
+      } catch {
+        // ignore invalid JSON payload
+      }
+    }
+    return [] as string[];
+  })();
+
+  return {
   ...message,
   session_id: message.session_id ?? message.sessionId ?? null,
   chat_scope: message.chat_scope ?? message.chatScope ?? "main",
   page_id: message.page_id ?? message.pageId ?? null,
+  image_paths: normalizedImagePaths,
   tool_name: message.tool_name ?? message.toolName ?? null,
   tool_call_id: message.tool_call_id ?? message.toolCallId ?? null,
   token_count: message.token_count ?? message.tokenCount ?? null,
   created_at: message.created_at ?? message.createdAt ?? null,
-});
+  };
+};
 
 export const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {

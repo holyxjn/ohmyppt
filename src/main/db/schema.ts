@@ -21,6 +21,7 @@ export const messages = sqliteTable("messages", {
   chatScope: text("chat_scope").notNull().default("main"),
   pageId: text("page_id"),
   selector: text("selector"),
+  imagePaths: text("image_paths"),
   role: text("role").notNull(),
   content: text("content").notNull(),
   type: text("type"),

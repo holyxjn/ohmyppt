@@ -75,10 +75,8 @@ Notes:
 
 ### How to add images to PPT
 
-In each local session directory, an `images/` folder is created in advance.  
-You can place assets there, for example `./images/1.png`, then reference them in chat prompts.
+<img src="./docs/images/5.png" alt="Oh My PPT" width="500" />
 
-<img src="./docs/images/1.png" alt="Oh My PPT" width="500" />
 
 ### About preview mode
 

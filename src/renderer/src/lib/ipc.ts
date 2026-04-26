@@ -1,4 +1,4 @@
-import type { GenerateChunkEvent, GenerateStartPayload } from '@shared/generation.js'
+import type { GenerateChunkEvent, GenerateStartPayload, UploadedAsset } from '@shared/generation.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -66,6 +66,14 @@ export interface ExportPdfResult {
   pageCount?: number
 }
 
+export interface UploadAssetsPayload {
+  sessionId: string
+  files: Array<{
+    path: string
+    name?: string
+  }>
+}
+
 export interface CreateSessionPayload {
   topic: string
   styleId: string
@@ -100,6 +108,10 @@ export const ipc = {
   getGenerateState: (sessionId: string) =>
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
   cancelGenerate: (sessionId: string) => getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
+  uploadAssets: (payload: UploadAssetsPayload) =>
+    getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
+  chooseAndUploadAssets: (sessionId: string) =>
+    getIpc().invoke('assets:chooseAndUpload', { sessionId }) as Promise<{ assets: UploadedAsset[]; cancelled?: boolean }>,
   exportPdf: (sessionId: string) =>
     getIpc().invoke('export:pdf', { sessionId }) as Promise<ExportPdfResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,

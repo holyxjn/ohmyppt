@@ -21,6 +21,7 @@ export interface Message {
   chat_scope: 'main' | 'page'
   page_id: string | null
   selector?: string | null
+  image_paths?: string[] | null
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   type: string
