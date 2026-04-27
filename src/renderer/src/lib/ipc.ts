@@ -1,4 +1,5 @@
-import type { GenerateChunkEvent, GenerateStartPayload, UploadedAsset } from '@shared/generation.js'
+import type { GenerateChunkEvent, GenerateRetryFailedPayload, GenerateStartPayload, UploadedAsset } from '@shared/generation.js'
+import type { UpdateAvailablePayload } from '@shared/app-update.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -78,10 +79,6 @@ export interface CreateSessionPayload {
   topic: string
   styleId: string
   pageCount?: number
-  provider: string
-  apiKey: string
-  model?: string
-  baseUrl?: string
 }
 
 export const ipc = {
@@ -98,6 +95,8 @@ export const ipc = {
         htmlPath?: string
         pageId?: string
         sourceUrl?: string
+        status?: string
+        error?: string | null
       }>
     }>,
   getSessionMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) =>
@@ -105,6 +104,8 @@ export const ipc = {
   deleteSession: (sessionId: string) => getIpc().invoke('session:delete', sessionId) as Promise<{ success: boolean }>,
   startGenerate: (payload: GenerateStartPayload) =>
     getIpc().invoke('generate:start', payload) as Promise<{ success: boolean; runId?: string; alreadyRunning?: boolean }>,
+  retryFailedPages: (payload: GenerateRetryFailedPayload) =>
+    getIpc().invoke('generate:retryFailedPages', payload) as Promise<{ success: boolean; runId?: string; alreadyRunning?: boolean }>,
   getGenerateState: (sessionId: string) =>
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
   cancelGenerate: (sessionId: string) => getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
@@ -168,6 +169,16 @@ export const ipc = {
     getIpc().invoke('file:openInBrowser', { path: filePath, hash, sessionId }) as Promise<{ success: boolean }>,
   saveFile: (payload: { path: string; content: string; sessionId?: string }) =>
     getIpc().invoke('file:save', payload) as Promise<{ success: boolean }>,
-  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void) =>
-    getIpc().on('generate:chunk', (_event, chunk) => callback(chunk as GenerateChunkEvent)),
+  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void) => {
+    const channel = 'generate:chunk'
+    const handler = (_event: unknown, chunk: unknown) => callback(chunk as GenerateChunkEvent)
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  },
+  onUpdateAvailable: (callback: (payload: UpdateAvailablePayload) => void) => {
+    const channel = 'app:update-available'
+    const handler = (_event: unknown, payload: unknown) => callback(payload as UpdateAvailablePayload)
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  },
 }

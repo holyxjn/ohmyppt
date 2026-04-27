@@ -12,7 +12,7 @@
 
 **Oh My PPT - Local-first AI Slide Deck Generator & Editor**
 
-[中文](./README.md) | [Why](#why) • [Features](#features) • [Workflow](#workflow) • [Reference](#reference) • [Usage Notes](#usage-notes)
+[中文](./README.md) | [Why](#why) • [Features](#features) • [Workflow](#workflow) • [Changelog](./CHANGELOG.md) • [Reference](#reference) • [Usage Notes](#usage-notes)
 
   <p>
     Local-first AI Slide Deck Generator<br/>
@@ -22,7 +22,7 @@
 
   <img src="https://arcsin1.github.io/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4) | [Download release package (v0.0.2)](https://github.com/arcsin1/oh-my-ppt/releases/)
+  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4) | [Download release package](https://github.com/arcsin1/oh-my-ppt/releases/)
 </div>
 
 ---

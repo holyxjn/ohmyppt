@@ -72,7 +72,7 @@ export const PreviewIframe = forwardRef<PreviewIframeHandle, {
 
   // Always preview concrete page file (page-xx.html). index.html is only for external full-deck preview.
   const pageHtmlPath = resolvePageHtmlPath(htmlPath, pageId)
-  const webviewSrc = src ? withPreviewParams(src) : pageHtmlPath ? toFileUrl(pageHtmlPath) : undefined
+  const webviewSrc = pageHtmlPath ? toFileUrl(pageHtmlPath) : src ? withPreviewParams(src) : undefined
   const pointerEnabled = inspectable && inspecting
 
   const handleWebviewRef = useCallback((node: Electron.WebviewTag | null) => {
