@@ -27,6 +27,23 @@
 
 ---
 
+## 目录
+
+- [为什么做这个](#why)
+- [能做什么](#features)
+- [使用流程](#workflow)
+- [支持本地 Ollama 模型](#ollama)
+- [使用问题汇总](#usage-notes)
+  - [别忘了填写你的配置](#config)
+  - [如何添加图片到 PPT 中](#assets)
+  - [关于预览模式](#preview)
+- [未签名应用打不开的问题](#unsigned-app)
+- [需求反馈](#feedback)
+- [参考](#references)
+- [License](#license)
+
+---
+
 <a id="why"></a>
 ## 🎯 为什么做这个
 
@@ -46,7 +63,7 @@
 - 🎨 **内置 30+ 风格SKILL** — 极简白、赛博霓虹、包豪斯、日式简约、小红书白… 也支持自定义风格
 - ✏️ **对话式修改** — 对着某一页说"标题换个颜色""加个数据图表"，精准修改不用重做
 - 🎬 **页面切换动画** — 预览时页面切换自带过渡动画，演示效果拉满
-📄 **导出 PDF** — 一键导出，自动打开文件夹定位，分享超方便
+- 📄 **导出 PDF** — 一键导出，自动打开文件夹定位，分享超方便
 
 <a id="workflow"></a>
 ## 🔄 使用流程
@@ -79,6 +96,7 @@
 <a id="usage-notes"></a>
 ## 关于使用问题汇总
 
+<a id="config"></a>
 ### 别忘了填写你的配置
 
   在「设置」页面填写你的配置，否则会报错。 
@@ -87,36 +105,69 @@
 
 
 
+<a id="assets"></a>
 ### 如何添加图片到 PPT 中
 
    注：图片或者素材只会帮你复制都你的本地创意目录，不会上传到云端
  
   <img src="./docs/images/5.png" alt="Oh My PPT" width="500" />
 
+<a id="preview"></a>
 ### 关于预览模式
    
    支持键盘（左右键）切换，支持演示模式，全屏演示模式，ESC退出演示模式
   
   <img src="./docs/images/2.png" alt="Oh My PPT" width="500" />
 
-## 📦 未签名应用打开问题
+<a id="unsigned-app"></a>
+## 📦 未签名应用打不开的问题
+
+目前发布包可能还没有进行系统级代码签名，所以 macOS 或 Windows 第一次打开时可能会出现安全提示。这个提示通常不是应用损坏，而是系统对“未签名/未公证应用”的默认拦截。
 
 ### macOS
 
-如果 macOS 提示应用无法打开，可以执行：
+如果 macOS 提示“无法打开”“已损坏”“无法验证开发者”，可以按下面任意一种方式处理。
+
+**方式一：右键打开**
+
+1. 打开「访达」或「应用程序」文件夹。
+2. 找到 `OhMyPPT.app`。
+3. 右键点击应用，选择「打开」。
+4. 在弹窗里再次点击「打开」。
+
+这种方式通常只需要做一次，之后就可以正常双击打开。
+
+**方式二：清除隔离属性**
+
+如果右键打开仍然不行，可以在终端执行：
 
 ```bash
 xattr -cr /Applications/OhMyPPT.app
 ```
 
-然后重新打开应用。也可以右键应用选择“打开”来绕过首次提示。
+然后重新打开应用。
+
+如果你把应用放在了其他目录，请把命令里的路径替换成实际路径，例如：
+
+```bash
+xattr -cr ~/Downloads/OhMyPPT.app
+```
 
 ### Windows
 
-未签名安装包在 Windows 上可能触发 SmartScreen 提示，这是正常现象。
+Windows 可能会因为安装包未签名而触发 SmartScreen 提示，例如“Windows 已保护你的电脑”。这是未签名应用常见的系统提示。
 
-解决方式：点击“更多信息” → “仍要运行”即可。
+处理方式：
 
+1. 在提示窗口点击「更多信息」。
+2. 确认应用名称是 `OhMyPPT`。
+3. 点击「仍要运行」。
+
+如果下载后被浏览器或杀毒软件拦截，可以先确认安装包来自本项目的 GitHub Releases 页面，再选择保留或允许运行。
+
+> 建议只从官方 Release 地址下载安装包，避免使用第三方转存文件。
+
+<a id="feedback"></a>
 ## 🙌 需求反馈
 
 如果你有新需求、功能建议或发现问题，欢迎在仓库提交 Issue或者联系v:zijian798086。
@@ -124,11 +175,13 @@ xattr -cr /Applications/OhMyPPT.app
 我会持续跟进并优化体验。
 
 
+<a id="references"></a>
 ## 参考
 
 - [ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
 - [html-ppt-skill](https://github.com/lewislulu/html-ppt-skill)
 
+<a id="license"></a>
 ## License
 
 This project is licensed under the [MIT License](LICENSE) © 2026 arcsin1 &lt;zy19931129@gmail.com&gt;.

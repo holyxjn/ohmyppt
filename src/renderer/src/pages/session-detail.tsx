@@ -31,6 +31,7 @@ import {
   Home,
   ExternalLink,
   FileDown,
+  Presentation,
   Crosshair,
   X,
   Plus,
@@ -63,6 +64,7 @@ export function SessionDetailPage() {
   const [consoleOpen, setConsoleOpen] = useState(true)
   const [previewKey, setPreviewKey] = useState(0)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const [isExportingPptx, setIsExportingPptx] = useState(false)
   const [inspecting, setInspecting] = useState(false)
   const [selectedSelector, setSelectedSelector] = useState<string | null>(null)
   const [selectorLabel, setSelectorLabel] = useState('')
@@ -423,8 +425,8 @@ export function SessionDetailPage() {
     pendingAssets.length > 0
       ? '描述你想怎么使用这些素材，例如：把第一张图作为封面背景。'
       : chatType === 'page'
-      ? '当前页模式：只会修改当前页内容。可先用“检选”选中元素，再说：改改当前的颜色或者字号等等。'
-      : '主会话模式已禁用发送。请先把“上下文”切到“当前页”。'
+        ? '当前页模式：只会修改当前页内容。可先用“检选”选中元素，再说：改改当前的颜色或者字号等等。'
+        : '主会话模式已禁用发送。请先把“上下文”切到“当前页”。'
   const selectorSummary = selectedSelector
     ? [
         selectorLabel || selectedSelector,
@@ -446,6 +448,31 @@ export function SessionDetailPage() {
   const cleanMessageContent = (content: string) =>
     content.replace(/[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g, '（已定位选中元素）')
   const toolbarButtonClass = 'h-8 rounded-lg px-3 text-xs shadow-[0_5px_14px_rgba(86,72,53,0.1)]'
+  const getPptxExportNotice = (warnings?: string[]): string | null => {
+    const items = (warnings || []).filter(Boolean)
+    if (items.length === 0) return null
+
+    const hasPageLoadDelay = items.some((item) => item.includes('未收到打印就绪信号'))
+    if (hasPageLoadDelay) {
+      return '部分页面加载时间较长，已按当前画面完成导出。建议打开 PPTX 快速检查一下。'
+    }
+
+    const hasNoEditableText = items.some((item) => item.includes('未提取到可编辑文本'))
+    if (hasNoEditableText) {
+      return '部分页面已优先保留完整画面，可能需要在 PowerPoint 中手动微调文字。'
+    }
+
+    const hasOnlyCapabilityNote = items.every(
+      (item) =>
+        item.includes('自研') ||
+        item.includes('pptxgenjs') ||
+        item.includes('HTML 解析器') ||
+        item.includes('文本层')
+    )
+    if (hasOnlyCapabilityNote) return null
+
+    return '文件已导出，建议打开 PPTX 快速检查版式细节。'
+  }
 
   const openProjectPreview = async () => {
     const basePath = selectedPage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
@@ -486,6 +513,40 @@ export function SessionDetailPage() {
     }
   }
 
+  const handleExportPptx = async (): Promise<void> => {
+    if (!id || isExportingPptx) return
+    setIsExportingPptx(true)
+    toastInfo('正在准备可编辑 PPTX', {
+      description: '会尽量保留版式、颜色和图片效果，同时让主要文字可继续编辑。',
+      duration: 8000
+    })
+    try {
+      const result = await ipc.exportPptx(id)
+      if (result.cancelled) {
+        toastInfo('已取消导出')
+        return
+      }
+      if (!result.success || !result.path) {
+        toastError('导出失败')
+        return
+      }
+      const exportNotice = getPptxExportNotice(result.warnings)
+      if (exportNotice) {
+        toastWarning(`PPTX 已导出（${result.pageCount || 0} 页）`, {
+          description: exportNotice
+        })
+        return
+      }
+      toastSuccess(`PPTX 已导出（${result.pageCount || 0} 页）`, {
+        description: '已尽量保留版式与可编辑文字。'
+      })
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : '导出失败')
+    } finally {
+      setIsExportingPptx(false)
+    }
+  }
+
   const handleSelectorSelected = (
     selector: string,
     label: string,
@@ -501,6 +562,23 @@ export function SessionDetailPage() {
 
   const toolbarActions = (
     <>
+      {normalizedOrderedPages.length > 0 && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={toolbarButtonClass}
+          onClick={() => void handleExportPptx()}
+          disabled={isExportingPptx}
+        >
+          {isExportingPptx ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Presentation className="mr-2 h-4 w-4" />
+          )}
+          导出 PPTX
+        </Button>
+      )}
       {normalizedOrderedPages.length > 0 && (
         <Button
           type="button"
@@ -645,7 +723,11 @@ export function SessionDetailPage() {
                             </div>
                             <div
                               className="mt-0.5 block w-full min-w-0 max-w-full overflow-hidden whitespace-normal break-words px-0.5 text-[11px] font-medium leading-4 text-[#4c5d3d]"
-                              style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+                              style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical'
+                              }}
                             >
                               {page.title}
                             </div>
@@ -656,7 +738,9 @@ export function SessionDetailPage() {
                             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
                               Page {page.pageNumber}
                             </div>
-                            <div className="mt-0.5 text-sm font-medium text-[#3e4a32]">{page.title}</div>
+                            <div className="mt-0.5 text-sm font-medium text-[#3e4a32]">
+                              {page.title}
+                            </div>
                           </div>
                         </TooltipContent>
                       </Tooltip>
@@ -719,11 +803,17 @@ export function SessionDetailPage() {
                 </div>
               ) : (
                 <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-4 text-center text-muted-foreground">
-                  {isGenerating ? <Loader2 className="h-7 w-7 animate-spin" /> : <Sparkles className="h-7 w-7" />}
+                  {isGenerating ? (
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-7 w-7" />
+                  )}
                   <div className="space-y-1">
                     <p className="text-base font-medium text-[#3e4a32]">等着你的创意</p>
                     <p className="text-sm">
-                      {isGenerating ? '正在准备第一版预览…' : '在消息面板里输入 brief，我会把预览放到这里。'}
+                      {isGenerating
+                        ? '正在准备第一版预览…'
+                        : '在消息面板里输入 brief，我会把预览放到这里。'}
                     </p>
                   </div>
                 </div>
@@ -758,7 +848,11 @@ export function SessionDetailPage() {
                 </div>
               </div>
 
-              <ScrollArea data-messages-container className="min-h-0 flex-1" viewportClassName="px-2.5 py-2">
+              <ScrollArea
+                data-messages-container
+                className="min-h-0 flex-1"
+                viewportClassName="px-2.5 py-2"
+              >
                 {currentMessages.length === 0 && !isGenerating ? (
                   <div className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
                     还没有创意消息
@@ -780,7 +874,10 @@ export function SessionDetailPage() {
                       return (
                         <div
                           key={msg.id}
-                          className={cn('flex w-full min-w-0', isUser ? 'justify-end' : 'justify-start')}
+                          className={cn(
+                            'flex w-full min-w-0',
+                            isUser ? 'justify-end' : 'justify-start'
+                          )}
                         >
                           <div
                             className={cn(
@@ -933,7 +1030,11 @@ export function SessionDetailPage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => setPendingAssets((assets) => assets.filter((item) => item.id !== asset.id))}
+                          onClick={() =>
+                            setPendingAssets((assets) =>
+                              assets.filter((item) => item.id !== asset.id)
+                            )
+                          }
                           className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[#657552] hover:bg-[#dbe8c8]"
                           aria-label="移除素材"
                         >
