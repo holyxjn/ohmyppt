@@ -924,7 +924,7 @@ export function SessionDetailPage() {
                 viewportClassName="px-2.5 py-2"
               >
                 {currentMessages.length === 0 && !isGenerating ? (
-                  <div className="flex min-h-full items-center justify-center text-sm text-[#6f7f58]">
+                  <div className="flex min-h-full items-center justify-center text-sm text-[#6f7f58] mt-24">
                     还没有创意消息
                   </div>
                 ) : (
