@@ -11,6 +11,11 @@
 - 优化编辑稳定性：编辑时会校验页面结构，避免坏页面被误标记为完成。
 - 优化模型配置：生成与编辑统一使用系统设置中的最新模型配置。
 - 优化模型稳定性：增强大纲规划与 JSON 输出解析，减少弱模型或本地模型格式异常导致的失败。
+- 新增可编辑 PPTX 导出：尽量保留文字、图片、颜色与基础布局，方便在 PowerPoint / Keynote 中继续编辑。
+- 新增批量 PNG 导出：一键将当前 deck 的所有页面导出为图片。
+- 优化 PDF / PNG / PPTX 导出稳定性：导出时尽量使用静态页面状态，减少动画对输出结果的影响。
+- 优化页面生成约束：生成时按固定 16:9 画布和内容高度预算组织页面，减少元素超出画布的问题。
+- 优化 README 文档：补充多格式导出说明，并完善 macOS / Windows 未签名应用打开指引。
 
 ## 2026-04-26
 
@@ -40,6 +45,11 @@
 - Improved edit stability: page structure is validated before marking edits as completed.
 - Unified model settings: generation and editing now always use the latest model configuration from Settings.
 - Improved model stability: outline planning and JSON output parsing are more tolerant of malformed local/weak-model responses.
+- Added editable PPTX export: preserves text, images, colors, and basic layout where possible for continued editing in PowerPoint / Keynote.
+- Added batch PNG export: export every slide in the current deck as images with one click.
+- Improved PDF / PNG / PPTX export stability: exports use a static slide state where possible to reduce animation-related output issues.
+- Improved generation layout constraints: slides now follow a fixed 16:9 canvas and content-height budget to reduce overflow.
+- Updated README docs: added multi-format export notes and clearer macOS / Windows unsigned-app instructions.
 
 ## 2026-04-26
 

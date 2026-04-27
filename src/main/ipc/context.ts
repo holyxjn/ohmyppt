@@ -15,6 +15,7 @@ import {
   SESSION_ASSET_FILE_NAMES,
   type DeckPageFile
 } from './template'
+import { FREEZE_PAGE_FOR_EXPORT_SCRIPT } from '../utils/html-to-pptx-browser-scripts'
 
 export type SessionRunState = {
   sessionId: string
@@ -1116,6 +1117,7 @@ export function createIpcContext(
       const pageUrl = new URL(pathToFileURL(page.htmlPath).toString())
       pageUrl.searchParams.set('fit', 'off')
       pageUrl.searchParams.set('print', '1')
+      pageUrl.searchParams.set('export', '1')
       pageUrl.searchParams.set('pageId', page.pageId)
       pageUrl.searchParams.set('printTimeoutMs', String(timeoutMs))
       pageUrl.searchParams.set('_ts', String(Date.now()))
@@ -1126,6 +1128,7 @@ export function createIpcContext(
         timeoutMs
       })
       await win.loadURL(pageUrl.toString())
+      await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_EXPORT_SCRIPT, true)
       const readyResult = await readyWaitPromise
       if (readyResult.timedOut) {
         log.warn('[export:pdf] print ready timeout', {
@@ -1135,6 +1138,10 @@ export function createIpcContext(
         })
       }
       await sleep(EXPORT_CAPTURE_SETTLE_MS)
+      await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_EXPORT_SCRIPT, true)
+      await sleep(450)
+      await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_EXPORT_SCRIPT, true)
+      await sleep(80)
       // Capture with explicit rect to ensure exact 1600x900 coverage
       const image = await win.webContents.capturePage({
         x: 0,
