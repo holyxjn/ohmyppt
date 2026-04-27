@@ -67,6 +67,7 @@ export const extractHtmlPageToPptxSlide = async ({
     const pageUrl = new URL(pathToFileURL(page.htmlPath).toString())
     pageUrl.searchParams.set('fit', 'off')
     pageUrl.searchParams.set('print', '1')
+    pageUrl.searchParams.set('export', '1')
     pageUrl.searchParams.set('pageId', page.pageId)
     pageUrl.searchParams.set('printTimeoutMs', String(timeoutMs))
     pageUrl.searchParams.set('_ts', String(Date.now()))
@@ -78,6 +79,7 @@ export const extractHtmlPageToPptxSlide = async ({
     })
 
     await win.loadURL(pageUrl.toString())
+    await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
     const readyResult = await readyWaitPromise
     if (readyResult.timedOut) {
       log.warn('[export:pptx] print ready timeout', {
@@ -89,7 +91,9 @@ export const extractHtmlPageToPptxSlide = async ({
 
     await sleep(settleMs)
     await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
-    await sleep(100)
+    await sleep(450)
+    await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
+    await sleep(80)
 
     const extracted = await win.webContents.executeJavaScript(
       buildHtmlToPptxExtractScript({

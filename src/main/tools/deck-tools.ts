@@ -299,6 +299,12 @@ export const FIT_SCRIPT = `<script id="ppt-page-fit">
 
 const DEFAULT_MOTION_SCRIPT = `<script id="ppt-default-motion">
 (() => {
+  const search = new URLSearchParams(window.location.search);
+  if (search.get("print") === "1" || search.get("export") === "1") {
+    document.documentElement.dataset.pptExportStatic = "1";
+    return;
+  }
+
   function revealFallback(root) {
     const hiddenTargets = Array.from(root.querySelectorAll("*"))
       .filter((el) => {

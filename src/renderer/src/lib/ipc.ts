@@ -137,6 +137,8 @@ export const ipc = {
     }>,
   exportPdf: (sessionId: string) =>
     getIpc().invoke('export:pdf', { sessionId }) as Promise<ExportDeckResult>,
+  exportPng: (sessionId: string) =>
+    getIpc().invoke('export:png', { sessionId }) as Promise<ExportDeckResult>,
   exportPptx: (sessionId: string) =>
     getIpc().invoke('export:pptx', { sessionId }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
@@ -220,15 +222,15 @@ export const ipc = {
     }>,
   saveFile: (payload: { path: string; content: string; sessionId?: string }) =>
     getIpc().invoke('file:save', payload) as Promise<{ success: boolean }>,
-  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void) => {
+  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void): (() => void) => {
     const channel = 'generate:chunk'
-    const handler = (_event: unknown, chunk: unknown) => callback(chunk as GenerateChunkEvent)
+    const handler = (_event: unknown, chunk: unknown): void => callback(chunk as GenerateChunkEvent)
     getIpc().on(channel, handler)
     return () => getIpc().removeListener(channel, handler)
   },
-  onUpdateAvailable: (callback: (payload: UpdateAvailablePayload) => void) => {
+  onUpdateAvailable: (callback: (payload: UpdateAvailablePayload) => void): (() => void) => {
     const channel = 'app:update-available'
-    const handler = (_event: unknown, payload: unknown) =>
+    const handler = (_event: unknown, payload: unknown): void =>
       callback(payload as UpdateAvailablePayload)
     getIpc().on(channel, handler)
     return () => getIpc().removeListener(channel, handler)

@@ -25,6 +25,12 @@ const parseSessionId = (payload: unknown): string => {
 const sanitizeExportBaseName = (value: string, fallback: string): string =>
   value.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || fallback
 
+const buildPngFileName = (pageNumber: number, title: string | undefined): string => {
+  const paddedNumber = String(pageNumber).padStart(2, '0')
+  const sanitizedTitle = sanitizeExportBaseName(String(title || '').trim(), `page-${paddedNumber}`)
+  return `${paddedNumber}-${sanitizedTitle}.png`
+}
+
 export function registerExportHandlers(ctx: IpcContext): void {
   const {
     mainWindow,
@@ -113,6 +119,85 @@ export function registerExportHandlers(ctx: IpcContext): void {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.error('[export:pdf] failed', {
+        sessionId,
+        message
+      })
+      throw error
+    }
+  })
+
+  ipcMain.handle('export:png', async (event, payload: unknown) => {
+    const sessionId = parseSessionId(payload)
+    if (!sessionId) {
+      throw new Error('sessionId 不能为空')
+    }
+
+    const { session, pages, projectDir } = await resolveSessionPageFiles(sessionId)
+    const sessionTitle =
+      typeof session.title === 'string' && session.title.trim().length > 0
+        ? session.title.trim()
+        : `ohmyppt-${sessionId}`
+    const sanitizedBaseName = sanitizeExportBaseName(sessionTitle, `ohmyppt-${sessionId}`)
+
+    const ownerWindow =
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow
+    const directoryResult = await dialog.showOpenDialog(ownerWindow, {
+      title: '导出 PNG 图片',
+      defaultPath: path.join(projectDir, `${sanitizedBaseName}-png`),
+      buttonLabel: '导出到此文件夹',
+      properties: ['openDirectory', 'createDirectory', 'promptToCreate']
+    })
+
+    if (directoryResult.canceled || directoryResult.filePaths.length === 0) {
+      return { success: false, cancelled: true }
+    }
+
+    const outputDir = directoryResult.filePaths[0]
+    const warnings: string[] = []
+
+    try {
+      await fs.promises.mkdir(outputDir, { recursive: true })
+      for (const page of pages) {
+        log.info('[export:png] render page', {
+          sessionId,
+          pageId: page.pageId,
+          htmlPath: page.htmlPath
+        })
+        const rendered = await renderPageToPdfBuffer({
+          page,
+          timeoutMs: EXPORT_PAGE_READY_TIMEOUT_MS
+        })
+        if (rendered.warning) warnings.push(rendered.warning)
+        await fs.promises.writeFile(
+          path.join(outputDir, buildPngFileName(page.pageNumber, page.title)),
+          rendered.pngBuffer
+        )
+      }
+
+      const project = await db.getProject(sessionId)
+      if (project?.id) {
+        await db.updateProjectStatus(project.id, 'exported')
+      }
+
+      log.info('[export:png] completed', {
+        sessionId,
+        pageCount: pages.length,
+        directoryPath: outputDir,
+        warningCount: warnings.length
+      })
+      shell.openPath(outputDir).catch(() => {
+        shell.showItemInFolder(outputDir)
+      })
+      return {
+        success: true,
+        cancelled: false,
+        path: outputDir,
+        pageCount: pages.length,
+        warnings
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.error('[export:png] failed', {
         sessionId,
         message
       })

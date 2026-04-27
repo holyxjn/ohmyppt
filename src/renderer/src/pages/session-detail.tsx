@@ -64,6 +64,7 @@ export function SessionDetailPage() {
   const [consoleOpen, setConsoleOpen] = useState(true)
   const [previewKey, setPreviewKey] = useState(0)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const [isExportingPng, setIsExportingPng] = useState(false)
   const [isExportingPptx, setIsExportingPptx] = useState(false)
   const [inspecting, setInspecting] = useState(false)
   const [selectedSelector, setSelectedSelector] = useState<string | null>(null)
@@ -447,7 +448,9 @@ export function SessionDetailPage() {
     : undefined
   const cleanMessageContent = (content: string) =>
     content.replace(/[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g, '（已定位选中元素）')
-  const toolbarButtonClass = 'h-8 rounded-lg px-3 text-xs shadow-[0_5px_14px_rgba(86,72,53,0.1)]'
+  const toolbarButtonClass =
+    'h-7 rounded-full border-transparent bg-[#e8e0d0]/72 px-2.5 text-[11px] text-[#3e4a32] shadow-[0_4px_10px_rgba(86,72,53,0.08)] hover:bg-[#d4e4c1]/78'
+  const toolbarIconClass = 'mr-1.5 h-3.5 w-3.5'
   const getPptxExportNotice = (warnings?: string[]): string | null => {
     const items = (warnings || []).filter(Boolean)
     if (items.length === 0) return null
@@ -513,6 +516,37 @@ export function SessionDetailPage() {
     }
   }
 
+  const handleExportPng = async (): Promise<void> => {
+    if (!id || isExportingPng) return
+    setIsExportingPng(true)
+    toastInfo('正在导出 PNG 图片', {
+      description: '会将所有页面按顺序保存为高清图片，适合发文档、Notion 或社媒。',
+      duration: 8000
+    })
+    try {
+      const result = await ipc.exportPng(id)
+      if (result.cancelled) {
+        toastInfo('已取消导出')
+        return
+      }
+      if (!result.success || !result.path) {
+        toastError('导出失败')
+        return
+      }
+      if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+        toastWarning(`PNG 已导出（${result.pageCount || 0} 张）`, {
+          description: '部分页面加载时间较长，已按当前画面完成导出。'
+        })
+        return
+      }
+      toastSuccess(`PNG 已导出（${result.pageCount || 0} 张）`)
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : '导出失败')
+    } finally {
+      setIsExportingPng(false)
+    }
+  }
+
   const handleExportPptx = async (): Promise<void> => {
     if (!id || isExportingPptx) return
     setIsExportingPptx(true)
@@ -572,11 +606,28 @@ export function SessionDetailPage() {
           disabled={isExportingPptx}
         >
           {isExportingPptx ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className={cn(toolbarIconClass, 'animate-spin')} />
           ) : (
-            <Presentation className="mr-2 h-4 w-4" />
+            <Presentation className={toolbarIconClass} />
           )}
           导出 PPTX
+        </Button>
+      )}
+      {normalizedOrderedPages.length > 0 && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={toolbarButtonClass}
+          onClick={() => void handleExportPng()}
+          disabled={isExportingPng}
+        >
+          {isExportingPng ? (
+            <Loader2 className={cn(toolbarIconClass, 'animate-spin')} />
+          ) : (
+            <ImageIcon className={toolbarIconClass} />
+          )}
+          导出 PNG
         </Button>
       )}
       {normalizedOrderedPages.length > 0 && (
@@ -589,9 +640,9 @@ export function SessionDetailPage() {
           disabled={isExportingPdf}
         >
           {isExportingPdf ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className={cn(toolbarIconClass, 'animate-spin')} />
           ) : (
-            <FileDown className="mr-2 h-4 w-4" />
+            <FileDown className={toolbarIconClass} />
           )}
           导出 PDF
         </Button>
@@ -604,7 +655,7 @@ export function SessionDetailPage() {
           className={toolbarButtonClass}
           onClick={() => void openProjectPreview()}
         >
-          <ExternalLink className="mr-2 h-4 w-4" />
+          <ExternalLink className={toolbarIconClass} />
           预览
         </Button>
       )}
@@ -616,7 +667,7 @@ export function SessionDetailPage() {
           className={toolbarButtonClass}
           onClick={() => ipc.revealFile(selectedPage.htmlPath!, id || undefined)}
         >
-          <FileSearch className="mr-2 h-4 w-4" />
+          <FileSearch className={toolbarIconClass} />
           查看文件
         </Button>
       )}
@@ -624,44 +675,45 @@ export function SessionDetailPage() {
         type="button"
         onClick={() => setConsoleOpen((open) => !open)}
         className={cn(
-          'inline-flex h-8 w-8 items-center justify-center rounded-lg border cursor-pointer transition-colors',
+          'inline-flex h-7 w-7 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] cursor-pointer transition-colors',
           consoleOpen
-            ? 'border-[#97ad79] bg-[#e8f0d7] text-[#486034] shadow-[0_0_0_1px_rgba(151,173,121,0.25)]'
-            : 'border-transparent text-[#5d6b4d] hover:border-[#d8ccba] hover:bg-[#e7ddca]/70 hover:text-[#3e4a32]'
+            ? 'bg-[#d4e4c1]/86 text-[#486034] shadow-[0_5px_12px_rgba(93,107,77,0.12)]'
+            : 'text-[#5d6b4d] hover:bg-[#e8e0d0]/72 hover:text-[#3e4a32]'
         )}
         aria-label={consoleOpen ? '收起消息面板' : '展开消息面板'}
         title={consoleOpen ? '收起消息面板' : '展开消息面板'}
         aria-pressed={consoleOpen}
       >
-        <Sparkles className={cn('h-4 w-4', consoleOpen ? 'text-[#5e7d3e]' : '')} />
+        <Sparkles className={cn('h-3.5 w-3.5', consoleOpen ? 'text-[#5e7d3e]' : '')} />
       </button>
     </>
   )
 
   return (
     <TooltipProvider delayDuration={180}>
-      <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-        <header className="app-drag-region app-titlebar relative shrink-0 border-b border-[#d9cdb9]/55 bg-[#f4eddf]/88 backdrop-blur-xl">
-          <div className="absolute left-0 top-0 h-full w-[220px] border-r border-[#d9cdb9]/70 bg-[#f4eddf]/78" />
+      <div className="flex h-full min-h-0 flex-col bg-[#f5f1e8] text-foreground">
+        <header className="app-drag-region app-titlebar relative shrink-0 bg-[#f5f1e8]/95 shadow-[0_10px_26px_rgba(93,107,77,0.055)] backdrop-blur-xl">
+          <div className="absolute left-0 top-0 h-full w-[220px] bg-[#f5f1e8]" />
           <div
             className={cn(
               'relative flex h-full items-center justify-end pl-[244px]',
               isMac ? 'px-3' : 'pr-[calc(var(--app-titlebar-control-safe-area)+16px)]'
             )}
           >
-            <div className="app-no-drag flex items-center gap-2">{toolbarActions}</div>
+            <div className="app-no-drag flex items-center gap-1.5">{toolbarActions}</div>
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1">
-          <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-[#d9cdb9]/70 bg-[#f4eddf]/78 px-2.5 pb-3 pt-3">
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-[#d8cab0]/65 bg-[#fbf4e8]/66 px-2 py-1.5">
+        <div className="flex min-h-0 flex-1 bg-[#f5f1e8]">
+          <aside className="flex min-h-0 w-[220px] shrink-0 flex-col bg-[#f5f1e8] px-2.5 pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)]">
+            <div className="relative mb-3 flex items-center justify-between overflow-hidden rounded-[1.35rem] bg-[#e8e0d0]/72 px-2 py-1.5 shadow-[0_10px_24px_rgba(93,107,77,0.08)]">
+              <div className="pointer-events-none absolute -right-6 -top-7 h-20 w-20 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#d4e4c1]/62" />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     onClick={() => navigate('/sessions')}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-[#5d6b4d] transition-colors hover:border-[#d3c5ad] hover:bg-[#eadfcd]/80 hover:text-[#3e4a32] cursor-pointer"
+                    className="relative inline-flex h-8 w-8 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#f5f1e8]/72 text-[#5d6b4d] shadow-[0_4px_10px_rgba(93,107,77,0.08)] transition-colors hover:bg-[#d4e4c1]/78 hover:text-[#3e4a32] cursor-pointer"
                     aria-label="返回会话页"
                   >
                     <Home className="h-4 w-4" />
@@ -669,17 +721,17 @@ export function SessionDetailPage() {
                 </TooltipTrigger>
                 <TooltipContent side="right">返回会话页</TooltipContent>
               </Tooltip>
-              <div className="rounded-full border border-[#d8cab0]/75 bg-[#fff9ef]/55 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6f7f58]">
+              <div className="relative rounded-full bg-[#d4e4c1]/74 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#3e4a32] shadow-[0_3px_8px_rgba(93,107,77,0.08)]">
                 Pages · {normalizedOrderedPages.length}
               </div>
             </div>
             <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2">
               {normalizedOrderedPages.length === 0 ? (
-                <div className="flex min-h-[96px] items-center justify-center rounded-lg border border-[#d8ccb5]/65 bg-[#f8f0e2]/70 text-xs text-muted-foreground">
+                <div className="flex min-h-[96px] items-center justify-center rounded-[1.25rem] bg-[#e8e0d0]/54 text-xs text-[#8a9a7b]">
                   暂无页面
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {normalizedOrderedPages.map((page) => {
                     const isSelected = selectedPage?.pageNumber === page.pageNumber
                     return (
@@ -689,16 +741,26 @@ export function SessionDetailPage() {
                             type="button"
                             onClick={() => setSelectedPageNumber(page.pageNumber)}
                             className={cn(
-                              'group block w-full min-w-0 overflow-hidden rounded-lg border p-1.5 text-left transition-all duration-200 cursor-pointer',
+                              'group relative block w-full min-w-0 overflow-hidden rounded-[1.25rem] p-1.5 text-left transition-all duration-200 cursor-pointer',
                               isSelected
-                                ? 'border-[#99b27c]/90 bg-[#edf4e3]/88 shadow-[0_8px_18px_rgba(103,126,74,0.16)]'
-                                : 'border-[#ddd1bd]/45 bg-[#f7efdf]/36 hover:border-[#d6c8ae]/75 hover:bg-[#eee3d0]/68'
+                                ? 'bg-[#d4e4c1]/86 shadow-[0_14px_26px_rgba(93,107,77,0.18)]'
+                                : 'bg-[#e8e0d0]/34 hover:bg-[#e8e0d0]/68 hover:shadow-[0_8px_18px_rgba(93,107,77,0.09)]'
                             )}
                           >
                             <div
                               className={cn(
-                                'h-[106px] w-full overflow-hidden rounded-md border bg-[#fffaf1]/72',
-                                isSelected ? 'border-[#89a96c]/72' : 'border-[#d8ccb6]/58'
+                                'pointer-events-none absolute -right-7 -top-8 h-20 w-20 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] transition-opacity',
+                                isSelected
+                                  ? 'bg-[#8fbc8f]/24 opacity-100'
+                                  : 'bg-[#d4e4c1]/28 opacity-0 group-hover:opacity-100'
+                              )}
+                            />
+                            <div
+                              className={cn(
+                                'relative h-[106px] w-full overflow-hidden rounded-[1rem] bg-[#f5f1e8]/88 shadow-[0_5px_14px_rgba(93,107,77,0.08)]',
+                                isSelected
+                                  ? 'shadow-[0_6px_16px_rgba(93,107,77,0.13)]'
+                                  : 'group-hover:shadow-[0_6px_15px_rgba(93,107,77,0.1)]'
                               )}
                               style={{ contain: 'paint' }}
                             >
@@ -711,18 +773,18 @@ export function SessionDetailPage() {
                                 inspectable={false}
                               />
                             </div>
-                            <div className="mt-1.5 flex items-center justify-between gap-1 px-0.5">
+                            <div className="relative mt-1.5 flex items-center justify-between gap-1 px-0.5">
                               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
                                 P{page.pageNumber}
                               </span>
                               {isSelected ? (
-                                <span className="rounded-full bg-[#7f9b5f] px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                <span className="rounded-full bg-[#5d6b4d] px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-[0_3px_8px_rgba(62,74,50,0.18)]">
                                   当前
                                 </span>
                               ) : null}
                             </div>
                             <div
-                              className="mt-0.5 block w-full min-w-0 max-w-full overflow-hidden whitespace-normal break-words px-0.5 text-[11px] font-medium leading-4 text-[#4c5d3d]"
+                              className="relative mt-0.5 block w-full min-w-0 max-w-full overflow-hidden whitespace-normal break-words px-0.5 text-[11px] font-medium leading-4 text-[#4c5d3d]"
                               style={{
                                 display: '-webkit-box',
                                 WebkitLineClamp: 2,
@@ -751,11 +813,13 @@ export function SessionDetailPage() {
             </ScrollArea>
           </aside>
 
-          <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3">
-            <div className="min-h-0 flex-1 rounded-xl border border-[#d8ccb5]/60 bg-[#fff9ef]/44 p-2.5 shadow-[0_18px_42px_rgba(83,73,57,0.12)] backdrop-blur-xl">
+          <main className="flex min-h-0 flex-1 flex-col px-3 py-3">
+            <div className="relative min-h-0 flex-1 overflow-hidden rounded-[2rem] bg-[#e8e0d0]/54 p-3 shadow-[0_24px_54px_rgba(93,107,77,0.15)]">
+              <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#d4e4c1]/48" />
+              <div className="pointer-events-none absolute -bottom-24 left-8 h-48 w-64 rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#c8b89e]/22" />
               {selectedPage ? (
-                <div className="h-full relative">
-                  <div className="pointer-events-none absolute left-4 top-4 z-20 max-w-[calc(100%-8rem)] overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold tracking-[-0.02em] text-[#3e4a32] drop-shadow-[0_1px_0_rgba(255,249,239,0.85)]">
+                <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_14px_32px_rgba(93,107,77,0.14)]">
+                  <div className="pointer-events-none absolute left-5 top-5 z-20 max-w-[calc(100%-9rem)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
                     {currentSession?.title || '会话'}
                   </div>
                   <PreviewIframe
@@ -774,27 +838,32 @@ export function SessionDetailPage() {
                       type="button"
                       variant={inspecting ? 'default' : 'outline'}
                       size="sm"
-                      className="absolute right-3 top-3 z-20"
+                      className={cn(
+                        'absolute right-5 top-5 z-20 rounded-full px-3 text-xs shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                        inspecting
+                          ? 'bg-[#5d6b4d] text-white'
+                          : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
+                      )}
                       onClick={() => setInspecting((value) => !value)}
                       disabled={isGenerating}
                     >
-                      <Crosshair className="mr-2 h-4 w-4" />
+                      <Crosshair className="mr-1.5 h-3.5 w-3.5" />
                       {inspecting ? '退出检选' : '检选元素'}
                     </Button>
                   )}
                   {selectedPage.status === 'failed' && (
-                    <div className="absolute bottom-3 left-3 z-20 max-w-[520px] rounded-lg border border-[#d7b5ae]/75 bg-[#fff4ef]/88 px-3 py-2 text-xs text-[#8e5a53] shadow-sm backdrop-blur-sm">
+                    <div className="absolute bottom-5 left-5 z-20 max-w-[520px] rounded-[1rem] bg-[#fff4ef]/92 px-3 py-2 text-xs text-[#8e5a53] shadow-[0_10px_24px_rgba(142,90,83,0.12)] backdrop-blur-sm">
                       这一页上次生成失败，当前展示的是可恢复的页面文件。请保持“当前页”上下文，直接描述如何修复或重新生成这一页。
                     </div>
                   )}
                   {inspecting && (
-                    <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-lg border border-[#98b8ea]/55 bg-[#eff5ff]/85 px-3 py-1.5 text-xs text-[#375f97] shadow-sm backdrop-blur-sm">
+                    <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-3 py-1.5 text-xs text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
                       点击页面元素以选中
                     </div>
                   )}
                   {isGenerating && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-[#fff9ee]/60 backdrop-blur-sm transition-opacity">
-                      <div className="flex flex-col items-center gap-3 rounded-xl bg-[#fff9ef]/90 px-8 py-5 shadow-lg">
+                    <div className="absolute inset-0 flex items-center justify-center rounded-[1.55rem] bg-[#f5f1e8]/68 backdrop-blur-sm transition-opacity">
+                      <div className="flex flex-col items-center gap-3 rounded-[1.5rem] bg-[#e8e0d0]/88 px-8 py-5 shadow-[0_20px_44px_rgba(93,107,77,0.16)]">
                         <Loader2 className="h-6 w-6 animate-spin text-[#6f8159]" />
                         {progress && <p className="text-sm text-[#5a674b]">{progress.label}</p>}
                       </div>
@@ -802,11 +871,11 @@ export function SessionDetailPage() {
                   )}
                 </div>
               ) : (
-                <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-4 text-center text-muted-foreground">
+                <div className="relative flex h-full min-h-[420px] flex-col items-center justify-center gap-4 rounded-[1.55rem] bg-[#f5f1e8]/84 text-center text-[#5d6b4d] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.32)]">
                   {isGenerating ? (
-                    <Loader2 className="h-7 w-7 animate-spin" />
+                    <Loader2 className="h-7 w-7 animate-spin text-[#5d6b4d]" />
                   ) : (
-                    <Sparkles className="h-7 w-7" />
+                    <Sparkles className="h-7 w-7 text-[#8fbc8f]" />
                   )}
                   <div className="space-y-1">
                     <p className="text-base font-medium text-[#3e4a32]">等着你的创意</p>
@@ -822,19 +891,20 @@ export function SessionDetailPage() {
           </main>
 
           {consoleOpen && (
-            <aside className="mr-4 my-3 flex min-h-0 w-[300px] shrink-0 flex-col rounded-xl border border-[#d8ccb5]/62 bg-[#fff9ef]/62 shadow-[0_18px_44px_rgba(88,74,54,0.16)] backdrop-blur-xl">
-              <div className="border-b border-[#d8ccba]/55 px-3 pb-2.5 pt-3">
-                <div className="flex flex-col gap-2">
+            <aside className="mr-3 my-3 flex min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-[2rem] bg-[#d4e4c1]/58 shadow-[0_24px_54px_rgba(93,107,77,0.18)] backdrop-blur-xl">
+              <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] bg-[#f5f1e8]/68 px-3 pb-2.5 pt-3 shadow-[0_8px_20px_rgba(93,107,77,0.1)]">
+                <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#8fbc8f]/24" />
+                <div className="relative flex flex-col gap-2">
                   <h3 className="text-sm font-semibold tracking-[0.04em] text-[#4c5f3f]">
                     消息与输入
                   </h3>
-                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2 text-xs text-[#6f7f58]">
                     <span>上下文</span>
                     <Select
                       value={chatType}
                       onValueChange={(value) => setChatType(value === 'page' ? 'page' : 'main')}
                     >
-                      <SelectTrigger className="h-8 w-[96px] rounded-md border-[#d4c6ad] bg-[#fff9ef]/85 px-2 py-1 text-xs">
+                      <SelectTrigger className="h-8 w-[96px] rounded-full border-transparent bg-[#f5f1e8]/76 px-2.5 py-1 text-xs text-[#3e4a32] shadow-[0_4px_10px_rgba(93,107,77,0.08)]">
                         <SelectValue placeholder="选择上下文" />
                       </SelectTrigger>
                       <SelectContent>
@@ -854,7 +924,7 @@ export function SessionDetailPage() {
                 viewportClassName="px-2.5 py-2"
               >
                 {currentMessages.length === 0 && !isGenerating ? (
-                  <div className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
+                  <div className="flex min-h-full items-center justify-center text-sm text-[#6f7f58]">
                     还没有创意消息
                   </div>
                 ) : (
@@ -881,18 +951,18 @@ export function SessionDetailPage() {
                         >
                           <div
                             className={cn(
-                              'min-w-0 overflow-hidden rounded-xl px-3 py-2 shadow-[0_6px_14px_rgba(88,74,54,0.08)]',
+                              'min-w-0 overflow-hidden rounded-[1.15rem] px-3 py-2 shadow-[0_8px_18px_rgba(93,107,77,0.1)]',
                               selectorText ? 'w-full max-w-[238px]' : 'w-fit max-w-[238px]',
                               isUser
-                                ? 'bg-[#e9e0cd]/70 text-[#3f4b35]'
-                                : 'bg-[#dde9ce]/65 text-[#3f4b35]'
+                                ? 'bg-[#f5f1e8]/82 text-[#3f4b35]'
+                                : 'bg-[#e8e0d0]/76 text-[#3f4b35]'
                             )}
                           >
                             <div className="space-y-1">
                               {isUser && selectorText && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <div className="flex w-full min-w-0 items-center overflow-hidden rounded-md bg-[#f8f0df]/72 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#657552]">
+                                    <div className="flex w-full min-w-0 items-center overflow-hidden rounded-full bg-[#d4e4c1]/64 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#657552]">
                                       <span className="mr-1 shrink-0">SELECTOR</span>
                                       <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal tracking-normal">
                                         {selectorText}
@@ -909,7 +979,7 @@ export function SessionDetailPage() {
                                   {imagePaths.map((imagePath) => (
                                     <Tooltip key={imagePath}>
                                       <TooltipTrigger asChild>
-                                        <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-[#f8f0df]/72 px-1.5 py-0.5 text-[10px] font-medium text-[#5f6d4b]">
+                                        <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-[#d4e4c1]/64 px-1.5 py-0.5 text-[10px] font-medium text-[#5f6d4b]">
                                           <ImageIcon className="h-3 w-3 shrink-0" />
                                           <span className="min-w-0 max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap">
                                             {imagePath}
@@ -936,8 +1006,8 @@ export function SessionDetailPage() {
                     })}
 
                     {isGenerating && progress && (
-                      <div className="rounded-lg bg-[#e9e0cd]/70 px-3 py-2">
-                        <p className="mb-2 text-sm text-muted-foreground">
+                      <div className="rounded-[1.15rem] bg-[#f5f1e8]/74 px-3 py-2 shadow-[0_8px_18px_rgba(93,107,77,0.08)]">
+                        <p className="mb-2 text-sm text-[#6f7f58]">
                           {progress.label || '模型处理中…'}
                         </p>
                         <Progress value={progress.progress} />
@@ -945,7 +1015,7 @@ export function SessionDetailPage() {
                     )}
 
                     {error && (
-                      <div className="rounded-lg bg-[rgba(217,124,139,0.08)] px-3 py-2 text-sm text-destructive">
+                      <div className="rounded-[1.15rem] bg-[rgba(217,124,139,0.12)] px-3 py-2 text-sm text-destructive">
                         {error}
                       </div>
                     )}
@@ -956,8 +1026,8 @@ export function SessionDetailPage() {
 
               <div
                 className={cn(
-                  'px-2.5 pb-3 transition-colors',
-                  assetDragActive && 'rounded-b-xl bg-[#edf4e3]/55'
+                  'mx-2.5 mb-2.5 rounded-[1.4rem] bg-[#f5f1e8]/72 px-2.5 pb-3 pt-2 shadow-[0_14px_30px_rgba(93,107,77,0.12)] transition-colors',
+                  assetDragActive && 'bg-[#edf4e3]/78'
                 )}
                 onDragEnter={(event) => {
                   event.preventDefault()
@@ -979,8 +1049,8 @@ export function SessionDetailPage() {
                 }}
               >
                 {selectedSelector && (
-                  <div className="mb-2 flex items-center gap-2 rounded-md border border-[#d7c6a9]/60 bg-[#f9f1e2]/72 px-2 py-1.5">
-                    <span className="shrink-0 rounded bg-[#e4d3b4]/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-[#5f6d4b]">
+                  <div className="mb-2 flex items-center gap-2 rounded-[1rem] bg-[#e8e0d0]/64 px-2 py-1.5">
+                    <span className="shrink-0 rounded-full bg-[#d4e4c1]/72 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-[#5f6d4b]">
                       SELECTOR
                     </span>
                     <Tooltip>
@@ -1003,7 +1073,7 @@ export function SessionDetailPage() {
                         setElementTag('')
                         setElementText('')
                       }}
-                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[#64735a] transition-colors hover:bg-[#e9dcc4]/85 hover:text-[#3e4a32]"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[#64735a] transition-colors hover:bg-[#d4e4c1]/85 hover:text-[#3e4a32]"
                       aria-label="清除 selector"
                       title="清除 selector"
                     >
@@ -1012,7 +1082,7 @@ export function SessionDetailPage() {
                   </div>
                 )}
                 {chatType === 'main' && (
-                  <div className="mb-2 rounded-md border border-[#d9c9ae]/70 bg-[#f6eddd]/80 px-2.5 py-2 text-xs text-[#6b785a]">
+                  <div className="mb-2 rounded-[1rem] bg-[#e8e0d0]/72 px-2.5 py-2 text-xs text-[#6b785a]">
                     主会话已禁用发送。请将“上下文”切换到“当前页”后再继续编辑。
                   </div>
                 )}
@@ -1021,7 +1091,7 @@ export function SessionDetailPage() {
                     {pendingAssets.map((asset) => (
                       <div
                         key={asset.id}
-                        className="flex max-w-full items-center gap-1.5 rounded-md border border-[#d3c5aa]/60 bg-[#eef5df]/76 px-2 py-1 text-[11px] text-[#4f6340]"
+                        className="flex max-w-full items-center gap-1.5 rounded-full bg-[#d4e4c1]/74 px-2 py-1 text-[11px] text-[#4f6340] shadow-[0_3px_8px_rgba(93,107,77,0.08)]"
                         title={`${asset.originalName}\n${asset.relativePath}`}
                       >
                         <ImageIcon className="h-3.5 w-3.5 shrink-0" />
@@ -1035,7 +1105,7 @@ export function SessionDetailPage() {
                               assets.filter((item) => item.id !== asset.id)
                             )
                           }
-                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[#657552] hover:bg-[#dbe8c8]"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#657552] hover:bg-[#c8ddb2]"
                           aria-label="移除素材"
                         >
                           <X className="h-3 w-3" />
@@ -1056,7 +1126,7 @@ export function SessionDetailPage() {
                   }}
                   disabled={isGenerating || chatType === 'main'}
                   rows={4}
-                  className="min-h-[96px] resize-none border border-[#d8c9ae]/40 bg-[#f7efdf]/72 px-2.5 py-2 text-[13px] leading-5 text-[#445439] focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="min-h-[96px] resize-none rounded-[1.15rem] border-transparent bg-[#e8e0d0]/52 px-3 py-2 text-[13px] leading-5 text-[#445439] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)] focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
                 <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                   <div className="flex min-w-0 items-center gap-2">
@@ -1065,7 +1135,7 @@ export function SessionDetailPage() {
                         <button
                           type="button"
                           disabled={isGenerating || isUploadingAssets || chatType === 'main'}
-                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#d8c9ae]/60 bg-[#fff8ec]/74 text-[#5e704c] shadow-[0_4px_10px_rgba(88,74,54,0.08)] transition-colors hover:bg-[#eef5df] disabled:pointer-events-none disabled:opacity-45"
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#d4e4c1]/78 text-[#5e704c] shadow-[0_5px_12px_rgba(93,107,77,0.12)] transition-colors hover:bg-[#c8ddb2] disabled:pointer-events-none disabled:opacity-45"
                           aria-label="添加素材"
                           title="添加素材"
                         >
@@ -1087,7 +1157,7 @@ export function SessionDetailPage() {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-muted-foreground">
+                    <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-[#6f7f58]">
                       {contextHint}
                     </div>
                   </div>
@@ -1097,7 +1167,7 @@ export function SessionDetailPage() {
                       variant="destructive"
                       onClick={handleCancel}
                       size="sm"
-                      className="shrink-0 whitespace-nowrap"
+                      className="shrink-0 whitespace-nowrap rounded-full px-3 text-xs shadow-[0_8px_18px_rgba(177,90,88,0.22)]"
                     >
                       <StopCircle className="mr-1 h-4 w-4" />
                       停止
@@ -1111,7 +1181,7 @@ export function SessionDetailPage() {
                         ((selectedSelector ? 'page' : chatType) === 'page' && !selectedPage?.pageId)
                       }
                       size="sm"
-                      className="shrink-0 whitespace-nowrap"
+                      className="shrink-0 whitespace-nowrap rounded-full bg-[#5d6b4d] px-3 text-xs text-white shadow-[0_8px_18px_rgba(93,107,77,0.24)] hover:bg-[#3e4a32]"
                     >
                       <Send className="mr-1 h-4 w-4" />
                       发送

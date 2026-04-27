@@ -1,15 +1,16 @@
-export const FREEZE_PAGE_FOR_PPTX_SCRIPT = `
+export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
 (async () => {
   const root =
     document.querySelector('.ppt-page-root[data-ppt-guard-root="1"]') ||
     document.querySelector('.ppt-page-root') ||
     document.body;
-  const existing = document.getElementById('ohmyppt-pptx-freeze-page');
+  const existing = document.getElementById('ohmyppt-export-freeze-page');
   if (existing) existing.remove();
   const style = document.createElement('style');
-  style.id = 'ohmyppt-pptx-freeze-page';
+  style.id = 'ohmyppt-export-freeze-page';
   style.textContent = [
-    '*, *::before, *::after { animation-delay: 0s !important; animation-duration: 0s !important; animation-play-state: paused !important; transition-delay: 0s !important; transition-duration: 0s !important; }',
+    'html { scroll-behavior: auto !important; }',
+    '*, *::before, *::after { animation: none !important; transition: none !important; animation-delay: 0s !important; animation-duration: 0s !important; animation-play-state: paused !important; transition-delay: 0s !important; transition-duration: 0s !important; }',
     '.opacity-0, [data-anime], [data-animate] { opacity: 1 !important; transform: none !important; }'
   ].join('\\n');
   document.head.appendChild(style);
@@ -41,6 +42,18 @@ export const FREEZE_PAGE_FOR_PPTX_SCRIPT = `
     }
   });
 
+  Array.from(root.querySelectorAll('*')).slice(0, 900).forEach((element) => {
+    const node = element;
+    const computed = getComputedStyle(node);
+    if (computed.display === 'none' || computed.visibility === 'hidden') return;
+    if (Number(computed.opacity || '1') < 0.98) {
+      node.style.opacity = '1';
+    }
+    if (/translate(?:3d|X|Y)?\\(/.test(node.style.transform || '')) {
+      node.style.transform = 'none';
+    }
+  });
+
   const scope = root.querySelector?.(':scope > .ppt-page-fit-scope');
   if (scope) scope.style.transform = 'scale(1)';
   if (document.fonts?.ready) {
@@ -51,6 +64,8 @@ export const FREEZE_PAGE_FOR_PPTX_SCRIPT = `
   return true;
 })()
 `
+
+export const FREEZE_PAGE_FOR_PPTX_SCRIPT = FREEZE_PAGE_FOR_EXPORT_SCRIPT
 
 export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
 (() => {
