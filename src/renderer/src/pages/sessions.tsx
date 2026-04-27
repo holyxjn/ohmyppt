@@ -50,12 +50,15 @@ export function SessionsPage() {
           {sortedSessions.map((session) => {
             const isComplete = isFullyGenerated(session)
             const editorGate = getEditorGate(session)
-            const statusText = isComplete ? '已完成' : editorGate.failedCount > 0 ? '已失败' : '进行中'
+            const hasCompletedPages = editorGate.generatedCount > 0
+            const isContinuable = !isComplete && hasCompletedPages
+            const statusText = isComplete ? '已完成' : isContinuable ? '可继续生成' : '需重新生成'
+            const actionText = isComplete ? '进入会话' : isContinuable ? '继续生成' : '重新生成'
             const statusClassName = isComplete
               ? 'border-[#bad8b7]/80 bg-[#eef9ec] text-[#4a7a46]'
-              : editorGate.failedCount > 0
-                ? 'border-[#d7b5ae]/70 bg-[#fbf1ee] text-[#93564f]'
-                : 'border-[#e1d1b7]/80 bg-[#fff7e8]/75 text-[#7c6a4c]'
+              : isContinuable
+                ? 'border-[#d6c08d]/80 bg-[#fff3cf] text-[#7a5a19] shadow-[0_0_0_1px_rgba(214,192,141,0.14)]'
+                : 'border-[#d7b5ae]/70 bg-[#fbf1ee] text-[#93564f]'
             return (
               <Card
                 key={session.id}
@@ -83,14 +86,19 @@ export function SessionsPage() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="soft-pill inline-flex items-center gap-1 rounded-lg px-3 py-1 text-secondary-foreground">
                     <MessageSquare className="h-3 w-3" />
-                    {isComplete ? '进入会话' : '进入生成页'}
+                    {actionText}
                   </span>
-                  <span className={`rounded-lg border px-2 py-1 ${statusClassName}`}>
+                  <span className={`rounded-lg border px-2 py-1 font-semibold ${statusClassName}`}>
                     {statusText}
                   </span>
                   <span className="rounded-lg border border-[#e1d1b7]/80 bg-[#fff7e8]/75 px-2 py-1 text-[#7c6a4c]">
                     {editorGate.generatedCount}/{editorGate.totalCount} 页
                   </span>
+                  {!isComplete && editorGate.failedCount > 0 && (
+                    <span className="rounded-lg border border-[#d7b5ae]/70 bg-[#fff7f2]/80 px-2 py-1 text-[#93564f]">
+                      失败 {editorGate.failedCount}
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>
