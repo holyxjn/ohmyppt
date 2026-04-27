@@ -7,6 +7,7 @@ import { PPTDatabase } from './db/database'
 import { AgentManager } from './agent'
 import { setupIPC } from './ipc'
 import { setStyleDb } from './utils/style-skills'
+import type { UpdateAvailablePayload } from '@shared/app-update'
 
 let mainWindow: BrowserWindow | null = null
 let db: PPTDatabase | null = null
@@ -21,6 +22,8 @@ const BASE_MIN_HEIGHT = 620
 const TITLEBAR_HEIGHT = 48
 const TITLEBAR_BACKGROUND = '#f4eddf'
 const TITLEBAR_SYMBOL_COLOR = '#5d6b4d'
+const GITHUB_LATEST_RELEASE_API = 'https://api.github.com/repos/arcsin1/oh-my-ppt/releases/latest'
+const GITHUB_RELEASES_URL = 'https://github.com/arcsin1/oh-my-ppt/releases'
 
 function resolveWindowBounds() {
   const workArea = screen.getPrimaryDisplay().workAreaSize
@@ -69,6 +72,91 @@ function configureLogging(): void {
     env: is.dev ? 'dev' : 'prod',
     version: app.getVersion(),
     file: log.transports.file.getFile().path,
+  })
+}
+
+function parseVersion(version: string): number[] {
+  return version
+    .trim()
+    .replace(/^v/i, '')
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map((part) => {
+      const value = Number.parseInt(part, 10)
+      return Number.isFinite(value) ? value : 0
+    })
+}
+
+function isNewerVersion(latestVersion: string, currentVersion: string): boolean {
+  const latest = parseVersion(latestVersion)
+  const current = parseVersion(currentVersion)
+  for (let index = 0; index < Math.max(latest.length, current.length, 3); index += 1) {
+    const latestPart = latest[index] ?? 0
+    const currentPart = current[index] ?? 0
+    if (latestPart > currentPart) return true
+    if (latestPart < currentPart) return false
+  }
+  return false
+}
+
+async function fetchLatestRelease(): Promise<UpdateAvailablePayload | null> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000)
+  try {
+    const response = await fetch(GITHUB_LATEST_RELEASE_API, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': `${APP_NAME}/${app.getVersion()}`
+      },
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      log.warn('[update] latest release request failed', {
+        status: response.status,
+        statusText: response.statusText
+      })
+      return null
+    }
+    const release = (await response.json()) as {
+      tag_name?: string
+      html_url?: string
+      name?: string
+      published_at?: string
+      draft?: boolean
+      prerelease?: boolean
+    }
+    const latestVersion = String(release.tag_name || '').trim()
+    const currentVersion = app.getVersion()
+    if (!latestVersion || release.draft || release.prerelease) return null
+    if (!isNewerVersion(latestVersion, currentVersion)) return null
+
+    return {
+      currentVersion,
+      latestVersion,
+      releaseUrl: release.html_url || GITHUB_RELEASES_URL,
+      releaseName: release.name,
+      publishedAt: release.published_at
+    }
+  } catch (error) {
+    log.warn('[update] latest release check failed', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function scheduleUpdateNotification(window: BrowserWindow): void {
+  if (is.dev) return
+  window.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      void fetchLatestRelease().then((update) => {
+        if (!update || window.isDestroyed() || window.webContents.isDestroyed()) return
+        log.info('[update] new release available', update)
+        window.webContents.send('app:update-available', update)
+      })
+    }, 2500)
   })
 }
 
@@ -170,6 +258,7 @@ app.whenReady().then(async () => {
 
   if (mainWindow && db && agentManager) {
     setupIPC(mainWindow, db, agentManager)
+    scheduleUpdateNotification(mainWindow)
   }
 
   electronApp.setAppUserModelId('com.ohmyppt.app')

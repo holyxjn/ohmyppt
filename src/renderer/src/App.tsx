@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation, matchPath } from 'react-router-dom'
 import { Sidebar } from './components/layout/Sidebar'
 import { HomePage } from './pages/home'
@@ -9,10 +10,31 @@ import { StylesPage } from './pages/styles'
 import { StyleEditorPage } from './pages/style-editor'
 import { AppToaster } from './components/AppToaster'
 import { ScrollArea } from './components/ui/ScrollArea'
+import { ipc } from './lib/ipc'
+import { useToastStore } from './store'
 
 function App(): React.JSX.Element {
   const location = useLocation()
   const isSessionDetailRoute = Boolean(matchPath('/sessions/:id/*', location.pathname))
+  const { info } = useToastStore()
+
+  useEffect(() => {
+    const unsubscribe = ipc.onUpdateAvailable((update) => {
+      info(`发现新版本 ${update.latestVersion}`, {
+        description: `当前版本 ${update.currentVersion}，点击前往下载。`,
+        duration: 12000,
+        action: {
+          label: '打开',
+          onClick: () => {
+            window.open(update.releaseUrl, '_blank', 'noopener,noreferrer')
+          }
+        }
+      })
+    })
+    return () => {
+      unsubscribe?.()
+    }
+  }, [info])
 
   if (isSessionDetailRoute) {
     return (

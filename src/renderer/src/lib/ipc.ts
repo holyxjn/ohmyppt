@@ -1,4 +1,5 @@
 import type { GenerateChunkEvent, GenerateRetryFailedPayload, GenerateStartPayload, UploadedAsset } from '@shared/generation.js'
+import type { UpdateAvailablePayload } from '@shared/app-update.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -168,6 +169,16 @@ export const ipc = {
     getIpc().invoke('file:openInBrowser', { path: filePath, hash, sessionId }) as Promise<{ success: boolean }>,
   saveFile: (payload: { path: string; content: string; sessionId?: string }) =>
     getIpc().invoke('file:save', payload) as Promise<{ success: boolean }>,
-  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void) =>
-    getIpc().on('generate:chunk', (_event, chunk) => callback(chunk as GenerateChunkEvent)),
+  onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void) => {
+    const channel = 'generate:chunk'
+    const handler = (_event: unknown, chunk: unknown) => callback(chunk as GenerateChunkEvent)
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  },
+  onUpdateAvailable: (callback: (payload: UpdateAvailablePayload) => void) => {
+    const channel = 'app:update-available'
+    const handler = (_event: unknown, payload: unknown) => callback(payload as UpdateAvailablePayload)
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  },
 }
