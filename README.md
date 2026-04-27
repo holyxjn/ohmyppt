@@ -67,6 +67,9 @@
 - 📄 **多格式导出** — 支持 PDF、批量 PNG，并提供可编辑 PPTX 导出（持续优化中）
 - 🧩 **更稳的页面生成** — 生成时会按固定 16:9 画布与内容高度预算组织页面，减少内容溢出
 
+<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/a7f7124a-c354-40c1-a946-c52175824179" />
+
+
 <a id="workflow"></a>
 ## 🔄 使用流程
 
