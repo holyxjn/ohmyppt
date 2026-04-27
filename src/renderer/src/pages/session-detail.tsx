@@ -40,6 +40,7 @@ import {
 import { useSessionStore, useGenerateStore } from '../store'
 import type { GenerateChunkEvent, UploadedAsset } from '@shared/generation.js'
 import { useToastStore } from '../store'
+import { getEditorGate } from '../lib/sessionMetadata'
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -109,6 +110,12 @@ export function SessionDetailPage() {
     setElementText('')
   }, [selectedPage?.pageId])
 
+  const isFullyGenerated = useMemo(() => {
+    if (!currentSession) return false
+    const gate = getEditorGate(currentSession)
+    return gate.generatedCount >= gate.totalCount && gate.failedCount === 0
+  }, [currentSession])
+
   useEffect(() => {
     if (!inspecting) return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -132,6 +139,13 @@ export function SessionDetailPage() {
   useEffect(() => {
     useGenerateStore.getState().setPages(currentGeneratedPages)
   }, [currentGeneratedPages])
+
+  useEffect(() => {
+    if (!id || !currentSession) return
+    if (!isFullyGenerated) {
+      navigate(`/sessions/${id}/generating`, { replace: true })
+    }
+  }, [currentSession, id, isFullyGenerated, navigate])
 
   useEffect(() => {
     if (!id) return
@@ -222,7 +236,9 @@ export function SessionDetailPage() {
             html: payload.html,
             htmlPath: payload.htmlPath,
             pageId: payload.pageId || `page-${payload.pageNumber}`,
-            sourceUrl: payload.sourceUrl
+            sourceUrl: payload.sourceUrl,
+            status: 'completed',
+            error: null
           })
           setSelectedPageNumber(payload.pageNumber)
           setPreviewKey((k) => k + 1)
@@ -230,7 +246,14 @@ export function SessionDetailPage() {
       } else if (type === 'page_updated') {
         useGenerateStore
           .getState()
-          .updatePage(payload.pageId || `page-${payload.pageNumber}`, payload.html)
+          .updatePage(payload.pageId || `page-${payload.pageNumber}`, payload.html, {
+            pageNumber: payload.pageNumber,
+            title: payload.title,
+            htmlPath: payload.htmlPath,
+            sourceUrl: payload.sourceUrl,
+            status: 'completed',
+            error: null
+          })
         setSelectedPageNumber(payload.pageNumber)
         setPreviewKey((k) => k + 1)
       } else if (type === 'assistant_message') {
@@ -553,8 +576,8 @@ export function SessionDetailPage() {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-[#d9cdb9]/70 bg-[#f4eddf]/78 px-3 pb-4 pt-3">
-            <div className="mb-4 flex items-center justify-between px-1">
+          <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-[#d9cdb9]/70 bg-[#f4eddf]/78 px-2.5 pb-3 pt-3">
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-[#d8cab0]/65 bg-[#fbf4e8]/66 px-2 py-1.5">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -572,68 +595,74 @@ export function SessionDetailPage() {
                 Pages · {normalizedOrderedPages.length}
               </div>
             </div>
-            <ScrollArea className="min-h-0 flex-1" viewportClassName="space-y-2 pr-1.5">
+            <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2">
               {normalizedOrderedPages.length === 0 ? (
                 <div className="flex min-h-[96px] items-center justify-center rounded-lg border border-[#d8ccb5]/65 bg-[#f8f0e2]/70 text-xs text-muted-foreground">
                   暂无页面
                 </div>
               ) : (
-                normalizedOrderedPages.map((page) => {
-                  const isSelected = selectedPage?.pageNumber === page.pageNumber
-                  return (
-                    <Tooltip key={page.pageNumber}>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPageNumber(page.pageNumber)}
-                          className={cn(
-                            'group w-full min-w-0 rounded-lg border p-1.5 text-left transition-all duration-200 cursor-pointer',
-                            isSelected
-                              ? 'border-[#9ab47d]/85 bg-[#edf4e3]/88 shadow-[0_8px_18px_rgba(103,126,74,0.18)]'
-                              : 'border-transparent bg-transparent hover:border-[#d6c8ae]/70 hover:bg-[#eee3d0]/68'
-                          )}
-                        >
-                          <div
+                <div className="space-y-2">
+                  {normalizedOrderedPages.map((page) => {
+                    const isSelected = selectedPage?.pageNumber === page.pageNumber
+                    return (
+                      <Tooltip key={page.pageNumber}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPageNumber(page.pageNumber)}
                             className={cn(
-                              'aspect-video overflow-hidden rounded-md border bg-[#fffaf1]/70',
-                              isSelected ? 'border-[#89a96c]/70' : 'border-[#d8ccb6]/55'
+                              'group block w-full min-w-0 overflow-hidden rounded-lg border p-1.5 text-left transition-all duration-200 cursor-pointer',
+                              isSelected
+                                ? 'border-[#99b27c]/90 bg-[#edf4e3]/88 shadow-[0_8px_18px_rgba(103,126,74,0.16)]'
+                                : 'border-[#ddd1bd]/45 bg-[#f7efdf]/36 hover:border-[#d6c8ae]/75 hover:bg-[#eee3d0]/68'
                             )}
                           >
-                            <PreviewIframe
-                              key={`thumb-${page.pageId}-${previewKey}`}
-                              src={page.sourceUrl}
-                              htmlPath={page.htmlPath}
-                              pageId={page.pageId}
-                              title={`filmstrip-page-${page.pageNumber}`}
-                              inspectable={false}
-                            />
-                          </div>
-                          <div className="mt-1.5 flex items-center justify-between gap-1 px-0.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
-                              P{page.pageNumber}
-                            </span>
-                            {isSelected ? (
-                              <span className="rounded-full bg-[#7f9b5f] px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                当前
+                            <div
+                              className={cn(
+                                'h-[106px] w-full overflow-hidden rounded-md border bg-[#fffaf1]/72',
+                                isSelected ? 'border-[#89a96c]/72' : 'border-[#d8ccb6]/58'
+                              )}
+                              style={{ contain: 'paint' }}
+                            >
+                              <PreviewIframe
+                                key={`thumb-${page.pageId}-${previewKey}`}
+                                src={page.sourceUrl}
+                                htmlPath={page.htmlPath}
+                                pageId={page.pageId}
+                                title={`filmstrip-page-${page.pageNumber}`}
+                                inspectable={false}
+                              />
+                            </div>
+                            <div className="mt-1.5 flex items-center justify-between gap-1 px-0.5">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
+                                P{page.pageNumber}
                               </span>
-                            ) : null}
+                              {isSelected ? (
+                                <span className="rounded-full bg-[#7f9b5f] px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                  当前
+                                </span>
+                              ) : null}
+                            </div>
+                            <div
+                              className="mt-0.5 block w-full min-w-0 max-w-full overflow-hidden whitespace-normal break-words px-0.5 text-[11px] font-medium leading-4 text-[#4c5d3d]"
+                              style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+                            >
+                              {page.title}
+                            </div>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" align="start">
+                          <div className="max-w-[240px]">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
+                              Page {page.pageNumber}
+                            </div>
+                            <div className="mt-0.5 text-sm font-medium text-[#3e4a32]">{page.title}</div>
                           </div>
-                          <div className="mt-0.5 block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-0.5 text-[11px] font-medium text-[#4c5d3d]">
-                            {page.title}
-                          </div>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" align="start">
-                        <div className="max-w-[240px]">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
-                            Page {page.pageNumber}
-                          </div>
-                          <div className="mt-0.5 text-sm font-medium text-[#3e4a32]">{page.title}</div>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  )
-                })
+                        </TooltipContent>
+                      </Tooltip>
+                    )
+                  })}
+                </div>
               )}
             </ScrollArea>
           </aside>
@@ -668,6 +697,11 @@ export function SessionDetailPage() {
                       <Crosshair className="mr-2 h-4 w-4" />
                       {inspecting ? '退出检选' : '检选元素'}
                     </Button>
+                  )}
+                  {selectedPage.status === 'failed' && (
+                    <div className="absolute bottom-3 left-3 z-20 max-w-[520px] rounded-lg border border-[#d7b5ae]/75 bg-[#fff4ef]/88 px-3 py-2 text-xs text-[#8e5a53] shadow-sm backdrop-blur-sm">
+                      这一页上次生成失败，当前展示的是可恢复的页面文件。请保持“当前页”上下文，直接描述如何修复或重新生成这一页。
+                    </div>
                   )}
                   {inspecting && (
                     <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-lg border border-[#98b8ea]/55 bg-[#eff5ff]/85 px-3 py-1.5 text-xs text-[#375f97] shadow-sm backdrop-blur-sm">

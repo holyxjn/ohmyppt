@@ -24,6 +24,11 @@ export interface GenerateStartPayload {
   docPaths?: string[]
 }
 
+export interface GenerateRetryFailedPayload {
+  sessionId: string
+  userMessage?: string
+}
+
 export interface GeneratedPagePayload {
   pageNumber: number
   title: string

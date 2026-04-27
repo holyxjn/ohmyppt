@@ -7,10 +7,12 @@ import { Button } from '../components/ui/Button'
 import { ScrollArea } from '../components/ui/ScrollArea'
 import videoSrc from '../assets/images/video.mp4'
 import dayjs from 'dayjs'
+import { getEditorGate, type EditorGate } from '../lib/sessionMetadata'
 
 type LocationState = {
   initialPrompt?: string
   retry?: boolean
+  rerunToken?: number
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -25,6 +27,15 @@ const NOISY_REPEATED_PATTERNS = [
   /^验证完成状态/,
   /^当前页面已填充/,
 ]
+
+const extractFailedPages = (message: string | null): string[] => {
+  if (!message) return []
+  const matches = Array.from(message.matchAll(/page-\d+\([^)]+\)/g))
+  return matches.map((match) => match[0]).slice(0, 12)
+}
+
+const isSessionFullyGenerated = (gate: EditorGate) =>
+  gate.generatedCount >= gate.totalCount && gate.failedCount === 0
 
 export function SessionGeneratingPage() {
   const { id } = useParams<{ id: string }>()
@@ -46,6 +57,7 @@ export function SessionGeneratingPage() {
   const [sessionTitle, setSessionTitle] = useState<string>('当前会话')
   const [, setTotalPages] = useState<number>(1)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
+  const [editorGate, setEditorGate] = useState<EditorGate>(() => getEditorGate(null))
 
   const appendEvent = (line: string, timestamp?: string) => {
     setEvents((prev) => {
@@ -86,7 +98,8 @@ export function SessionGeneratingPage() {
     const initialPrompt =
       state?.initialPrompt?.trim() ||
       '请生成一份结构清晰、可直接预览的演示文稿初稿。'
-    if (state?.retry) {
+    const explicitRerun = typeof state?.rerunToken === 'number'
+    if (state?.retry || explicitRerun) {
       startedSessionRef.current = null
       activeRunIdRef.current = null
       terminalStatusRef.current = null
@@ -164,22 +177,32 @@ export function SessionGeneratingPage() {
         setStatus('failed')
         setError(event.payload.message)
         appendEvent('生成失败，请点击重试或返回会话列表。', event.payload.timestamp)
+        void ipc.getSession(id).then(({ session }) => {
+          if (!active) return
+          setEditorGate(getEditorGate(session as { status?: string; page_count?: number | null; metadata?: string | null } | null))
+        }).catch(() => {})
       }
     }
 
     const unsubscribe = ipc.onGenerateChunk((event) => applyChunk(event))
 
     const startRun = () => {
-      if (startedSessionRef.current === id) return
-      startedSessionRef.current = id
+      const runKey = `${id}:${state?.retry ? 'retry' : 'generate'}:${state?.rerunToken ?? 'initial'}`
+      if (startedSessionRef.current === runKey) return
+      startedSessionRef.current = runKey
       setStatus('running')
       setError(null)
       terminalStatusRef.current = null
       if (import.meta.env.DEV) {
-        console.info('[generate:start] request', { sessionId: id, hasInitialPrompt: Boolean(initialPrompt) })
+        console.info('[generate:start] request', { sessionId: id, retry: Boolean(state?.retry), hasInitialPrompt: Boolean(initialPrompt) })
       }
-      void ipc
-        .startGenerate({ sessionId: id, userMessage: initialPrompt, type: 'deck' })
+      const request = state?.retry
+        ? ipc.retryFailedPages({
+            sessionId: id,
+            userMessage: state.initialPrompt?.trim() || undefined
+          })
+        : ipc.startGenerate({ sessionId: id, userMessage: initialPrompt, type: 'deck' })
+      void request
         .then((result) => {
           if (result?.runId) {
             activeRunIdRef.current = result.runId
@@ -206,6 +229,10 @@ export function SessionGeneratingPage() {
           appendEvent('生成失败，请点击重试或返回会话列表。', new Date().toISOString())
           setStatus('failed')
           setError(message)
+          void ipc.getSession(id).then(({ session }) => {
+            if (!active) return
+            setEditorGate(getEditorGate(session as { status?: string; page_count?: number | null; metadata?: string | null } | null))
+          }).catch(() => {})
         })
     }
 
@@ -216,8 +243,10 @@ export function SessionGeneratingPage() {
       ])
       .then(([{ session }, runState]) => {
         if (!active) return
-        const snapshot = (session || {}) as { status?: string; title?: string | null; page_count?: number | null }
+        const snapshot = (session || {}) as { status?: string; title?: string | null; page_count?: number | null; metadata?: string | null }
         const currentStatus = snapshot.status || 'active'
+        const snapshotGate = getEditorGate(snapshot)
+        setEditorGate(snapshotGate)
         if (snapshot.title && snapshot.title.trim().length > 0) {
           setSessionTitle(snapshot.title)
         }
@@ -226,32 +255,34 @@ export function SessionGeneratingPage() {
         }
 
         if (runState) {
+          const shouldHydrateFromSnapshot = !state?.retry || runState.hasActiveRun
+
           if (runState.hasActiveRun && runState.runId) {
             activeRunIdRef.current = runState.runId
           }
-          if (typeof runState.totalPages === 'number' && runState.totalPages > 0) {
+          if (shouldHydrateFromSnapshot && typeof runState.totalPages === 'number' && runState.totalPages > 0) {
             setTotalPages((prev) => Math.max(prev, Math.floor(runState.totalPages)))
           }
-          if (typeof runState.progress === 'number' && runState.progress > 0) {
+          if (shouldHydrateFromSnapshot && typeof runState.progress === 'number' && runState.progress > 0) {
             const safeProgress =
               runState.status === 'completed'
                 ? Math.min(100, Math.floor(runState.progress))
                 : Math.min(90, Math.floor(runState.progress))
             setProgress((prev) => Math.max(prev, safeProgress))
           }
-          if (runState.status === 'failed' && runState.error) {
+          if (shouldHydrateFromSnapshot && runState.status === 'failed' && runState.error) {
             setError(runState.error)
           }
-          if (!state?.retry && Array.isArray(runState.events) && runState.events.length > 0) {
+          if (shouldHydrateFromSnapshot && Array.isArray(runState.events) && runState.events.length > 0) {
             for (const event of runState.events) {
               applyChunk(event, { replay: true })
             }
           }
-          if (runState.status === 'completed' && !state?.retry) {
+          if (runState.status === 'completed' && !state?.retry && !explicitRerun) {
             navigate(`/sessions/${id}`, { replace: true })
             return
           }
-          if (runState.status === 'failed' && !state?.retry) {
+          if (runState.status === 'failed' && !state?.retry && !explicitRerun) {
             setStatus('failed')
             setError(runState.error || '该会话上一次生成失败，你可以直接重试。')
             appendEvent('检测到该会话未成功完成，保留在生成页以便继续处理。', new Date().toISOString())
@@ -264,11 +295,33 @@ export function SessionGeneratingPage() {
           }
         }
 
-        if (currentStatus === 'completed' && !state?.retry) {
+        const hasManualStartIntent = Boolean(
+          state?.retry ||
+          explicitRerun ||
+          (state?.initialPrompt && state.initialPrompt.trim().length > 0)
+        )
+        const fullyGenerated = isSessionFullyGenerated(snapshotGate)
+
+        if (fullyGenerated && !state?.retry && !explicitRerun) {
           navigate(`/sessions/${id}`, { replace: true })
           return
         }
-        if (currentStatus === 'failed' && !state?.retry) {
+        if (currentStatus === 'completed' && !state?.retry && !explicitRerun) {
+          navigate(`/sessions/${id}`, { replace: true })
+          return
+        }
+        if (!fullyGenerated && !hasManualStartIntent) {
+          setStatus('failed')
+          if (snapshotGate.generatedCount > 0) {
+            setError(`会话尚未完成：已完成 ${snapshotGate.generatedCount}/${snapshotGate.totalCount} 页。请选择继续生成剩余页。`)
+            appendEvent('检测到会话部分完成。请继续生成剩余页。', new Date().toISOString())
+          } else {
+            setError(`会话尚未完成：当前 0/${snapshotGate.totalCount} 页。请重新生成。`)
+            appendEvent('检测到会话尚未产出有效页面。请重新生成。', new Date().toISOString())
+          }
+          return
+        }
+        if (currentStatus === 'failed' && !state?.retry && !explicitRerun && !hasManualStartIntent) {
           setStatus('failed')
           setError('该会话上一次生成失败，你可以直接重试。')
           appendEvent('检测到该会话未成功完成，保留在生成页以便继续处理。', new Date().toISOString())
@@ -284,9 +337,12 @@ export function SessionGeneratingPage() {
       active = false
       unsubscribe?.()
     }
-  }, [id, navigate, location.key, state?.initialPrompt, state?.retry])
+  }, [id, navigate, location.key, state?.initialPrompt, state?.retry, state?.rerunToken])
 
   const displayProgress = Math.max(0, Math.min(100, Math.round(progress)))
+  const failedPages = extractFailedPages(error)
+  const fullyGenerated = isSessionFullyGenerated(editorGate)
+  const hasGeneratedPages = editorGate.generatedCount > 0
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[linear-gradient(165deg,#d8edf8_0%,#cce6ee_38%,#e9e3d1_100%)]">
@@ -420,7 +476,33 @@ export function SessionGeneratingPage() {
           {status === 'failed' && (
             <div className="mt-2 rounded-lg border border-[#d7b5ae] bg-[#fbf1ee] px-4 py-3 text-sm text-[#93564f]">
               <div>{error || '生成失败，请重试。'}</div>
+              {failedPages.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {failedPages.map((page) => (
+                    <span
+                      key={page}
+                      className="rounded-md border border-[#d7b5ae]/70 bg-[#fff8f4]/75 px-2 py-1 text-xs text-[#8e5a53]"
+                    >
+                      {page}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="mt-3 flex items-center gap-2">
+                {!fullyGenerated && hasGeneratedPages && (
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/sessions/${id}/generating`, {
+                      replace: true,
+                      state: {
+                        retry: true,
+                        rerunToken: Date.now(),
+                      },
+                    })}
+                  >
+                    继续生成剩余页
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -428,18 +510,21 @@ export function SessionGeneratingPage() {
                 >
                   返回会话列表
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={() => navigate(`/sessions/${id}/generating`, {
-                    replace: true,
-                    state: {
-                      initialPrompt: state?.initialPrompt,
-                      retry: true,
-                    },
-                  })}
-                >
-                  立即重试
-                </Button>
+                {!hasGeneratedPages && (
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/sessions/${id}/generating`, {
+                      replace: true,
+                      state: {
+                        initialPrompt: state?.initialPrompt,
+                        retry: false,
+                        rerunToken: Date.now(),
+                      },
+                    })}
+                  >
+                    重新生成
+                  </Button>
+                )}
               </div>
             </div>
           )}

@@ -43,6 +43,34 @@ export const projects = sqliteTable("projects", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const generationRuns = sqliteTable("generation_runs", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull().default("generate"),
+  status: text("status").notNull().default("running"),
+  totalPages: integer("total_pages").notNull().default(0),
+  error: text("error"),
+  metadata: text("metadata"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const generationPages = sqliteTable("generation_pages", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => generationRuns.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  pageId: text("page_id").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  title: text("title").notNull(),
+  contentOutline: text("content_outline"),
+  htmlPath: text("html_path"),
+  status: text("status").notNull().default("pending"),
+  error: text("error"),
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -85,6 +113,8 @@ export const styles = sqliteTable("styles", {
 export type Session = typeof sessions.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Project = typeof projects.$inferSelect;
+export type GenerationRun = typeof generationRuns.$inferSelect;
+export type GenerationPage = typeof generationPages.$inferSelect;
 export type MemorySummary = typeof memorySummaries.$inferSelect;
 export type UserPreference = typeof userPreferences.$inferSelect;
 
@@ -92,3 +122,5 @@ export type SessionStatus = "active" | "completed" | "failed" | "archived";
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 export type MessageType = "text" | "tool_call" | "tool_result" | "stream_chunk";
 export type ChatScope = "main" | "page";
+export type GenerationRunStatus = "running" | "completed" | "failed" | "partial";
+export type GenerationPageStatus = "pending" | "running" | "completed" | "failed";

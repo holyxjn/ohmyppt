@@ -162,12 +162,30 @@ const normalizeDesignContract = (value: unknown): DesignContract => {
   };
 };
 
+const unwrapJsonLikeString = (value: string): string => {
+  const source = value.trim();
+  if (source.length < 2 || !source.startsWith("\"") || !source.endsWith("\"")) {
+    return source;
+  }
+  const inner = source
+    .slice(1, -1)
+    .replace(/\\"/g, "\"")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .trim();
+  return inner.startsWith("{") || inner.startsWith("[") || inner.startsWith("```")
+    ? inner
+    : source;
+};
+
 const parseModelJson = (responseText: string): unknown => {
   let source = responseText.trim();
+  let lastError: unknown;
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const candidates = [source, extractJsonBlock(source)];
-    let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const candidates = Array.from(new Set([source, extractJsonBlock(source)]));
+    let decodedJsonString = false;
 
     for (const candidate of candidates) {
       try {
@@ -177,36 +195,36 @@ const parseModelJson = (responseText: string): unknown => {
         }
         source = parsed.trim();
         lastError = null;
+        decodedJsonString = true;
         break;
       } catch (err) {
         lastError = err;
       }
     }
 
-    if (lastError === null) {
+    if (decodedJsonString) {
       continue;
     }
 
-    const preview = source.length > 200 ? `${source.slice(0, 200)}…` : source;
-    throw new Error(
-      `LLM 返回的 JSON 解析失败: ${lastError instanceof Error ? lastError.message : String(lastError)}. 原始文本预览: ${preview}`
-    );
+    const unwrapped = unwrapJsonLikeString(source);
+    if (unwrapped !== source) {
+      source = unwrapped;
+      continue;
+    }
+
+    const block = extractJsonBlock(source);
+    if (block !== source) {
+      source = block;
+      continue;
+    }
+
+    break;
   }
 
-  try {
-    return JSON.parse(extractJsonBlock(source)) as unknown;
-  } catch (err) {
-    try {
-      const parsed = JSON.parse(source) as unknown;
-      if (typeof parsed !== "string") return parsed;
-    } catch {
-      // The detailed error below uses the first parse failure.
-    }
-    const preview = source.length > 200 ? `${source.slice(0, 200)}…` : source;
-    throw new Error(
-      `LLM 返回的 JSON 解析失败: ${err instanceof Error ? err.message : String(err)}. 原始文本预览: ${preview}`
-    );
-  }
+  const preview = source.length > 200 ? `${source.slice(0, 200)}…` : source;
+  throw new Error(
+    `LLM 返回的 JSON 解析失败: ${lastError instanceof Error ? lastError.message : String(lastError)}. 原始文本预览: ${preview}`
+  );
 };
 
 const SUMMARY_PUNCT_ONLY_RE = /^[\s.。!！?？,，;；:：、~\-—_`'"“”‘’()（）\[\]【】]+$/;
@@ -235,6 +253,7 @@ export const planDeckWithLLM = async (args: {
   apiKey: string;
   model: string;
   baseUrl: string;
+  temperature?: number;
   styleId: string | null | undefined;
   totalPages: number;
   topic: string;
@@ -243,7 +262,7 @@ export const planDeckWithLLM = async (args: {
   runId?: string;
   signal?: AbortSignal;
 }): Promise<OutlineItem[]> => {
-  const client = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl);
+  const client = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
   const systemPrompt = buildPlanningSystemPrompt(args.totalPages);
   const userPrompt = buildPlanningUserPrompt({
     topic: args.topic,
@@ -267,6 +286,7 @@ export const planDeckWithLLM = async (args: {
   log.info("[llm] invoke plan_deck", {
     provider: args.provider,
     model: args.model,
+    temperature: args.temperature ?? null,
     styleId: args.styleId || "",
     totalPages: args.totalPages,
     topic: args.topic,
@@ -341,6 +361,7 @@ export const buildDesignContractWithLLM = async (args: {
   apiKey: string;
   model: string;
   baseUrl: string;
+  temperature?: number;
   styleId: string | null | undefined;
   styleSkillPrompt: string;
   totalPages: number;
@@ -348,7 +369,7 @@ export const buildDesignContractWithLLM = async (args: {
   runId?: string;
   signal?: AbortSignal;
 }): Promise<DesignContract> => {
-  const client = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl);
+  const client = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
   const totalPages = Math.max(1, args.totalPages);
   args.emit?.({
     type: "llm_status",
@@ -406,6 +427,7 @@ export const buildDesignContractWithLLM = async (args: {
     log.warn("[llm] design_contract fallback", {
       provider: args.provider,
       model: args.model,
+      temperature: args.temperature ?? null,
       styleId: args.styleId || "",
       message: error instanceof Error ? error.message : String(error),
     });
@@ -419,6 +441,7 @@ export const runDeepAgentDeckGeneration = async (args: {
   apiKey: string;
   model: string;
   baseUrl: string;
+  temperature?: number;
   styleId: string | null | undefined;
   styleSkillPrompt: string;
   topic: string;
@@ -426,26 +449,54 @@ export const runDeepAgentDeckGeneration = async (args: {
   userMessage: string;
   outlineTitles: string[];
   outlineItems: OutlineItem[];
+  pageTasks?: Array<{
+    pageNumber: number;
+    pageId: string;
+    title: string;
+    contentOutline?: string | null;
+  }>;
   designContract: DesignContract;
   projectDir: string;
   indexPath: string;
   pageFileMap: Record<string, string>;
   agentManager: AgentManager;
   emit?: (chunk: GenerateChunkEvent) => void;
+  onPageCompleted?: (page: {
+    pageNumber: number;
+    pageId: string;
+    title: string;
+    contentOutline: string;
+    htmlPath: string;
+  }) => Promise<void>;
+  onPageFailed?: (page: {
+    pageNumber: number;
+    pageId: string;
+    title: string;
+    contentOutline: string;
+    htmlPath: string;
+    reason: string;
+  }) => Promise<void>;
   runId?: string;
   signal?: AbortSignal;
 }): Promise<{
   summary: string;
   failedPages: Array<{ pageId: string; title: string; reason: string }>;
 }> => {
-  const totalPages = args.outlineTitles.length;
+  const pageRefs = (args.pageTasks && args.pageTasks.length > 0)
+    ? args.pageTasks.map((page) => ({
+        pageNumber: page.pageNumber,
+        pageId: page.pageId,
+        title: page.title,
+        outline: page.contentOutline || "",
+      }))
+    : args.outlineTitles.map((title, index) => ({
+        pageNumber: index + 1,
+        pageId: `page-${index + 1}`,
+        title,
+        outline: args.outlineItems[index]?.contentOutline || "",
+      }));
+  const totalPages = pageRefs.length;
   const clampProgress = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
-  const pageRefs = args.outlineTitles.map((title, index) => ({
-    pageNumber: index + 1,
-    pageId: `page-${index + 1}`,
-    title,
-    outline: args.outlineItems[index]?.contentOutline || "",
-  }));
   const pageSummaryMap = new Map<number, string>();
   const useDualWorkerQueue = totalPages >= 3;
   const pageProgressMap = new Map<string, number>();
@@ -528,6 +579,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     sessionId: args.sessionId,
     provider: args.provider,
     model: args.model,
+    temperature: args.temperature ?? null,
     styleId: args.styleId || "",
     projectDir: args.projectDir,
     indexPath: args.indexPath,
@@ -588,6 +640,7 @@ export const runDeepAgentDeckGeneration = async (args: {
       apiKey: args.apiKey,
       model: args.model,
       baseUrl: args.baseUrl,
+      temperature: args.temperature,
       styleId: args.styleId,
       context: {
         sessionId: args.sessionId,
@@ -691,6 +744,14 @@ export const runDeepAgentDeckGeneration = async (args: {
           if (!isMeaningfulSummary(content)) return;
           pageSummaryFromMessage = content.trim();
         },
+      });
+
+      await args.onPageCompleted?.({
+        pageNumber: page.pageNumber,
+        pageId: page.pageId,
+        title: page.title,
+        contentOutline: page.outline,
+        htmlPath: currentPagePath,
       });
 
       setPageProgress(page.pageId, 100);
@@ -808,9 +869,22 @@ export const runDeepAgentDeckGeneration = async (args: {
           pageNumber: page.pageNumber,
           title: page.title,
         });
-        const summary = await generateSinglePageWithRetry(page, workerLabel);
-        if (summary) {
-          pageSummaryMap.set(page.pageNumber, `第 ${page.pageNumber} 页：${summary}`);
+        try {
+          const summary = await generateSinglePageWithRetry(page, workerLabel);
+          if (summary) {
+            pageSummaryMap.set(page.pageNumber, `第 ${page.pageNumber} 页：${summary}`);
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          await args.onPageFailed?.({
+            pageNumber: page.pageNumber,
+            pageId: page.pageId,
+            title: page.title,
+            contentOutline: page.outline,
+            htmlPath: args.pageFileMap[page.pageId] || "",
+            reason,
+          });
+          throw error;
         }
       })
     )
@@ -856,6 +930,7 @@ export const runDeepAgentEdit = async (args: {
   apiKey: string;
   model: string;
   baseUrl: string;
+  temperature?: number;
   styleId: string | null | undefined;
   styleSkillPrompt: string;
   topic: string;
@@ -884,6 +959,7 @@ export const runDeepAgentEdit = async (args: {
     apiKey: args.apiKey,
     model: args.model,
     baseUrl: args.baseUrl,
+    temperature: args.temperature,
     styleId: args.styleId,
     context: {
       mode: "edit",
@@ -932,6 +1008,7 @@ export const runDeepAgentEdit = async (args: {
     sessionId: args.sessionId,
     provider: args.provider,
     model: args.model,
+    temperature: args.temperature ?? null,
     styleId: args.styleId || "",
     projectDir: args.projectDir,
     indexPath: args.indexPath,

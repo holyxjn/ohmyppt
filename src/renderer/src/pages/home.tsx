@@ -25,7 +25,7 @@ const resolvePageCount = (raw: string): number => {
 export function HomePage() {
   const navigate = useNavigate()
   const { createSession, loading } = useSessionStore()
-  const { settings, fetchSettings, apiKey, model, baseUrl } = useSettingsStore()
+  const { settings, fetchSettings } = useSettingsStore()
   const { success, error, warning } = useToastStore()
   const [topic, setTopic] = useState('')
   const [brief, setBrief] = useState('')
@@ -53,10 +53,10 @@ export function HomePage() {
     const briefText = brief.trim()
     if (!briefText) return '请填写详细描述。'
 
-    const provider = settings?.provider || 'openai'
-    const providerConfig = settings?.providerConfigs?.[provider]
-    const resolvedApiKey = (providerConfig?.apiKey || apiKey).trim()
-    const resolvedModel = (providerConfig?.model || model).trim()
+    const provider = settings?.provider
+    const providerConfig = provider ? settings?.providerConfigs?.[provider] : undefined
+    const resolvedApiKey = (providerConfig?.apiKey || '').trim()
+    const resolvedModel = (providerConfig?.model || '').trim()
     const resolvedStoragePath = (settings?.storagePath || '').trim()
     if (!resolvedApiKey || !resolvedModel || !resolvedStoragePath) return SETTINGS_REQUIRED_MESSAGE
 
@@ -110,20 +110,11 @@ export function HomePage() {
     const safePageCount = Number.parseInt(pageCount.trim(), 10)
     const initialPrompt = briefText || `请围绕"${topicText || '未命名主题'}"生成一份 ${safePageCount} 页、风格为 ${selectedStyle.label} 的演示稿。`
 
-    const provider = settings?.provider || 'openai'
-    const providerConfig = settings?.providerConfigs?.[provider]
-    const resolvedApiKey = (providerConfig?.apiKey || apiKey).trim()
-    const resolvedModel = (providerConfig?.model || model).trim() || undefined
-    const resolvedBaseUrl = (providerConfig?.baseUrl || baseUrl).trim() || undefined
     try {
       const sessionId = await createSession({
         topic: topicText,
         styleId: selectedStyleId,
         pageCount: safePageCount,
-        provider,
-        apiKey: resolvedApiKey,
-        model: resolvedModel,
-        baseUrl: resolvedBaseUrl,
       })
       success('会话创建成功', {
         description: `已开始生成创意`,

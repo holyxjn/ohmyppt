@@ -7,12 +7,16 @@ import { app } from "electron";
 import { is } from "@electron-toolkit/utils";
 import fs from "fs";
 import crypto from "crypto";
+import { runDatabasePatches } from "./patch";
 
 type SessionStatus = "active" | "completed" | "failed" | "archived";
 type MessageRole = "user" | "assistant" | "system" | "tool";
 type MessageType = "text" | "tool_call" | "tool_result" | "stream_chunk";
 type ChatScope = "main" | "page";
 type StyleSource = "builtin" | "custom" | "override";
+type GenerationRunMode = "generate" | "retry" | "edit";
+type GenerationRunStatus = "running" | "completed" | "failed" | "partial";
+type GenerationPageStatus = "pending" | "running" | "completed" | "failed";
 
 export interface Session {
   id: string;
@@ -76,6 +80,34 @@ interface Project {
   updated_at: number;
 }
 
+export interface GenerationRunRecord {
+  id: string;
+  session_id: string;
+  mode: GenerationRunMode;
+  status: GenerationRunStatus;
+  total_pages: number;
+  error: string | null;
+  metadata: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface GenerationPageRecord {
+  id: string;
+  run_id: string;
+  session_id: string;
+  page_id: string;
+  page_number: number;
+  title: string;
+  content_outline: string | null;
+  html_path: string | null;
+  status: GenerationPageStatus;
+  error: string | null;
+  retry_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface StyleRow {
   id: string;
   style: string;
@@ -88,108 +120,6 @@ export interface StyleRow {
   createdAt: number;
   updatedAt: number;
 }
-
-const SETTINGS_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-`;
-
-const MESSAGES_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  chat_scope TEXT NOT NULL DEFAULT 'main',
-  page_id TEXT,
-  selector TEXT,
-  image_paths TEXT,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  type TEXT,
-  tool_name TEXT,
-  tool_call_id TEXT,
-  token_count INTEGER,
-  created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_session_scope ON messages(session_id, chat_scope, page_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_session_only ON messages(session_id);
-`;
-
-const INIT_SQL = `
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  topic TEXT,
-  style_id TEXT,
-  page_count INTEGER,
-  status TEXT NOT NULL DEFAULT 'active',
-  provider TEXT NOT NULL,
-  model TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  metadata TEXT,
-  design_contract TEXT
-);
-
-${MESSAGES_TABLE_SQL}
-
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  output_path TEXT NOT NULL,
-  file_count INTEGER DEFAULT 0,
-  total_size INTEGER DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'draft',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-
-${SETTINGS_TABLE_SQL}
-
-CREATE TABLE IF NOT EXISTS memory_summaries (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  message_range_start INTEGER NOT NULL,
-  message_range_end INTEGER NOT NULL,
-  summary TEXT NOT NULL,
-  token_count INTEGER,
-  created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_summaries_session ON memory_summaries(session_id, message_range_end);
-
-CREATE INDEX IF NOT EXISTS idx_projects_session ON projects(session_id);
-CREATE INDEX IF NOT EXISTS idx_memory_summaries_session_id ON memory_summaries(session_id);
-
-CREATE TABLE IF NOT EXISTS user_preferences (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  confidence REAL DEFAULT 1.0,
-  source_sessions TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  last_used_at INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS styles (
-  id TEXT PRIMARY KEY,
-  style TEXT UNIQUE NOT NULL,
-  style_name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  category TEXT NOT NULL DEFAULT '',
-  aliases TEXT NOT NULL DEFAULT '[]',
-  source TEXT NOT NULL DEFAULT 'custom',
-  style_skill TEXT NOT NULL DEFAULT '',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_styles_style ON styles(style);
-`;
 
 export class PPTDatabase {
   private db: ReturnType<typeof drizzle>;
@@ -218,102 +148,13 @@ export class PPTDatabase {
 
   async init(): Promise<void> {
     if (this._initialized) return;
-    await this.client.executeMultiple(INIT_SQL);
-    await this._enforceSessionsSchema();
-    await this._enforceSettingsSchema();
-    await this._enforceMessagesSchema();
-    await this.client.execute("PRAGMA foreign_keys = ON;");
-    await this._ensureDefaultSettings();
+    await runDatabasePatches({
+      client: this.client,
+      db: this.db,
+      resolveStoragePath: async () => (await this.getSetting<string>("storage_path").catch(() => "")) || "",
+    });
     await this.seedStylesFromResources();
     this._initialized = true;
-  }
-
-  private async _getTableColumns(tableName: "settings" | "messages" | "sessions"): Promise<Set<string>> {
-    const result = await this.client.execute(`PRAGMA table_info(${tableName})`);
-    const rows = Array.isArray((result as { rows?: unknown[] }).rows)
-      ? ((result as { rows?: unknown[] }).rows as unknown[])
-      : [];
-    const columns = new Set<string>();
-    for (const row of rows) {
-      if (row && typeof row === "object" && "name" in row) {
-        const name = (row as { name?: unknown }).name;
-        if (typeof name === "string" && name.trim().length > 0) {
-          columns.add(name.trim());
-        }
-        continue;
-      }
-      if (Array.isArray(row) && typeof row[1] === "string" && row[1].trim().length > 0) {
-        columns.add(row[1].trim());
-      }
-    }
-    return columns;
-  }
-
-  private async _enforceSettingsSchema(): Promise<void> {
-    await this.client.execute(SETTINGS_TABLE_SQL);
-    const columns = await this._getTableColumns("settings");
-    if (!columns.has("value")) {
-      await this.client.execute(`ALTER TABLE settings ADD COLUMN value TEXT NOT NULL DEFAULT '""'`);
-    }
-    if (!columns.has("updated_at")) {
-      await this.client.execute("ALTER TABLE settings ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0");
-    }
-    await this.client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_settings_key ON settings(key)");
-  }
-
-  private async _enforceSessionsSchema(): Promise<void> {
-    const columns = await this._getTableColumns("sessions");
-    if (!columns.has("style_id")) {
-      await this.client.execute("ALTER TABLE sessions ADD COLUMN style_id TEXT");
-    }
-  }
-
-  private async _enforceMessagesSchema(): Promise<void> {
-    await this.client.executeMultiple(MESSAGES_TABLE_SQL);
-    const columns = await this._getTableColumns("messages");
-    if (!columns.has("chat_scope")) {
-      await this.client.execute(`ALTER TABLE messages ADD COLUMN chat_scope TEXT NOT NULL DEFAULT 'main'`);
-    }
-    if (!columns.has("page_id")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN page_id TEXT");
-    }
-    if (!columns.has("selector")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN selector TEXT");
-    }
-    if (!columns.has("image_paths")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN image_paths TEXT");
-    }
-    if (!columns.has("type")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN type TEXT");
-    }
-    if (!columns.has("tool_name")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN tool_name TEXT");
-    }
-    if (!columns.has("tool_call_id")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN tool_call_id TEXT");
-    }
-    if (!columns.has("token_count")) {
-      await this.client.execute("ALTER TABLE messages ADD COLUMN token_count INTEGER");
-    }
-    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at)");
-    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_scope ON messages(session_id, chat_scope, page_id, created_at)");
-    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_only ON messages(session_id)");
-  }
-
-  private async _ensureDefaultSettings(): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    const defaults = [
-      { key: "provider", value: '"openai"' },
-      { key: "theme", value: '"light"' },
-      { key: "auto_save", value: "true" },
-    ];
-
-    for (const { key, value } of defaults) {
-      await this.client.execute({
-        sql: "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-        args: [key, value, now],
-      });
-    }
   }
 
   getStoragePath(): string {
@@ -404,7 +245,176 @@ export class PPTDatabase {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
+    await this.db.delete(schema.generationPages).where(eq(schema.generationPages.sessionId, sessionId)).run();
+    await this.db.delete(schema.generationRuns).where(eq(schema.generationRuns.sessionId, sessionId)).run();
     await this.db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
+  }
+
+  // ========== Generation Records ==========
+
+  private normalizeGenerationRunRow(row: Record<string, unknown>): GenerationRunRecord {
+    return {
+      id: String(row.id || ""),
+      session_id: String(row.sessionId ?? row.session_id ?? ""),
+      mode: String(row.mode || "generate") as GenerationRunMode,
+      status: String(row.status || "running") as GenerationRunStatus,
+      total_pages: Number(row.totalPages ?? row.total_pages ?? 0) || 0,
+      error: typeof (row.error) === "string" ? String(row.error) : null,
+      metadata: typeof (row.metadata) === "string" ? String(row.metadata) : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
+    };
+  }
+
+  private normalizeGenerationPageRow(row: Record<string, unknown>): GenerationPageRecord {
+    return {
+      id: String(row.id || ""),
+      run_id: String(row.runId ?? row.run_id ?? ""),
+      session_id: String(row.sessionId ?? row.session_id ?? ""),
+      page_id: String(row.pageId ?? row.page_id ?? ""),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ""),
+      content_outline:
+        typeof (row.contentOutline ?? row.content_outline) === "string"
+          ? String(row.contentOutline ?? row.content_outline)
+          : null,
+      html_path:
+        typeof (row.htmlPath ?? row.html_path) === "string"
+          ? String(row.htmlPath ?? row.html_path)
+          : null,
+      status: String(row.status || "pending") as GenerationPageStatus,
+      error: typeof row.error === "string" ? String(row.error) : null,
+      retry_count: Number(row.retryCount ?? row.retry_count ?? 0) || 0,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
+    };
+  }
+
+  async createGenerationRun(data: {
+    id?: string;
+    sessionId: string;
+    mode: GenerationRunMode;
+    totalPages: number;
+    metadata?: unknown;
+  }): Promise<string> {
+    const id = data.id || crypto.randomUUID();
+    const now = Math.floor(Date.now() / 1000);
+    await this.db.insert(schema.generationRuns).values({
+      id,
+      sessionId: data.sessionId,
+      mode: data.mode,
+      status: "running",
+      totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
+      error: null,
+      metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    return id;
+  }
+
+  async updateGenerationRunStatus(runId: string, status: GenerationRunStatus, error?: string | null): Promise<void> {
+    await this.db.update(schema.generationRuns).set({
+      status,
+      error: error || null,
+      updatedAt: Math.floor(Date.now() / 1000),
+    }).where(eq(schema.generationRuns.id, runId)).run();
+  }
+
+  async getGenerationRun(runId: string): Promise<GenerationRunRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.generationRuns)
+      .where(eq(schema.generationRuns.id, runId))
+      .get();
+    return row ? this.normalizeGenerationRunRow(row as Record<string, unknown>) : undefined;
+  }
+
+  async getLatestGenerationRun(sessionId: string): Promise<GenerationRunRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.generationRuns)
+      .where(eq(schema.generationRuns.sessionId, sessionId))
+      .orderBy(desc(schema.generationRuns.createdAt))
+      .limit(1)
+      .get();
+    return row ? this.normalizeGenerationRunRow(row as Record<string, unknown>) : undefined;
+  }
+
+  async upsertGenerationPage(data: {
+    runId: string;
+    sessionId: string;
+    pageId: string;
+    pageNumber: number;
+    title: string;
+    contentOutline?: string | null;
+    htmlPath?: string | null;
+    status: GenerationPageStatus;
+    error?: string | null;
+    retryCount?: number;
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    const id = `${data.runId}:${data.pageId}`;
+    const values = {
+      id,
+      runId: data.runId,
+      sessionId: data.sessionId,
+      pageId: data.pageId,
+      pageNumber: data.pageNumber,
+      title: data.title,
+      contentOutline: data.contentOutline || null,
+      htmlPath: data.htmlPath || null,
+      status: data.status,
+      error: data.error || null,
+      retryCount: Math.max(0, Math.floor(data.retryCount || 0)),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.db.insert(schema.generationPages).values(values).onConflictDoUpdate({
+      target: schema.generationPages.id,
+      set: {
+        pageNumber: values.pageNumber,
+        title: values.title,
+        contentOutline: values.contentOutline,
+        htmlPath: values.htmlPath,
+        status: values.status,
+        error: values.error,
+        retryCount: values.retryCount,
+        updatedAt: now,
+      },
+    }).run();
+  }
+
+  async listGenerationPages(runId: string): Promise<GenerationPageRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.generationPages)
+      .where(eq(schema.generationPages.runId, runId))
+      .orderBy(asc(schema.generationPages.pageNumber))
+      .all();
+    return rows.map((row) => this.normalizeGenerationPageRow(row as Record<string, unknown>));
+  }
+
+  async listLatestFailedGenerationPages(sessionId: string): Promise<GenerationPageRecord[]> {
+    const run = await this.getLatestGenerationRun(sessionId);
+    if (!run) return [];
+    return (await this.listGenerationPages(run.id)).filter((page) => page.status === "failed");
+  }
+
+  async listLatestGenerationPageSnapshot(sessionId: string): Promise<GenerationPageRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.generationPages)
+      .where(eq(schema.generationPages.sessionId, sessionId))
+      .orderBy(asc(schema.generationPages.pageNumber), desc(schema.generationPages.updatedAt))
+      .all();
+    const latestByPageId = new Map<string, GenerationPageRecord>();
+    for (const row of rows) {
+      const page = this.normalizeGenerationPageRow(row as Record<string, unknown>);
+      if (!page.page_id || latestByPageId.has(page.page_id)) continue;
+      latestByPageId.set(page.page_id, page);
+    }
+    return Array.from(latestByPageId.values()).sort((a, b) => a.page_number - b.page_number);
   }
 
   // ========== Messages ==========

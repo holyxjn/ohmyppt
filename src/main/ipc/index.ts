@@ -34,6 +34,7 @@ import { buildDesignContractWithLLM, planDeckWithLLM, runDeepAgentDeckGeneration
 export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManager: AgentManager) {
   const ENCRYPTED_API_KEY_PREFIX = "enc:v1:";
   const MAX_SESSION_RUN_EVENTS = 500;
+  const FINISHED_SESSION_RUN_STATE_TTL_MS = 30 * 60 * 1000;
   const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
   const ALLOWED_DOC_EXTENSIONS = new Set([".md", ".txt", ".text"]);
   const IMAGE_MIME_BY_EXT: Record<string, string> = {
@@ -53,11 +54,157 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     if (!htmlPath || !fs.existsSync(htmlPath)) return undefined;
     return pathToFileURL(htmlPath).toString();
   };
+  const validateProjectIndexHtml = (html: string): string[] => {
+    const errors: string[] = [];
+    if (!/<html[\s>]/i.test(html)) errors.push("index.html 缺少 <html> 标签");
+    if (!/<body[\s>]/i.test(html)) errors.push("index.html 缺少 <body> 标签");
+    if (!/<iframe\b[^>]*class=["'][^"']*\bppt-preview-frame\b/i.test(html)) {
+      errors.push("index.html 缺少页面预览 iframe");
+    }
+    if (!/id=["']pages-data["']/i.test(html)) {
+      errors.push("index.html 缺少 pages-data 页面数据");
+    }
+    if (!/const\s+pages\s*=\s*JSON\.parse/i.test(html)) {
+      errors.push("index.html 缺少页面数据解析逻辑");
+    }
+    if (!/function\s+applyPage\s*\(/i.test(html)) {
+      errors.push("index.html 缺少页面切换逻辑");
+    }
+    return errors;
+  };
+  const parseSessionMetadataObject = (value: unknown): Record<string, unknown> => {
+    if (typeof value !== "string" || value.trim().length === 0) return {};
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const buildSessionGenerationSnapshot = async (
+    session: Record<string, unknown> | null | undefined,
+    options?: { includeHtml?: boolean }
+  ): Promise<{
+    session: Record<string, unknown> | null | undefined;
+    pages: Array<{
+      pageNumber: number;
+      title: string;
+      html: string;
+      htmlPath?: string;
+      pageId?: string;
+      sourceUrl?: string;
+      status?: string;
+      error?: string | null;
+    }>;
+  }> => {
+    if (!session) return { session, pages: [] };
+    const sessionId = String(session.id || "").trim();
+    if (!sessionId) return { session, pages: [] };
+
+    const metadata = parseSessionMetadataObject(session.metadata);
+    const generationSnapshot = await db.listLatestGenerationPageSnapshot(sessionId);
+    if (generationSnapshot.length === 0) {
+      return { session, pages: [] };
+    }
+
+    const project = await db.getProject(sessionId);
+    const metadataIndexPath =
+      typeof metadata.indexPath === "string" && metadata.indexPath.trim().length > 0
+        ? metadata.indexPath.trim()
+        : "";
+    const projectDir =
+      typeof project?.output_path === "string" && project.output_path.trim().length > 0
+        ? project.output_path.trim()
+        : metadataIndexPath
+          ? path.dirname(metadataIndexPath)
+          : path.join(await resolveStoragePath(), sessionId);
+    const indexPath = metadataIndexPath || path.join(projectDir, "index.html");
+    const completedPagesForMetadata: Array<{
+      pageNumber: number;
+      title: string;
+      pageId: string;
+      htmlPath: string;
+    }> = [];
+    const failedPagesForMetadata: Array<{
+      pageId: string;
+      title: string;
+      reason: string;
+    }> = [];
+    const pages: Array<{
+      pageNumber: number;
+      title: string;
+      html: string;
+      htmlPath?: string;
+      pageId?: string;
+      sourceUrl?: string;
+      status?: string;
+      error?: string | null;
+    }> = [];
+
+    for (const page of generationSnapshot) {
+      const pageId = page.page_id || `page-${page.page_number}`;
+      const title = page.title || `第 ${page.page_number} 页`;
+      const htmlPath = page.html_path || path.join(projectDir, `${pageId}.html`);
+      const html = options?.includeHtml && fs.existsSync(htmlPath)
+        ? await fs.promises.readFile(htmlPath, "utf-8")
+        : "";
+      if (page.status === "completed") {
+        completedPagesForMetadata.push({
+          pageNumber: page.page_number,
+          title,
+          pageId,
+          htmlPath,
+        });
+      } else if (page.status === "failed") {
+        failedPagesForMetadata.push({
+          pageId,
+          title,
+          reason: page.error || "页面仍需修复",
+        });
+      }
+
+      pages.push({
+        pageNumber: page.page_number,
+        title,
+        html: options?.includeHtml ? html : "",
+        htmlPath,
+        pageId,
+        sourceUrl: getPageSourceUrl(htmlPath),
+        status: page.status,
+        error: page.error,
+      });
+    }
+
+    const synthesizedMetadata = {
+      ...metadata,
+      lastRunId: generationSnapshot[0]?.run_id || metadata.lastRunId,
+      entryMode: "multi_page",
+      generatedPages: completedPagesForMetadata.sort((a, b) => a.pageNumber - b.pageNumber),
+      failedPages: failedPagesForMetadata.sort((a, b) => {
+        const aNumber = Number(a.pageId.match(/^page-(\d+)$/i)?.[1] || 0);
+        const bNumber = Number(b.pageId.match(/^page-(\d+)$/i)?.[1] || 0);
+        return aNumber - bNumber;
+      }),
+      indexPath,
+      projectId: project?.id || metadata.projectId,
+    };
+
+    return {
+      session: {
+        ...session,
+        metadata: JSON.stringify(synthesizedMetadata),
+      },
+      pages: pages.sort((a, b) => a.pageNumber - b.pageNumber),
+    };
+  };
 
   type SessionRunState = {
     sessionId: string;
     runId: string;
-    mode: "generate" | "edit";
+    mode: "generate" | "edit" | "retry";
     status: "running" | "completed" | "failed";
     progress: number;
     totalPages: number;
@@ -67,6 +214,15 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     updatedAt: number;
   };
   const sessionRunStates = new Map<string, SessionRunState>();
+
+  const pruneFinishedSessionRunStates = (now = Date.now()): void => {
+    for (const [sessionId, state] of sessionRunStates) {
+      if (state.status === "running") continue;
+      if (now - state.updatedAt > FINISHED_SESSION_RUN_STATE_TTL_MS) {
+        sessionRunStates.delete(sessionId);
+      }
+    }
+  };
 
   const summarizeGenerateChunk = (chunk: GenerateChunkEvent) => {
     switch (chunk.type) {
@@ -119,10 +275,11 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   const beginSessionRunState = (args: {
     sessionId: string;
     runId: string;
-    mode: "generate" | "edit";
+    mode: "generate" | "edit" | "retry";
     totalPages: number;
   }): void => {
     const now = Date.now();
+    pruneFinishedSessionRunStates(now);
     sessionRunStates.set(args.sessionId, {
       sessionId: args.sessionId,
       runId: args.runId,
@@ -560,6 +717,12 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     }
   };
 
+  const PLANNER_TEMPERATURE = 0.1;
+  const DESIGN_CONTRACT_TEMPERATURE = 0.35;
+  const PAGE_GENERATION_TEMPERATURE = 0.7;
+  const PAGE_EDIT_WITH_SELECTOR_TEMPERATURE = 0.3;
+  const PAGE_EDIT_DEFAULT_TEMPERATURE = 0.55;
+
   const resolveSessionAssetSourcePath = (fileName: string): string => {
     const baseDir = is.dev
       ? path.join(process.cwd(), "resources")
@@ -888,7 +1051,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     }
   };
 
-  type GenerateMode = "generate" | "edit";
+  type GenerateMode = "generate" | "edit" | "retry";
   type GenerateChatType = "main" | "page";
 
   type GenerationContext = {
@@ -903,6 +1066,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     elementText?: string;
     session: Awaited<ReturnType<PPTDatabase["getSession"]>>;
     sessionRecord: Record<string, unknown>;
+    previousSessionStatus: string;
     entry: ReturnType<AgentManager["beginRun"]> extends infer T ? NonNullable<T> : never;
     runId: string;
     styleId: string;
@@ -957,7 +1121,8 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
 
   const resolveGenerationContext = async (
     _event: Electron.IpcMainInvokeEvent,
-    payload: unknown
+    payload: unknown,
+    options?: { persistUserMessage?: boolean; mode?: GenerateMode }
   ): Promise<GenerationContext> => {
     const input = payload as GenerateStartPayload;
     const sessionId = String(input?.sessionId || "").trim();
@@ -970,9 +1135,10 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       : [];
     const requestedType = input?.type === "page" ? "page" : input?.type === "deck" ? "deck" : undefined;
     const effectiveMode: GenerateMode =
-      requestedType === "page"
+      options?.mode ??
+      (requestedType === "page"
         ? "edit"
-        : "generate";
+        : "generate");
     const imagePaths = effectiveMode === "edit" ? rawImagePaths : [];
     const userMessage = `${rawUserMessage}${formatImagePathsForPrompt(imagePaths)}`;
     const selectedPageId =
@@ -1014,6 +1180,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     const session = await db.getSession(sessionId);
     if (!session) throw new Error("Session not found");
     const sessionRecord = session as unknown as Record<string, unknown>;
+    const previousSessionStatus = String(sessionRecord.status || "active");
     const styleCatalog = listStyleCatalog();
     const defaultStyleId = styleCatalog.find((item) => item.styleKey === "minimal-white")?.id ?? styleCatalog[0]?.id ?? "";
     const styleIdRaw = typeof sessionRecord.styleId === "string" ? String(sessionRecord.styleId).trim() : "";
@@ -1034,17 +1201,23 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     }
     await ensureSessionAssets(projectDir);
 
-    const provider = String(sessionRecord.provider || "openai");
     const settings = await db.getAllSettings();
-    const ensuredModel = String(sessionRecord.model || settings[`model_${provider}`] || "").trim();
-    if (!ensuredModel) {
+    const provider = String(settings.provider || "").trim();
+    if (!provider) {
+      throw new Error("请先前往系统设置选择 provider。");
+    }
+    const settingsModel = String(settings[`model_${provider}`] || "").trim();
+    const model = settingsModel;
+    const providerBaseUrl = String(settings[`base_url_${provider}`] || "").trim();
+    if (!model) {
       throw new Error("请先前往系统设置填写 model。");
     }
 
     agentManager.ensureSession({
       sessionId,
       provider,
-      model: ensuredModel,
+      model,
+      baseUrl: providerBaseUrl,
       projectDir,
     });
 
@@ -1057,8 +1230,6 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     const totalPages = Number(sessionRecord.page_count ?? sessionRecord.pageCount);
 
     const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim();
-    const model = ensuredModel;
-    const providerBaseUrl = String(settings[`base_url_${provider}`] || "").trim();
     const projectId =
       existingProject?.id ??
       (await db.createProject({
@@ -1078,15 +1249,17 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       throw new Error("chatType=page requires chatPageId or selectedPageId");
     }
 
-    await db.addMessage(sessionId, {
-      role: "user",
-      content: rawUserMessage,
-      type: "text",
-      chat_scope: normalizedChatType,
-      page_id: normalizedChatType === "page" ? normalizedChatPageId : undefined,
-      selector: normalizedChatType === "page" ? selector : undefined,
-      image_paths: imagePaths,
-    });
+    if (options?.persistUserMessage !== false) {
+      await db.addMessage(sessionId, {
+        role: "user",
+        content: rawUserMessage,
+        type: "text",
+        chat_scope: normalizedChatType,
+        page_id: normalizedChatType === "page" ? normalizedChatPageId : undefined,
+        selector: normalizedChatType === "page" ? selector : undefined,
+        image_paths: imagePaths,
+      });
+    }
     await db.updateSessionStatus(sessionId, "active");
 
     const topic = String(sessionRecord.topic || "当前主题");
@@ -1099,6 +1272,9 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       styleId,
       styleKey: styleDetail.styleKey,
       styleLabel: styleDetail.label,
+      provider,
+      settingsModel,
+      model,
     });
 
     return {
@@ -1113,6 +1289,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       elementText,
       session,
       sessionRecord,
+      previousSessionStatus,
       entry,
       runId,
       styleId,
@@ -1173,7 +1350,16 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       styleId: context.styleId,
       message,
     });
-    await db.updateSessionStatus(context.sessionId, "failed");
+    const generationRun = await db.getGenerationRun(context.runId);
+    if (generationRun && generationRun.status === "running") {
+      await db.updateGenerationRunStatus(context.runId, "failed", message);
+    }
+    await db.updateSessionStatus(
+      context.sessionId,
+      (context.effectiveMode === "edit" || context.effectiveMode === "retry") && context.previousSessionStatus !== "active"
+        ? context.previousSessionStatus as "completed" | "failed" | "archived"
+        : "failed"
+    );
     await db.addMessage(context.sessionId, {
       role: "system",
       content: message,
@@ -1205,14 +1391,23 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     let outlineTitles: string[] = context.userProvidedOutlineTitles;
     let pageRefs: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string }> = [];
     let savedDesignContract: DesignContract | undefined;
+    let metadataFailedPages: Array<{ pageId: string; title: string; reason: string }> = [];
     if (context.session?.metadata) {
       try {
         const metadata = JSON.parse(context.session.metadata) as {
           generatedPages?: Array<{ pageNumber: number; title: string; pageId?: string; htmlPath?: string }>;
+          failedPages?: Array<{ pageId?: string; title?: string; reason?: string }>;
         };
         if (outlineTitles.length === 0) {
           outlineTitles = (metadata.generatedPages || []).map((p) => p.title);
         }
+        metadataFailedPages = (metadata.failedPages || [])
+          .map((page) => ({
+            pageId: typeof page.pageId === "string" ? page.pageId.trim() : "",
+            title: typeof page.title === "string" ? page.title.trim() : "",
+            reason: typeof page.reason === "string" ? page.reason.trim() : "",
+          }))
+          .filter((page) => page.pageId.length > 0);
         pageRefs = (metadata.generatedPages || []).map((p, index) => {
           const pageId = p.pageId || `page-${p.pageNumber || index + 1}`;
           return {
@@ -1224,6 +1419,37 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         });
       } catch {
         // ignore malformed metadata
+      }
+    }
+    const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId);
+    const pageRefById = new Map(pageRefs.map((ref) => [ref.pageId, ref]));
+    for (const page of latestPageSnapshot) {
+      const pageId = page.page_id || `page-${page.page_number}`;
+      if (pageRefById.has(pageId)) continue;
+      const ref = {
+        pageNumber: page.page_number,
+        title: page.title || `第${page.page_number}页`,
+        pageId,
+        htmlPath: page.html_path || path.join(context.entry.projectDir, `${pageId}.html`),
+      };
+      pageRefs.push(ref);
+      pageRefById.set(pageId, ref);
+    }
+    const failedPageInfoById = new Map<string, { title: string; reason: string }>();
+    for (const page of latestPageSnapshot) {
+      if (page.status !== "failed") continue;
+      const pageId = page.page_id || `page-${page.page_number}`;
+      failedPageInfoById.set(pageId, {
+        title: page.title || `第${page.page_number}页`,
+        reason: page.error || "页面仍需修复",
+      });
+    }
+    for (const page of metadataFailedPages) {
+      if (!failedPageInfoById.has(page.pageId)) {
+        failedPageInfoById.set(page.pageId, {
+          title: page.title || page.pageId,
+          reason: page.reason || "页面仍需修复",
+        });
       }
     }
     // Read designContract from the dedicated column
@@ -1277,7 +1503,13 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       outlineTitles = pageRefs.map((ref) => ref.title);
     }
 
-    const outlineItems = outlineTitles.map((title) => ({ title, contentOutline: "" }));
+    const outlineByPageId = new Map(
+      latestPageSnapshot.map((page) => [page.page_id, page.content_outline || ""])
+    );
+    const outlineItems = pageRefs.map((ref) => ({
+      title: ref.title,
+      contentOutline: outlineByPageId.get(ref.pageId) || "",
+    }));
     const pageFileMap = Object.fromEntries(pageRefs.map((p) => [p.pageId, p.htmlPath]));
     const beforeMap = new Map<string, string>();
     const existingPageIdsBeforeRun: string[] = [];
@@ -1293,6 +1525,18 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       existingPageIdsBeforeRun.push(item.pageId);
       beforeMap.set(item.pageId, item.html);
     }
+
+    await db.createGenerationRun({
+      id: context.runId,
+      sessionId: context.sessionId,
+      mode: "edit",
+      totalPages: pageRefs.length,
+      metadata: {
+        editScope: isMainScopeEdit ? "main" : "page",
+        selectedPageId: resolvedSelectedPageId || null,
+        selector: selectedSelector || null,
+      },
+    });
 
     emitGenerateChunk(context.sessionId, {
       type: "stage_started",
@@ -1311,6 +1555,9 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         ? `我准备开始调整「${context.topic}」了。目标：主会话总览壳（index.html），我只会修改切换演示动画与交互层动画。`
         : `我准备开始调整「${context.topic}」了。目标：${resolvedSelectedPageId ? `第 ${resolvedSelectedPageNumber ?? "?"} 页` : "按你的指令智能定位"}${selectedSelector ? `（选择器：${selectedSelector}）` : ""}。`
     );
+    const editTemperature = selectedSelector
+      ? PAGE_EDIT_WITH_SELECTOR_TEMPERATURE
+      : PAGE_EDIT_DEFAULT_TEMPERATURE;
 
     const beforeIndexHtml = fs.existsSync(indexPath)
       ? await fs.promises.readFile(indexPath, "utf-8")
@@ -1322,6 +1569,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      temperature: editTemperature,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
       topic: context.topic,
@@ -1349,6 +1597,14 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       ? await fs.promises.readFile(indexPath, "utf-8")
       : "";
     const indexChanged = beforeIndexHtml !== afterIndexHtml;
+    if (indexChanged) {
+      const indexValidationErrors = validateProjectIndexHtml(afterIndexHtml);
+      if (indexValidationErrors.length > 0) {
+        const details = indexValidationErrors.join("; ");
+        await db.updateGenerationRunStatus(context.runId, "failed", details);
+        throw new Error(`index.html 验证失败: ${details}`);
+      }
+    }
 
     const pageDescriptors: Array<{ pageNumber: number; title: string; pageId: string; html: string; htmlPath: string }> = [];
     const changedPageDescriptors: Array<{ pageNumber: number; title: string; pageId: string; html: string; htmlPath: string }> = [];
@@ -1401,6 +1657,52 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       });
     }
 
+    const invalidChangedPages = changedPageDescriptors
+      .map((page) => {
+        const validation = validatePersistedPageHtml(page.html, page.pageId);
+        return validation.valid
+          ? null
+          : {
+              page,
+              reason: validation.errors.join("; "),
+            };
+      })
+      .filter((item): item is { page: { pageNumber: number; title: string; pageId: string; html: string; htmlPath: string }; reason: string } =>
+        Boolean(item)
+      );
+    if (invalidChangedPages.length > 0) {
+      const details = invalidChangedPages
+        .map((item) => `${item.page.pageId}（${item.page.title}）：${item.reason}`)
+        .join("；");
+      await db.updateGenerationRunStatus(context.runId, "failed", details);
+      throw new Error(`页面编辑结果验证失败：${details}`);
+    }
+
+    const changedPageIdSet = new Set(changedPageDescriptors.map((page) => page.pageId));
+    for (const page of changedPageDescriptors) {
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: outlineItems.find((_item, index) => pageRefs[index]?.pageId === page.pageId)?.contentOutline || "",
+        htmlPath: page.htmlPath,
+        status: "completed",
+      });
+    }
+
+    const remainingFailedPageInfoById = new Map(failedPageInfoById);
+    for (const pageId of changedPageIdSet) {
+      remainingFailedPageInfoById.delete(pageId);
+    }
+    const generatedPagesForMetadata = pageDescriptors.filter((page) => !remainingFailedPageInfoById.has(page.pageId));
+    const remainingFailedPages = Array.from(remainingFailedPageInfoById.entries()).map(([pageId, info]) => ({
+      pageId,
+      title: info.title || pageRefs.find((ref) => ref.pageId === pageId)?.title || pageId,
+      reason: info.reason || "页面仍需修复",
+    }));
+
     const changedPages = changedPageDescriptors.map((p) => `第${p.pageNumber}页`).join("、");
     const editSummary =
       changedPageDescriptors.length > 0
@@ -1410,11 +1712,41 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         : editSummaryFromEngine.trim() || "我已经检查过了，这次没有检测到需要落盘的页面变化。";
     await emitAssistantMessage(context, editSummary);
 
-    await finalizeGenerationSuccess({
-      context,
+    await db.updateSessionMetadata(context.sessionId, {
+      lastRunId: context.runId,
+      entryMode: "multi_page",
+      generatedPages: generatedPagesForMetadata.map((page) => ({
+        pageNumber: page.pageNumber,
+        title: page.title,
+        pageId: page.pageId,
+        htmlPath: page.htmlPath,
+        html: page.html,
+      })),
+      failedPages: remainingFailedPages,
       indexPath,
-      totalPages: pageRefs.length,
-      generatedPages: pageDescriptors,
+      projectId: context.projectId,
+    });
+    await db.updateProjectStatus(context.projectId, "draft");
+    await db.updateSessionStatus(context.sessionId, remainingFailedPages.length > 0 ? "failed" : "completed");
+    await db.updateGenerationRunStatus(
+      context.runId,
+      remainingFailedPages.length > 0 ? "partial" : "completed",
+      remainingFailedPages.length > 0
+        ? remainingFailedPages.map((page) => `${page.pageId}（${page.title}）：${page.reason}`).join("；")
+        : null
+    );
+    log.info("[generate:start] edit completed", {
+      sessionId: context.sessionId,
+      styleId: context.styleId,
+      changedPages: Array.from(changedPageIdSet),
+      remainingFailedPages: remainingFailedPages.map((page) => page.pageId),
+    });
+    emitGenerateChunk(context.sessionId, {
+      type: "run_completed",
+      payload: {
+        runId: context.runId,
+        totalPages: pageRefs.length,
+      },
     });
   };
 
@@ -1453,6 +1785,18 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     });
     const pageFileMap = Object.fromEntries(pageRefs.map((page) => [page.pageId, page.htmlPath]));
     const indexPath = path.join(context.entry.projectDir, "index.html");
+    await db.createGenerationRun({
+      id: context.runId,
+      sessionId: context.sessionId,
+      mode: "generate",
+      totalPages: pageRefs.length,
+      metadata: {
+        topic: context.topic,
+        styleId: context.styleId,
+        projectDir: context.entry.projectDir,
+        indexPath,
+      },
+    });
 
     emitDeckChunk({
       type: "stage_progress",
@@ -1487,6 +1831,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      temperature: PLANNER_TEMPERATURE,
       styleId: context.styleId,
       totalPages: pageRefs.length,
       topic: context.topic,
@@ -1501,6 +1846,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         apiKey: context.apiKey,
         model: context.model,
         baseUrl: context.providerBaseUrl,
+        temperature: DESIGN_CONTRACT_TEMPERATURE,
         styleId: context.styleId,
         styleSkillPrompt: context.styleSkill.prompt,
         totalPages: context.totalPages,
@@ -1514,6 +1860,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       designContractPromise,
       scaffoldPromise,
     ]);
+    await db.updateSessionDesignContract(context.sessionId, designContract);
     const outlineItems = pageRefs.map((page, index) => {
       const planned = plannedOutlineItems[index];
       return {
@@ -1524,6 +1871,16 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
     const outlineTitles = outlineItems.map((item) => item.title);
     for (const page of pageRefs) {
       page.title = outlineTitles[page.pageNumber - 1] || page.title;
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: outlineItems[page.pageNumber - 1]?.contentOutline || "",
+        htmlPath: page.htmlPath,
+        status: "pending",
+      });
     }
 
     await fs.promises.writeFile(
@@ -1570,12 +1927,102 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       beforePageMap.set(item.pageId, item.html);
     }
 
+    const persistedGeneratedPagesById = new Map<string, {
+      pageNumber: number;
+      title: string;
+      pageId: string;
+      htmlPath: string;
+    }>();
+    const persistedFailedPagesById = new Map<string, {
+      pageId: string;
+      title: string;
+      reason: string;
+    }>();
+    const persistGenerationSnapshotMetadata = async () => {
+      await db.updateSessionMetadata(context.sessionId, {
+        lastRunId: context.runId,
+        entryMode: "multi_page",
+        generatedPages: Array.from(persistedGeneratedPagesById.values())
+          .sort((a, b) => a.pageNumber - b.pageNumber),
+        failedPages: Array.from(persistedFailedPagesById.values())
+          .sort((a, b) => {
+            const aNumber = Number(a.pageId.match(/^page-(\d+)$/i)?.[1] || 0);
+            const bNumber = Number(b.pageId.match(/^page-(\d+)$/i)?.[1] || 0);
+            return aNumber - bNumber;
+          }),
+        indexPath,
+        projectId: context.projectId,
+      });
+    };
+    const persistCompletedGeneratedPage = async (page: {
+      pageNumber: number;
+      pageId: string;
+      title: string;
+      contentOutline: string;
+      htmlPath: string;
+    }) => {
+      if (!fs.existsSync(page.htmlPath)) {
+        throw new Error(`${page.pageId}.html 缺失`);
+      }
+      const html = await fs.promises.readFile(page.htmlPath, "utf-8");
+      const validation = validatePersistedPageHtml(html, page.pageId);
+      if (!validation.valid) {
+        throw new Error(`HTML 验证失败 (${page.pageId}): ${validation.errors.join("; ")}`);
+      }
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: page.contentOutline,
+        htmlPath: page.htmlPath,
+        status: "completed",
+      });
+      persistedFailedPagesById.delete(page.pageId);
+      persistedGeneratedPagesById.set(page.pageId, {
+        pageNumber: page.pageNumber,
+        title: page.title,
+        pageId: page.pageId,
+        htmlPath: page.htmlPath,
+      });
+      await persistGenerationSnapshotMetadata();
+    };
+    const persistFailedGeneratedPage = async (page: {
+      pageNumber: number;
+      pageId: string;
+      title: string;
+      contentOutline: string;
+      htmlPath: string;
+      reason: string;
+    }) => {
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: page.contentOutline,
+        htmlPath: page.htmlPath,
+        status: "failed",
+        error: page.reason,
+      });
+      persistedGeneratedPagesById.delete(page.pageId);
+      persistedFailedPagesById.set(page.pageId, {
+        pageId: page.pageId,
+        title: page.title,
+        reason: page.reason,
+      });
+      await persistGenerationSnapshotMetadata();
+    };
+
     const { failedPages } = await runDeepAgentDeckGeneration({
       sessionId: context.sessionId,
       provider: context.provider,
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      temperature: PAGE_GENERATION_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
       topic: context.topic,
@@ -1589,6 +2036,8 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       pageFileMap,
       agentManager,
       emit: (chunk) => emitDeckChunk(chunk),
+      onPageCompleted: persistCompletedGeneratedPage,
+      onPageFailed: persistFailedGeneratedPage,
       runId: context.runId,
       signal: context.entry.abortController.signal,
     });
@@ -1600,8 +2049,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       postValidationErrors.push("index.html 缺失");
     } else {
       const indexHtml = await fs.promises.readFile(indexPath, "utf-8");
-      if (!/<html[\s>]/i.test(indexHtml)) postValidationErrors.push("index.html 缺少 <html> 标签");
-      if (!/<iframe[\s>]/i.test(indexHtml)) postValidationErrors.push("index.html 缺少 iframe 预览壳");
+      postValidationErrors.push(...validateProjectIndexHtml(indexHtml));
     }
     const validationPages = await Promise.all(
       pageRefs.map(async (page) => {
@@ -1613,13 +2061,32 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       })
     );
     for (const item of validationPages) {
+      const pageRef = pageRefs.find((page) => page.pageId === item.pageId);
       if (item.missing) {
-        postValidationErrors.push(`${item.pageId}.html 缺失`);
+        const reason = `${item.pageId}.html 缺失`;
+        postValidationErrors.push(reason);
+        if (!failedPageIdSet.has(item.pageId)) {
+          postValidationFailures.push({
+            pageId: item.pageId,
+            title: pageRef?.title || item.pageId,
+            reason,
+          });
+        }
         continue;
       }
-      if (!/<html[\s>]/i.test(item.html)) postValidationErrors.push(`${item.pageId}.html 缺少 <html>`);
+      if (!/<html[\s>]/i.test(item.html)) {
+        const reason = `${item.pageId}.html 缺少 <html>`;
+        postValidationErrors.push(reason);
+        if (!failedPageIdSet.has(item.pageId)) {
+          postValidationFailures.push({
+            pageId: item.pageId,
+            title: pageRef?.title || item.pageId,
+            reason,
+          });
+        }
+        continue;
+      }
       if (!failedPageIdSet.has(item.pageId)) {
-        const pageRef = pageRefs.find((page) => page.pageId === item.pageId);
         const validation = validatePersistedPageHtml(item.html, item.pageId);
         if (!validation.valid) {
           const reason = validation.errors.join("; ");
@@ -1684,6 +2151,18 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         htmlPath: pageRef.htmlPath,
         html,
       });
+      if (!persistedGeneratedPagesById.has(pageRef.pageId)) {
+        await db.upsertGenerationPage({
+          runId: context.runId,
+          sessionId: context.sessionId,
+          pageId: pageRef.pageId,
+          pageNumber: pageRef.pageNumber,
+          title: pageRef.title,
+          contentOutline: outlineItems[pageRef.pageNumber - 1]?.contentOutline || "",
+          htmlPath: pageRef.htmlPath,
+          status: "completed",
+        });
+      }
       emitDeckChunk({
         type: "page_generated",
         payload: {
@@ -1724,6 +2203,46 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
 
     if (failedPages.length > 0) {
       const failedDetails = failedPages.map((item) => `${item.pageId}（${item.title}）：${item.reason}`).join("；");
+      for (const failedPage of failedPages) {
+        const pageRef = pageRefs.find((page) => page.pageId === failedPage.pageId);
+        if (!pageRef) continue;
+        await db.upsertGenerationPage({
+          runId: context.runId,
+          sessionId: context.sessionId,
+          pageId: pageRef.pageId,
+          pageNumber: pageRef.pageNumber,
+          title: pageRef.title,
+          contentOutline: outlineItems[pageRef.pageNumber - 1]?.contentOutline || "",
+          htmlPath: pageRef.htmlPath,
+          status: "failed",
+          error: failedPage.reason,
+        });
+      }
+      await db.updateGenerationRunStatus(
+        context.runId,
+        pageDescriptors.length > 0 ? "partial" : "failed",
+        failedDetails
+      );
+      await db.updateSessionMetadata(context.sessionId, {
+        lastRunId: context.runId,
+        entryMode: "multi_page",
+        generatedPages: pageDescriptors.map((page) => ({
+          pageNumber: page.pageNumber,
+          title: page.title,
+          pageId: page.pageId,
+          htmlPath: page.htmlPath,
+          html: page.html,
+        })),
+        failedPages: failedPages.map((page) => ({
+          pageId: page.pageId,
+          title: page.title,
+          reason: page.reason,
+        })),
+        indexPath,
+        projectId: context.projectId,
+      });
+      await db.updateSessionDesignContract(context.sessionId, designContract);
+      await db.updateProjectStatus(context.projectId, "draft");
       emitDeckChunk({
         type: "llm_status",
         payload: {
@@ -1748,11 +2267,438 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         : `你的创意已经生成完成！共 ${pageDescriptors.length} 页，主题「${context.topic}」。你可以继续在“当前页”精修细节，或在“主会话”调整全局切换动画。`;
     await emitAssistantMessage(context, completionSummary);
 
+    await db.updateGenerationRunStatus(context.runId, "completed", null);
     await finalizeGenerationSuccess({
       context,
       indexPath,
       totalPages: outlineTitles.length,
       generatedPages: pageDescriptors,
+      designContract,
+    });
+  };
+
+  const executeRetryFailedPages = async (context: GenerationContext): Promise<void> => {
+    if (!context.apiKey) {
+      throw new Error(`当前 provider "${context.provider}" 缺少 API Key，请先到设置页配置。`);
+    }
+
+    const indexPath = path.join(context.entry.projectDir, "index.html");
+    let savedDesignContract: DesignContract | undefined;
+    const sessionRecord = (context.session || {}) as Record<string, unknown>;
+    const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId);
+    const incompleteSnapshotRecords = latestPageSnapshot.filter((page) => page.status !== "completed");
+    let metadataGeneratedPageCount = 0;
+    let metadataFailedPages: Array<Record<string, unknown>> = [];
+    if (typeof sessionRecord.metadata === "string" && sessionRecord.metadata.trim().length > 0) {
+      try {
+        const metadata = JSON.parse(sessionRecord.metadata) as {
+          generatedPages?: Array<Record<string, unknown>>;
+          failedPages?: Array<Record<string, unknown>>;
+        };
+        metadataGeneratedPageCount = Array.isArray(metadata.generatedPages) ? metadata.generatedPages.length : 0;
+        metadataFailedPages =
+          incompleteSnapshotRecords.length === 0 && Array.isArray(metadata.failedPages) ? metadata.failedPages : [];
+      } catch {
+        metadataGeneratedPageCount = 0;
+        metadataFailedPages = [];
+      }
+    }
+    if (incompleteSnapshotRecords.length === 0 && metadataFailedPages.length === 0) {
+      throw new Error("当前会话没有可继续生成的页面。");
+    }
+    if (metadataGeneratedPageCount === 0) {
+      const latestSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId);
+      const completedSnapshotCount = latestSnapshot.filter((page) => page.status === "completed").length;
+      if (completedSnapshotCount === 0) {
+        throw new Error("当前没有成功页面可保留，请使用完整重新生成。");
+      }
+    }
+    if (typeof sessionRecord.designContract === "string" && sessionRecord.designContract.trim().length > 0) {
+      try {
+        savedDesignContract = JSON.parse(sessionRecord.designContract) as DesignContract;
+      } catch {
+        // ignore malformed design contract and rebuild below
+      }
+    }
+    const designContract =
+      savedDesignContract ||
+      await buildDesignContractWithLLM({
+        provider: context.provider,
+        apiKey: context.apiKey,
+        model: context.model,
+        baseUrl: context.providerBaseUrl,
+        temperature: DESIGN_CONTRACT_TEMPERATURE,
+        styleId: context.styleId,
+        styleSkillPrompt: context.styleSkill.prompt,
+        totalPages: context.totalPages,
+        emit: (chunk) => emitGenerateChunk(context.sessionId, chunk),
+        runId: context.runId,
+        signal: context.entry.abortController.signal,
+      });
+
+    const retryPages =
+      incompleteSnapshotRecords.length > 0
+        ? incompleteSnapshotRecords.map((page) => ({
+            pageNumber: page.page_number,
+            pageId: page.page_id,
+            title: page.title || page.page_id,
+            contentOutline: page.content_outline || "",
+            htmlPath: page.html_path || path.join(context.entry.projectDir, `${page.page_id}.html`),
+            retryCount: page.retry_count + 1,
+          }))
+        : metadataFailedPages
+            .map((page, index) => {
+              const rawPageId = typeof page.pageId === "string" ? page.pageId.trim() : "";
+              const inferredNumber = Number(rawPageId.match(/^page-(\d+)$/i)?.[1] || 0);
+              const rawPageNumber = Number(page.pageNumber);
+              const pageNumber =
+                Number.isFinite(rawPageNumber) && rawPageNumber > 0
+                  ? Math.floor(rawPageNumber)
+                  : inferredNumber > 0
+                    ? inferredNumber
+                    : index + 1;
+              const pageId = rawPageId || `page-${pageNumber}`;
+              const title =
+                typeof page.title === "string" && page.title.trim().length > 0
+                  ? page.title.trim()
+                  : `第 ${pageNumber} 页`;
+              const htmlPathRaw = typeof page.htmlPath === "string" ? page.htmlPath.trim() : "";
+              return {
+                pageNumber,
+                pageId,
+                title,
+                contentOutline:
+                  typeof page.contentOutline === "string" ? page.contentOutline.trim() : "",
+                htmlPath: htmlPathRaw
+                  ? path.isAbsolute(htmlPathRaw)
+                    ? htmlPathRaw
+                    : path.join(context.entry.projectDir, htmlPathRaw)
+                  : path.join(context.entry.projectDir, `${pageId}.html`),
+                retryCount: 1,
+              };
+            })
+            .filter((page, index, pages) => pages.findIndex((item) => item.pageId === page.pageId) === index);
+    const pageFileMap = Object.fromEntries(retryPages.map((page) => [page.pageId, page.htmlPath]));
+
+    await db.createGenerationRun({
+      id: context.runId,
+      sessionId: context.sessionId,
+      mode: "retry",
+      totalPages: retryPages.length,
+      metadata: {
+        retryOnly: true,
+        source: incompleteSnapshotRecords.length > 0 ? "latest_incomplete_pages" : "metadata_failed_pages",
+        pageIds: retryPages.map((page) => page.pageId),
+      },
+    });
+    for (const page of retryPages) {
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: page.contentOutline,
+        htmlPath: page.htmlPath,
+        status: "pending",
+        retryCount: page.retryCount,
+      });
+    }
+
+    emitGenerateChunk(context.sessionId, {
+      type: "stage_started",
+      payload: {
+        runId: context.runId,
+        stage: "rendering",
+        label: "正在继续生成未完成页面",
+        progress: 8,
+        totalPages: retryPages.length,
+      },
+    });
+    await emitAssistantMessage(
+      context,
+      `我会继续生成 ${retryPages.length} 个未完成页面：${retryPages.map((page) => page.pageId).join("、")}。`
+    );
+
+    const persistedRetryCompletedPageIds = new Set<string>();
+    const persistedRetryFailedPageIds = new Set<string>();
+
+    const persistCompletedRetryPage = async (page: {
+      pageNumber: number;
+      pageId: string;
+      title: string;
+      contentOutline: string;
+      htmlPath: string;
+    }) => {
+      if (!fs.existsSync(page.htmlPath)) {
+        throw new Error(`${page.pageId}.html 缺失`);
+      }
+      const html = await fs.promises.readFile(page.htmlPath, "utf-8");
+      const validation = validatePersistedPageHtml(html, page.pageId);
+      if (!validation.valid) {
+        throw new Error(`HTML 验证失败 (${page.pageId}): ${validation.errors.join("; ")}`);
+      }
+      const retryPage = retryPages.find((item) => item.pageId === page.pageId);
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: page.contentOutline,
+        htmlPath: page.htmlPath,
+        status: "completed",
+        retryCount: retryPage?.retryCount || 0,
+      });
+      persistedRetryFailedPageIds.delete(page.pageId);
+      persistedRetryCompletedPageIds.add(page.pageId);
+    };
+    const persistFailedRetryPage = async (page: {
+      pageNumber: number;
+      pageId: string;
+      title: string;
+      contentOutline: string;
+      htmlPath: string;
+      reason: string;
+    }) => {
+      const retryPage = retryPages.find((item) => item.pageId === page.pageId);
+      await db.upsertGenerationPage({
+        runId: context.runId,
+        sessionId: context.sessionId,
+        pageId: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        contentOutline: page.contentOutline,
+        htmlPath: page.htmlPath,
+        status: "failed",
+        error: page.reason,
+        retryCount: retryPage?.retryCount || 0,
+      });
+      persistedRetryCompletedPageIds.delete(page.pageId);
+      persistedRetryFailedPageIds.add(page.pageId);
+    };
+
+    const { failedPages } = await runDeepAgentDeckGeneration({
+      sessionId: context.sessionId,
+      provider: context.provider,
+      apiKey: context.apiKey,
+      model: context.model,
+      baseUrl: context.providerBaseUrl,
+      temperature: PAGE_GENERATION_TEMPERATURE,
+      styleId: context.styleId,
+      styleSkillPrompt: context.styleSkill.prompt,
+      topic: context.topic,
+      deckTitle: context.deckTitle,
+      userMessage: context.userMessage || "请继续生成当前会话尚未完成的页面。",
+      outlineTitles: retryPages.map((page) => page.title),
+      outlineItems: retryPages.map((page) => ({ title: page.title, contentOutline: page.contentOutline })),
+      pageTasks: retryPages.map((page) => ({
+        pageNumber: page.pageNumber,
+        pageId: page.pageId,
+        title: page.title,
+        contentOutline: page.contentOutline,
+      })),
+      designContract,
+      projectDir: context.entry.projectDir,
+      indexPath,
+      pageFileMap,
+      agentManager,
+      emit: (chunk) => emitGenerateChunk(context.sessionId, chunk),
+      onPageCompleted: persistCompletedRetryPage,
+      onPageFailed: persistFailedRetryPage,
+      runId: context.runId,
+      signal: context.entry.abortController.signal,
+    });
+
+    const failedPageIdSet = new Set(failedPages.map((page) => page.pageId));
+    const retrySuccessPages: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string; html: string }> = [];
+    const retryFailures = [...failedPages];
+    for (const page of retryPages) {
+      if (failedPageIdSet.has(page.pageId)) {
+        const failure = failedPages.find((item) => item.pageId === page.pageId);
+        if (!persistedRetryFailedPageIds.has(page.pageId)) {
+          await db.upsertGenerationPage({
+            runId: context.runId,
+            sessionId: context.sessionId,
+            pageId: page.pageId,
+            pageNumber: page.pageNumber,
+            title: page.title,
+            contentOutline: page.contentOutline,
+            htmlPath: page.htmlPath,
+            status: "failed",
+            error: failure?.reason || "页面重试失败",
+            retryCount: page.retryCount,
+          });
+          persistedRetryFailedPageIds.add(page.pageId);
+        }
+        continue;
+      }
+      if (!fs.existsSync(page.htmlPath)) {
+        const reason = `${page.pageId}.html 缺失`;
+        retryFailures.push({ pageId: page.pageId, title: page.title, reason });
+        if (!persistedRetryFailedPageIds.has(page.pageId)) {
+          await db.upsertGenerationPage({
+            runId: context.runId,
+            sessionId: context.sessionId,
+            pageId: page.pageId,
+            pageNumber: page.pageNumber,
+            title: page.title,
+            contentOutline: page.contentOutline,
+            htmlPath: page.htmlPath,
+            status: "failed",
+            error: reason,
+            retryCount: page.retryCount,
+          });
+          persistedRetryFailedPageIds.add(page.pageId);
+        }
+        continue;
+      }
+      const html = await fs.promises.readFile(page.htmlPath, "utf-8");
+      const validation = validatePersistedPageHtml(html, page.pageId);
+      if (!validation.valid) {
+        const reason = validation.errors.join("; ");
+        retryFailures.push({ pageId: page.pageId, title: page.title, reason });
+        if (!persistedRetryFailedPageIds.has(page.pageId)) {
+          await db.upsertGenerationPage({
+            runId: context.runId,
+            sessionId: context.sessionId,
+            pageId: page.pageId,
+            pageNumber: page.pageNumber,
+            title: page.title,
+            contentOutline: page.contentOutline,
+            htmlPath: page.htmlPath,
+            status: "failed",
+            error: reason,
+            retryCount: page.retryCount,
+          });
+          persistedRetryFailedPageIds.add(page.pageId);
+        }
+        continue;
+      }
+      retrySuccessPages.push({
+        pageNumber: page.pageNumber,
+        title: page.title,
+        pageId: page.pageId,
+        htmlPath: page.htmlPath,
+        html,
+      });
+      if (!persistedRetryCompletedPageIds.has(page.pageId)) {
+        await db.upsertGenerationPage({
+          runId: context.runId,
+          sessionId: context.sessionId,
+          pageId: page.pageId,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          contentOutline: page.contentOutline,
+          htmlPath: page.htmlPath,
+          status: "completed",
+          retryCount: page.retryCount,
+        });
+        persistedRetryCompletedPageIds.add(page.pageId);
+      }
+    }
+
+    const retryPageIdSet = new Set(retryPages.map((page) => page.pageId));
+    let previousGeneratedPages: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string; html: string }> = [];
+    if (context.session?.metadata) {
+      try {
+        const metadata = JSON.parse(context.session.metadata) as {
+          generatedPages?: Array<{ pageNumber: number; title: string; pageId?: string; htmlPath?: string; html?: string }>;
+        };
+        const restoredPages = await Promise.all(
+          (metadata.generatedPages || [])
+            .filter((page) => !retryPageIdSet.has(page.pageId || `page-${page.pageNumber}`))
+            .map(async (page) => {
+              const pageId = page.pageId || `page-${page.pageNumber}`;
+              const htmlPath = page.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`);
+              const html = fs.existsSync(htmlPath)
+                ? await fs.promises.readFile(htmlPath, "utf-8")
+                : page.html || "";
+              if (!html.trim()) return null;
+              return {
+                pageNumber: page.pageNumber,
+                title: page.title,
+                pageId,
+                htmlPath,
+                html,
+              };
+            })
+        );
+        previousGeneratedPages = restoredPages.filter(
+          (page): page is { pageNumber: number; title: string; pageId: string; htmlPath: string; html: string } =>
+            Boolean(page)
+        );
+      } catch {
+        previousGeneratedPages = [];
+      }
+    }
+    const mergedGeneratedPages = [...previousGeneratedPages, ...retrySuccessPages]
+      .sort((a, b) => a.pageNumber - b.pageNumber);
+
+    await db.updateSessionMetadata(context.sessionId, {
+      lastRunId: context.runId,
+      entryMode: "multi_page",
+      generatedPages: mergedGeneratedPages,
+      failedPages: retryFailures.map((page) => ({
+        pageId: page.pageId,
+        title: page.title,
+        reason: page.reason,
+      })),
+      indexPath,
+      projectId: context.projectId,
+    });
+    await db.updateSessionDesignContract(context.sessionId, designContract);
+    await db.updateProjectStatus(context.projectId, "draft");
+
+    if (retryFailures.length > 0) {
+      const failedDetails = retryFailures.map((item) => `${item.pageId}（${item.title}）：${item.reason}`).join("；");
+      await db.updateGenerationRunStatus(
+        context.runId,
+        retrySuccessPages.length > 0 ? "partial" : "failed",
+        failedDetails
+      );
+      emitGenerateChunk(context.sessionId, {
+        type: "llm_status",
+        payload: {
+          runId: context.runId,
+          stage: "rendering",
+          label: "还有几页需要继续修",
+          progress: 90,
+          totalPages: retryPages.length,
+          detail: failedDetails,
+        },
+      });
+      throw new Error(
+        `重试后仍有页面失败（${retryFailures.length}/${retryPages.length}）：${retryFailures
+          .map((item) => `${item.pageId}(${item.title})`)
+          .join(", ")}`
+      );
+    }
+
+    if (mergedGeneratedPages.length < context.totalPages) {
+      const message = `重试页面已完成，但当前只恢复 ${mergedGeneratedPages.length}/${context.totalPages} 页，请继续重试或重新生成。`;
+      await db.updateGenerationRunStatus(context.runId, "partial", message);
+      emitGenerateChunk(context.sessionId, {
+        type: "llm_status",
+        payload: {
+          runId: context.runId,
+          stage: "rendering",
+          label: "还有页面没有恢复",
+          progress: 90,
+          totalPages: retryPages.length,
+          detail: message,
+        },
+      });
+      throw new Error(message);
+    }
+
+    await emitAssistantMessage(context, `失败页面已经重试完成，本次修复 ${retrySuccessPages.length} 页。`);
+    await db.updateGenerationRunStatus(context.runId, "completed", null);
+    await finalizeGenerationSuccess({
+      context,
+      indexPath,
+      totalPages: context.totalPages,
+      generatedPages: mergedGeneratedPages,
       designContract,
     });
   };
@@ -1768,8 +2714,22 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   // ========== Session Management ==========
 
   ipcMain.handle("session:create", async (_event, payload) => {
-    const { topic, styleId, pageCount, provider, apiKey, model, baseUrl } = payload;
+    const { topic, styleId, pageCount } = payload;
     const storagePath = await resolveStoragePath();
+    const settings = await db.getAllSettings();
+    const provider = String(settings.provider || "").trim();
+    if (!provider) {
+      throw new Error("创建会话失败：请先前往系统设置选择 provider。");
+    }
+    const model = String(settings[`model_${provider}`] || "").trim();
+    const baseUrl = String(settings[`base_url_${provider}`] || "").trim();
+    const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim();
+    if (!model) {
+      throw new Error("创建会话失败：请先前往系统设置填写 model。");
+    }
+    if (!apiKey) {
+      throw new Error("创建会话失败：请先前往系统设置填写 api_key。");
+    }
     const sessionId = crypto.randomUUID();
     const projectDir = path.join(storagePath, sessionId);
 
@@ -1795,7 +2755,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
 
     await agentManager.createSession({
       sessionId,
-      provider, apiKey, model, baseUrl, projectDir, db, topic, styleId: normalizedStyleId, pageCount,
+      provider, model, baseUrl, projectDir, topic, styleId: normalizedStyleId, pageCount,
     });
 
     return { sessionId };
@@ -1803,7 +2763,15 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
 
   ipcMain.handle("session:list", async () => {
     const sessions = await db.listSessions();
-    return sessions.map((session) => normalizeSession(session as unknown as Record<string, unknown>));
+    const enrichedSessions = await Promise.all(
+      sessions.map(async (session) => {
+        const snapshot = await buildSessionGenerationSnapshot(session as unknown as Record<string, unknown>, {
+          includeHtml: false,
+        });
+        return snapshot.session || session as unknown as Record<string, unknown>;
+      })
+    );
+    return enrichedSessions.map((session) => normalizeSession(session as unknown as Record<string, unknown>));
   });
 
   ipcMain.handle("session:get", async (_event, sessionId) => {
@@ -1816,11 +2784,21 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       htmlPath?: string;
       pageId?: string;
       sourceUrl?: string;
+      status?: string;
+      error?: string | null;
     }> = [];
+    const metadataForSnapshot = (() => {
+      if (!session?.metadata) return {} as Record<string, unknown>;
+      try {
+        return JSON.parse(session.metadata) as Record<string, unknown>;
+      } catch {
+        return {} as Record<string, unknown>;
+      }
+    })();
 
     if (session?.metadata) {
       try {
-        const metadata = JSON.parse(session.metadata) as {
+        const metadata = metadataForSnapshot as {
           entryMode?: "single_index" | "multi_page";
           indexPath?: string;
           generatedPages?: Array<{
@@ -1847,6 +2825,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
                 htmlPath: pagePath,
                 pageId,
                 sourceUrl: getPageSourceUrl(pagePath),
+                status: "completed",
               };
             })
           );
@@ -1879,6 +2858,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
                 htmlPath: pagePath,
                 pageId,
                 sourceUrl: `${baseUrl}?embed=1#${encodeURIComponent(pageId)}`,
+                status: "completed",
               };
             })
           );
@@ -1895,6 +2875,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
                 htmlPath: page.htmlPath,
                 pageId: page.pageId || `page-${page.pageNumber}`,
                 sourceUrl: getPageSourceUrl(page.htmlPath),
+                status: "completed",
               };
             })
           );
@@ -1907,10 +2888,53 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
       }
     }
 
+    if (session) {
+      const existingPageIds = new Set(generatedPages.map((page) => page.pageId || `page-${page.pageNumber}`));
+      const generationSnapshot = await db.listLatestGenerationPageSnapshot(sessionId);
+      if (generationSnapshot.length > 0) {
+        const project = await db.getProject(sessionId);
+        const metadataIndexPath =
+          typeof metadataForSnapshot.indexPath === "string" && metadataForSnapshot.indexPath.trim().length > 0
+            ? metadataForSnapshot.indexPath.trim()
+            : "";
+        const projectDir =
+          typeof project?.output_path === "string" && project.output_path.trim().length > 0
+            ? project.output_path.trim()
+            : metadataIndexPath
+              ? path.dirname(metadataIndexPath)
+              : path.join(await resolveStoragePath(), sessionId);
+
+        for (const page of generationSnapshot) {
+          const pageId = page.page_id || `page-${page.page_number}`;
+          if (existingPageIds.has(pageId)) continue;
+          const htmlPath = page.html_path || path.join(projectDir, `${pageId}.html`);
+          if (!fs.existsSync(htmlPath)) continue;
+          const html = await fs.promises.readFile(htmlPath, "utf-8");
+          generatedPages.push({
+            pageNumber: page.page_number,
+            title: page.title || `第 ${page.page_number} 页`,
+            html,
+            htmlPath,
+            pageId,
+            sourceUrl: getPageSourceUrl(htmlPath),
+            status: page.status,
+            error: page.error,
+          });
+          existingPageIds.add(pageId);
+        }
+      }
+    }
+    generatedPages.sort((a, b) => a.pageNumber - b.pageNumber);
+
+    const snapshotForGate = await buildSessionGenerationSnapshot(session as unknown as Record<string, unknown> | undefined, {
+      includeHtml: true,
+    });
+    const responsePages = snapshotForGate.pages.length > 0 ? snapshotForGate.pages : generatedPages;
+
     return {
-      session: normalizeSession(session as unknown as Record<string, unknown> | undefined),
+      session: normalizeSession(snapshotForGate.session as unknown as Record<string, unknown> | undefined),
       messages: messages.map((message) => normalizeMessage(message as unknown as Record<string, unknown>)),
-      generatedPages,
+      generatedPages: responsePages,
     };
   });
 
@@ -1968,6 +2992,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   // ========== Generation Flow ==========
 
   ipcMain.handle("generate:state", async (_event, rawSessionId: unknown) => {
+    pruneFinishedSessionRunStates();
     const sessionId = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
     if (!sessionId) {
       throw new Error("sessionId 不能为空");
@@ -2014,6 +3039,7 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
   });
 
   ipcMain.handle("generate:start", async (event, payload) => {
+    pruneFinishedSessionRunStates();
     const requestedSessionId =
       payload && typeof payload === "object" && typeof (payload as { sessionId?: unknown }).sessionId === "string"
         ? String((payload as { sessionId?: string }).sessionId).trim()
@@ -2039,6 +3065,66 @@ export function setupIPC(mainWindow: BrowserWindow, db: PPTDatabase, agentManage
         totalPages: context.totalPages,
       });
       await executeGeneration(context);
+      return { success: true, runId: context.runId };
+    } catch (error) {
+      if (context) {
+        await finalizeGenerationFailure(context, error);
+      }
+      throw error;
+    } finally {
+      if (context) {
+        agentManager.removeSession(context.sessionId);
+      }
+    }
+  });
+
+  ipcMain.handle("generate:retryFailedPages", async (event, payload) => {
+    pruneFinishedSessionRunStates();
+    const requestedSessionId =
+      payload && typeof payload === "object" && typeof (payload as { sessionId?: unknown }).sessionId === "string"
+        ? String((payload as { sessionId?: string }).sessionId).trim()
+        : "";
+    if (requestedSessionId) {
+      const runningState = sessionRunStates.get(requestedSessionId);
+      if (runningState?.status === "running") {
+        log.info("[generate:retryFailedPages] attach to existing run", {
+          sessionId: requestedSessionId,
+          runId: runningState.runId,
+        });
+        return { success: true, runId: runningState.runId, alreadyRunning: true };
+      }
+    }
+
+    let context: GenerationContext | null = null;
+    try {
+      const retryPayload = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+      const retrySupplement =
+        typeof retryPayload.userMessage === "string" && retryPayload.userMessage.trim().length > 0
+          ? retryPayload.userMessage.trim()
+          : "";
+      const retryUserMessage = retrySupplement
+        ? `请继续生成当前会话中未完成页面。\n用户补充说明：${retrySupplement}`
+        : "请继续生成当前会话中未完成页面。";
+      context = await resolveGenerationContext(
+        event,
+        {
+          ...retryPayload,
+          type: "deck",
+          userMessage: retryUserMessage,
+        },
+        { persistUserMessage: false, mode: "retry" }
+      );
+      beginSessionRunState({
+        sessionId: context.sessionId,
+        runId: context.runId,
+        mode: "retry",
+        totalPages: Math.max(
+          1,
+          (await db.listLatestGenerationPageSnapshot(context.sessionId)).filter((page) => page.status !== "completed").length ||
+            context.totalPages
+        ),
+      });
+      await executeRetryFailedPages(context);
       return { success: true, runId: context.runId };
     } catch (error) {
       if (context) {

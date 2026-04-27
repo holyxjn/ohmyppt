@@ -38,6 +38,8 @@ export interface GeneratedPage {
   htmlPath?: string
   pageId?: string
   sourceUrl?: string
+  status?: string
+  error?: string | null
 }
 
 interface SessionStore {
@@ -53,10 +55,6 @@ interface SessionStore {
     topic: string
     styleId: string
     pageCount?: number
-    provider: string
-    apiKey: string
-    model?: string
-    baseUrl?: string
   }) => Promise<string>
   loadSession: (sessionId: string) => Promise<void>
   loadMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) => Promise<void>

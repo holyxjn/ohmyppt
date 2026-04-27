@@ -33,6 +33,7 @@ interface AgentSessionEntry {
   provider: string;
   model: string;
   baseUrl?: string;
+  temperature?: number;
 }
 
 // ── Agent factory ──
@@ -40,12 +41,13 @@ interface AgentSessionEntry {
 export function createSessionEditAgent(args: {
   provider: string;
   apiKey: string;
-  model?: string;
+  model: string;
   baseUrl?: string;
+  temperature?: number;
   styleId?: string | null;
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl);
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
   const backend = new FilesystemBackend({
     rootDir: args.context.projectDir,
     virtualMode: true,
@@ -56,7 +58,7 @@ export function createSessionEditAgent(args: {
   log.info("[deepagent] create session edit agent", {
     sessionId: args.context.sessionId,
     provider: args.provider,
-    model: args.model || "",
+    model: args.model,
     styleId: args.styleId || "",
     projectDir: args.context.projectDir,
     indexPath: args.context.indexPath,
@@ -74,12 +76,13 @@ export function createSessionEditAgent(args: {
 export function createSessionDeckAgent(args: {
   provider: string;
   apiKey: string;
-  model?: string;
+  model: string;
   baseUrl?: string;
+  temperature?: number;
   styleId?: string | null;
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl);
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
   const backend = new FilesystemBackend({
     rootDir: args.context.projectDir,
     virtualMode: true,
@@ -96,7 +99,7 @@ export function createSessionDeckAgent(args: {
   log.info("[deepagent] create session deck agent", {
     sessionId: args.context.sessionId,
     provider: args.provider,
-    model: args.model || "",
+    model: args.model,
     styleId: args.styleId || "",
     projectDir: args.context.projectDir,
     indexPath: args.context.indexPath,
@@ -119,40 +122,45 @@ export function createSessionDeckAgent(args: {
 
 // ── Model resolution ──
 
-const MODEL_DEFAULTS: Record<string, string> = {
-  openai: "gpt-4o",
-  anthropic: "claude-sonnet-4-5-20250929",
-  deepseek: "deepseek-chat",
-};
+export const DEFAULT_MODEL_TEMPERATURE = 0.7;
 
 export function resolveModel(
   provider: string,
   apiKey: string,
-  model?: string,
-  baseUrl?: string
+  model: string,
+  baseUrl?: string,
+  temperature?: number
 ): BaseLanguageModel {
-  const resolvedModel = model || MODEL_DEFAULTS[provider] || MODEL_DEFAULTS.anthropic;
+  const resolvedModel = model.trim();
+  if (!resolvedModel) {
+    throw new Error("model 不能为空，请先在系统设置中配置模型。");
+  }
+  const resolvedTemperature =
+    Number.isFinite(temperature) && typeof temperature === "number"
+      ? Math.max(0, Math.min(2, temperature))
+      : DEFAULT_MODEL_TEMPERATURE;
 
-  log.info("[llm] resolveModel", { provider, model: resolvedModel, baseUrl: baseUrl || "" });
+  log.info("[llm] resolveModel", {
+    provider,
+    model: resolvedModel,
+    baseUrl: baseUrl || "",
+    temperature: resolvedTemperature ?? null,
+  });
 
   switch (provider) {
     case "openai":
       return new ChatOpenAI({
         model: resolvedModel,
         apiKey,
+        temperature: resolvedTemperature,
         configuration: baseUrl ? { baseURL: baseUrl } : undefined,
       });
     case "anthropic":
       return new ChatAnthropic({
         model: resolvedModel,
         apiKey,
+        temperature: resolvedTemperature,
         anthropicApiUrl: baseUrl || undefined,
-      });
-    case "deepseek":
-      return new ChatOpenAI({
-        model: resolvedModel,
-        apiKey,
-        configuration: { baseURL: baseUrl || "https://api.deepseek.com/v1" },
       });
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -164,14 +172,11 @@ export function resolveModel(
 export interface AgentSessionConfig {
   sessionId: string;
   provider: string;
-  apiKey: string;
-  model?: string;
+  model: string;
   baseUrl?: string;
+  temperature?: number;
   projectDir: string;
-  db: PPTDatabase;
 }
-
-const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
 export class AgentManager {
   private agents = new Map<string, AgentSessionEntry>();
@@ -185,7 +190,10 @@ export class AgentManager {
       pageCount?: number
     }
   ): Promise<string> {
-    const model = config.model || DEFAULT_MODEL;
+    const model = config.model.trim();
+    if (!model) {
+      throw new Error("创建会话失败：model 不能为空。");
+    }
     log.info("[agent] createSession", {
       sessionId: config.sessionId,
       provider: config.provider,
@@ -214,6 +222,7 @@ export class AgentManager {
       provider: config.provider,
       model,
       baseUrl: config.baseUrl,
+      temperature: config.temperature,
     });
 
     return sessionId;
@@ -251,22 +260,33 @@ export class AgentManager {
   ensureSession(config: {
     sessionId: string
     provider: string
-    model?: string
+    model: string
     baseUrl?: string
+    temperature?: number
     projectDir: string
   }) {
     const existing = this.agents.get(config.sessionId);
     if (existing) {
+      existing.provider = config.provider;
+      existing.model = config.model;
+      existing.baseUrl = config.baseUrl;
+      existing.temperature = config.temperature;
+      existing.projectDir = config.projectDir;
       log.info("[agent] ensureSession hit existing", {
         sessionId: config.sessionId,
         provider: existing.provider,
         model: existing.model,
+        baseUrl: existing.baseUrl || "",
+        temperature: existing.temperature ?? null,
         projectDir: existing.projectDir,
       });
       return existing;
     }
 
-    const model = config.model || DEFAULT_MODEL;
+    const model = config.model.trim();
+    if (!model) {
+      throw new Error("恢复会话失败：model 不能为空。");
+    }
     const entry = {
       agent: null,
       pageAgents: new Map<string, DeepAgentStreamResult>(),
@@ -275,6 +295,7 @@ export class AgentManager {
       provider: config.provider,
       model,
       baseUrl: config.baseUrl,
+      temperature: config.temperature,
     };
 
     log.info("[agent] ensureSession create entry", {
@@ -282,6 +303,7 @@ export class AgentManager {
       provider: entry.provider,
       model,
       baseUrl: entry.baseUrl || "",
+      temperature: entry.temperature ?? null,
       projectDir: entry.projectDir,
     });
 

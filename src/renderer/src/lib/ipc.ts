@@ -1,4 +1,4 @@
-import type { GenerateChunkEvent, GenerateStartPayload, UploadedAsset } from '@shared/generation.js'
+import type { GenerateChunkEvent, GenerateRetryFailedPayload, GenerateStartPayload, UploadedAsset } from '@shared/generation.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -78,10 +78,6 @@ export interface CreateSessionPayload {
   topic: string
   styleId: string
   pageCount?: number
-  provider: string
-  apiKey: string
-  model?: string
-  baseUrl?: string
 }
 
 export const ipc = {
@@ -98,6 +94,8 @@ export const ipc = {
         htmlPath?: string
         pageId?: string
         sourceUrl?: string
+        status?: string
+        error?: string | null
       }>
     }>,
   getSessionMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) =>
@@ -105,6 +103,8 @@ export const ipc = {
   deleteSession: (sessionId: string) => getIpc().invoke('session:delete', sessionId) as Promise<{ success: boolean }>,
   startGenerate: (payload: GenerateStartPayload) =>
     getIpc().invoke('generate:start', payload) as Promise<{ success: boolean; runId?: string; alreadyRunning?: boolean }>,
+  retryFailedPages: (payload: GenerateRetryFailedPayload) =>
+    getIpc().invoke('generate:retryFailedPages', payload) as Promise<{ success: boolean; runId?: string; alreadyRunning?: boolean }>,
   getGenerateState: (sessionId: string) =>
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
   cancelGenerate: (sessionId: string) => getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,

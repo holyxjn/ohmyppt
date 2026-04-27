@@ -12,7 +12,7 @@
 
 **Oh My PPT - 纯本地 AI 幻灯片生成与编辑工具**
 
-[English](./README_EN.md) | [为什么做这个](#why) • [能做什么](#features) • [使用流程](#workflow) • [使用问题](#usage-notes)
+[English](./README_EN.md) | [为什么做这个](#why) • [能做什么](#features) • [使用流程](#workflow) • [更新日志](./CHANGELOG.md) • [使用问题](#usage-notes)
 
   <p>
     Local-first AI Slide Deck Generator<br/>
@@ -22,7 +22,7 @@
 
   <img src="https://arcsin1.github.io/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [观看完整演示视频](https://arcsin1.github.io/ohmyppt.mp4) | [下载安装包（v0.0.2）](https://github.com/arcsin1/oh-my-ppt/releases)
+  [观看完整演示视频](https://arcsin1.github.io/ohmyppt.mp4) | [下载安装包](https://github.com/arcsin1/oh-my-ppt/releases)
 </div>
 
 ---
