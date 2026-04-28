@@ -117,6 +117,7 @@ Notes:
 
 - Ollama does not validate API keys by default, but this app enforces a non-empty check, so `api_key` cannot be blank.
 - 14B+ local models (or strong cloud models) are recommended for stable generation quality.
+- The app does not use thinking / reasoning mode by default. When a custom OpenAI-compatible `base_url` is configured, the app asks the provider to disable thinking so document parsing, tool calls, and retry generation avoid `reasoning_content` compatibility issues.
 
 <a id="usage-notes"></a>
 ## Usage Notes

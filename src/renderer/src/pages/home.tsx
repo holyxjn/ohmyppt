@@ -245,9 +245,12 @@ export function HomePage(): ReactElement {
       <div className="space-y-4">
         <div className="flex flex-col gap-3 rounded-lg border border-[#d8cfbc]/70 bg-[#f8f4ec] px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-[#3e4a32]">从文档生成</p>
+            <p className="text-sm font-medium text-[#3e4a32]">从文档生成(可选)</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              支持 txt、md、csv、docx，单个不超过 {MAX_DOCUMENT_SIZE_MB}MB；解析后会自动填充主题、页数和详细描述。
+              支持 txt、md、csv、docx，单个不超过 {MAX_DOCUMENT_SIZE_MB}MB；解析后会自动填充主题、页数和详细描述(大纲)。
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              后续生成中会自动使用解析后的完整文档内容去生成创意ppt。
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -354,7 +357,7 @@ export function HomePage(): ReactElement {
             <div>
               <label className="mb-2 block text-sm font-medium">详细描述</label>
               <Textarea
-                placeholder="描述你的简要需求、核心结论、希望保留的数据点，以及你想要的讲述节奏。"
+                placeholder="描述你的简要需求、核心结论、希望保留的数据点，以及你想要的讲述节奏"
                 rows={8}
                 value={brief}
                 required
