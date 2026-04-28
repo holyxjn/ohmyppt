@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 2026-04-28
+
+### 中文
+
+- 新增页面元素拖拽调整：在预览中开启“调整位置”后，可直接拖拽带结构标识的页面模块并保存位置。
+- 补充动画能力文档：说明基于 Anime.js v4 的基础整元素动画，并加入示例 GIF。
+- 优化会话详情页结构：拆分页面侧栏、预览区、顶部工具栏和消息面板。
+
 ## 2026-04-27
 
 ### 中文
@@ -33,6 +41,14 @@
 - 补充 macOS 与 Windows 未签名应用打开说明。
 
 ---
+
+## 2026-04-28
+
+### English
+
+- Added drag-to-position editing: enable Adjust Position in preview to drag structured page blocks and persist their layout.
+- Added animation documentation: describes basic Anime.js v4-powered whole-element animations with an example GIF.
+- Improved the session detail architecture: split the page sidebar, preview stage, top toolbar, and message panel, and added a page-level UI store for local state.
 
 ## 2026-04-27
 

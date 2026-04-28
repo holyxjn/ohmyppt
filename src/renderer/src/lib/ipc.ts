@@ -80,6 +80,15 @@ export interface UploadAssetsPayload {
   }>
 }
 
+export interface UpdateElementLayoutPayload {
+  sessionId: string
+  htmlPath: string
+  pageId: string
+  selector: string
+  x: number
+  y: number
+}
+
 export interface CreateSessionPayload {
   topic: string
   styleId: string
@@ -211,6 +220,10 @@ export const ipc = {
       pageId: string
       title: string
       html: string
+    }>,
+  updateElementLayout: (payload: UpdateElementLayoutPayload) =>
+    getIpc().invoke('drag-editor:update-element-layout', payload) as Promise<{
+      success: boolean
     }>,
   openFile: (filePath: string, sessionId?: string) =>
     getIpc().invoke('file:open', { path: filePath, sessionId }) as Promise<string>,

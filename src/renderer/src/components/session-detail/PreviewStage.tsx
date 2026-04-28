@@ -1,0 +1,154 @@
+import { useEffect } from 'react'
+import { Crosshair, Loader2, Move, Sparkles } from 'lucide-react'
+import { cn } from '@renderer/lib/utils'
+import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { Button } from '../ui/Button'
+import { PreviewIframe } from '../preview/PreviewIframe'
+import type { DragEditorMovePayload } from '../preview/drag-editor-script'
+import type { SessionPreviewPage } from './types'
+
+export function PreviewStage({
+  selectedPage,
+  sessionTitle,
+  isGenerating,
+  progressLabel,
+  onElementMoved
+}: {
+  selectedPage: SessionPreviewPage | null
+  sessionTitle?: string | null
+  isGenerating: boolean
+  progressLabel?: string
+  onElementMoved: (payload: DragEditorMovePayload) => void
+}): React.JSX.Element {
+  const previewKey = useSessionDetailUiStore((state) => state.previewKey)
+  const inspecting = useSessionDetailUiStore((state) => state.inspecting)
+  const dragEditing = useSessionDetailUiStore((state) => state.dragEditing)
+  const setInspecting = useSessionDetailUiStore((state) => state.setInspecting)
+  const setDragEditing = useSessionDetailUiStore((state) => state.setDragEditing)
+  const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
+
+  useEffect(() => {
+    if (!inspecting && !dragEditing) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setInspecting(false)
+        setDragEditing(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dragEditing, inspecting, setDragEditing, setInspecting])
+
+  return (
+    <main className="flex min-h-0 flex-1 flex-col px-3 py-3">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-[2rem] bg-[#e8e0d0]/54 p-3 shadow-[0_24px_54px_rgba(93,107,77,0.15)]">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#d4e4c1]/48" />
+        <div className="pointer-events-none absolute -bottom-24 left-8 h-48 w-64 rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#c8b89e]/22" />
+        {selectedPage ? (
+          <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_14px_32px_rgba(93,107,77,0.14)]">
+            <div className="pointer-events-none absolute left-5 top-5 z-20 max-w-[calc(100%-9rem)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
+              {sessionTitle || '会话'}
+            </div>
+            <PreviewIframe
+              key={`preview-${selectedPage.pageId}-${previewKey}`}
+              src={selectedPage.sourceUrl}
+              htmlPath={selectedPage.htmlPath}
+              pageId={selectedPage.pageId}
+              title={`preview-page-${selectedPage.pageNumber}`}
+              inspectable
+              inspecting={inspecting}
+              dragEditing={dragEditing}
+              onSelectorSelected={setSelectedElement}
+              onElementMoved={onElementMoved}
+              onInspectExit={() => {
+                setInspecting(false)
+                setDragEditing(false)
+              }}
+            />
+            {selectedPage.htmlPath && (
+              <div className="absolute right-5 top-5 z-20 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={dragEditing ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    'rounded-full px-3 text-xs shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    dragEditing
+                      ? 'bg-[#5d6b4d] text-white'
+                      : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
+                  )}
+                  onClick={() => {
+                    setDragEditing(!dragEditing)
+                    setInspecting(false)
+                  }}
+                  disabled={isGenerating}
+                >
+                  <Move className="mr-1.5 h-3.5 w-3.5" />
+                  {dragEditing ? '退出调整' : '调整位置'}
+                </Button>
+                <Button
+                  type="button"
+                  variant={inspecting ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    'rounded-full px-3 text-xs shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    inspecting
+                      ? 'bg-[#5d6b4d] text-white'
+                      : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
+                  )}
+                  onClick={() => {
+                    setInspecting(!inspecting)
+                    setDragEditing(false)
+                  }}
+                  disabled={isGenerating}
+                >
+                  <Crosshair className="mr-1.5 h-3.5 w-3.5" />
+                  {inspecting ? '退出检选' : '检选元素'}
+                </Button>
+              </div>
+            )}
+            {selectedPage.status === 'failed' && (
+              <div className="absolute bottom-5 left-5 z-20 max-w-[520px] rounded-[1rem] bg-[#fff4ef]/92 px-3 py-2 text-xs text-[#8e5a53] shadow-[0_10px_24px_rgba(142,90,83,0.12)] backdrop-blur-sm">
+                这一页上次生成失败，当前展示的是可恢复的页面文件。请保持“当前页”上下文，直接描述如何修复或重新生成这一页。
+              </div>
+            )}
+            {inspecting && (
+              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-3 py-1.5 text-xs text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
+                点击页面元素以选中
+              </div>
+            )}
+            {dragEditing && (
+              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eef5e8]/92 px-3 py-1.5 text-xs text-[#4f6340] shadow-[0_8px_18px_rgba(93,107,77,0.12)] backdrop-blur-sm">
+                拖拽模块调整位置，松手后自动保存
+              </div>
+            )}
+            {isGenerating && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-[1.55rem] bg-[#f5f1e8]/68 backdrop-blur-sm transition-opacity">
+                <div className="flex flex-col items-center gap-3 rounded-[1.5rem] bg-[#e8e0d0]/88 px-8 py-5 shadow-[0_20px_44px_rgba(93,107,77,0.16)]">
+                  <Loader2 className="h-6 w-6 animate-spin text-[#6f8159]" />
+                  {progressLabel ? <p className="text-sm text-[#5a674b]">{progressLabel}</p> : null}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="relative flex h-full min-h-[420px] flex-col items-center justify-center gap-4 rounded-[1.55rem] bg-[#f5f1e8]/84 text-center text-[#5d6b4d] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.32)]">
+            {isGenerating ? (
+              <Loader2 className="h-7 w-7 animate-spin text-[#5d6b4d]" />
+            ) : (
+              <Sparkles className="h-7 w-7 text-[#8fbc8f]" />
+            )}
+            <div className="space-y-1">
+              <p className="text-base font-medium text-[#3e4a32]">等着你的创意</p>
+              <p className="text-sm">
+                {isGenerating
+                  ? '正在准备第一版预览…'
+                  : '在消息面板里输入 brief，我会把预览放到这里。'}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
