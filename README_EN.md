@@ -32,6 +32,7 @@
 - [Why I Built This](#why)
 - [What It Can Do](#features)
 - [Workflow](#workflow)
+- [Animation Support](#animations)
 - [Local Ollama Support](#ollama)
 - [Usage Notes](#usage-notes)
   - [How to add images to PPT](#assets)
@@ -62,7 +63,7 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 - 🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
 - 🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles  
 - ✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  
-- 🎬 **Page transition effects** — Built-in transitions during preview for a polished presentation feel  
+- 🎬 **Animation support** — Page transitions plus basic Anime.js v4-powered whole-element motion
 - 📄 **Multi-format export** — Export to PDF, batch PNG, or editable PPTX (still being improved)
 - 🧩 **More reliable slide layout** — Generation follows a fixed 16:9 canvas and content-height budget to reduce overflow
 
@@ -70,6 +71,24 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 ## 🔄 Workflow
 
 > 💡 Input your intent → AI plans outline → generates visual direction → renders page by page → preview & chat edits → export PDF / PNG / PPTX
+
+<a id="animations"></a>
+## 🎬 Animation Support
+
+Oh My PPT generates HTML slides and includes a local **Anime.js v4** runtime. During generation or chat-based editing, the AI can add basic presentation motion to whole slide elements such as titles, metric cards, images, chart containers, and step blocks.
+
+Whole-element animation is preferred over splitting text into many tiny moving fragments. It keeps slides readable, stable, and better suited for reports, pitches, classes, and live demos.
+
+The most reliable whole-element animations today are:
+
+- **Fade in**: lightweight transitions when modules appear.
+- **Subtle slide-in motion**: short movement from top, bottom, left, or right for titles, cards, and lists.
+- **Scale emphasis**: gently enlarge key numbers or conclusion cards, then settle back.
+- **Simple stagger**: reveal cards or bullets one after another.
+
+Animations are meant to guide attention and show hierarchy. Avoid complex timelines, high-frequency flashing, infinite loops, or large shaking motion. Slides should remain readable even if animation is disabled.
+
+<img src="./docs/video/anime.gif" alt="Oh My PPT animation demo" width="600" />
 
 <a id="ollama"></a>
 ## 🦙 Local Ollama Support (OpenAI-Compatible)
