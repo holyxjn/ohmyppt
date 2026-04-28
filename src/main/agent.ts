@@ -124,6 +124,19 @@ export function createSessionDeckAgent(args: {
 
 export const DEFAULT_MODEL_TEMPERATURE = 0.7;
 
+const resolveOpenAICompatibilityModelKwargs = (
+  baseUrl?: string
+): { modelKwargs: Record<string, unknown>; compatibilityFlags: string[] } => {
+  if (!baseUrl) {
+    return { modelKwargs: {}, compatibilityFlags: [] };
+  }
+
+  return {
+    modelKwargs: { thinking: { type: "disabled" } },
+    compatibilityFlags: ["thinking.type=disabled"],
+  };
+};
+
 export function resolveModel(
   provider: string,
   apiKey: string,
@@ -139,12 +152,15 @@ export function resolveModel(
     Number.isFinite(temperature) && typeof temperature === "number"
       ? Math.max(0, Math.min(2, temperature))
       : DEFAULT_MODEL_TEMPERATURE;
+  const resolvedBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
+  const { modelKwargs, compatibilityFlags } = resolveOpenAICompatibilityModelKwargs(resolvedBaseUrl);
 
   log.info("[llm] resolveModel", {
     provider,
     model: resolvedModel,
-    baseUrl: baseUrl || "",
+    baseUrl: resolvedBaseUrl,
     temperature: resolvedTemperature ?? null,
+    openAICompatibility: compatibilityFlags,
   });
 
   switch (provider) {
@@ -153,14 +169,15 @@ export function resolveModel(
         model: resolvedModel,
         apiKey,
         temperature: resolvedTemperature,
-        configuration: baseUrl ? { baseURL: baseUrl } : undefined,
+        configuration: resolvedBaseUrl ? { baseURL: resolvedBaseUrl } : undefined,
+        modelKwargs,
       });
     case "anthropic":
       return new ChatAnthropic({
         model: resolvedModel,
         apiKey,
         temperature: resolvedTemperature,
-        anthropicApiUrl: baseUrl || undefined,
+        anthropicApiUrl: resolvedBaseUrl || undefined,
       });
     default:
       throw new Error(`Unknown provider: ${provider}`);
