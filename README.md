@@ -72,7 +72,7 @@
 
 <p align="center">
  <img width="49%" alt="Oh My PPT - 7" src="./docs/images/7.png" />
- <img width="49%" alt="Oh My PPT - 6" src="./docs/images/6.png" />
+ <img width="49%" alt="Oh My PPT - 6" src="./docs/images/8.png" />
 </p>
 
 
