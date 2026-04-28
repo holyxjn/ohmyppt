@@ -23,6 +23,27 @@ export function buildDeckAgentSystemPrompt(
   const step3Instruction = isSinglePageTask
     ? "3. 调用 update_single_page_file(pageId=目标页, content) — 单页任务只允许这个工具，不要调用 update_page_file"
     : "3. 逐页 update_page_file(content) — 多页生成时按页写入目标 page 文件（可选传 pageId 覆盖自动定位）";
+  const sourceDocumentPaths = (context.sourceDocumentPaths || []).filter(Boolean);
+  const isRetryMode = context.mode === "retry";
+  const sourceDocumentInstructions =
+    sourceDocumentPaths.length > 0
+      ? [
+          "",
+          "## 源文档（最高优先级内容依据）",
+          "本次会话来自用户上传文档。生成内容时必须优先依据源文档，不要只根据摘要或页面大纲发挥。",
+          "在生成页面前，必须使用 read_file 读取以下源文档；不要无差别搬运全文，而是按每页大纲匹配材料：",
+          ...sourceDocumentPaths.map((docPath) => `- ${docPath}`),
+          "读文档策略：",
+          "1. 先根据当前页标题、contentOutline、用户补充需求提取关键词、业务对象、时间节点、系统名和指标。",
+          "2. 再到源文档中定位与这些关键词最相关的段落、表格或列表；文档较长时分段读取。",
+          "3. 每页只使用与该页大纲匹配的事实和表达，不把其他页面的材料提前塞入当前页。",
+          isRetryMode
+            ? "4. 当前是失败页重试，只围绕失败页标题和大纲重新匹配源文档材料，不重构整套大纲。"
+            : "4. 当前是首次页面生成，按既定页面大纲逐页取材，不要提前塞入其他页面内容。",
+          "若源文档与用户补充需求冲突，以用户补充需求为准；若页面大纲与源文档细节不一致，以源文档事实为准。",
+          "不得编造源文档没有的精确数字、日期、系统名或功能状态。",
+        ]
+      : [];
 
   return [
     "你是PPT生成专家，负责将已规划好的页面大纲落地为页面 HTML 内容。",
@@ -35,6 +56,7 @@ export function buildDeckAgentSystemPrompt(
     "",
     "本套演示设计契约（所有页面必须遵守）：",
     formatDesignContract(context.designContract),
+    ...sourceDocumentInstructions,
     "",
     "## 画布约束（重要）",
     "- 页面固定按 16:9 比例（1600×900 像素）设计，内置缩放会自动适配视口",
@@ -105,7 +127,9 @@ export function buildDeckAgentSystemPrompt(
     "",
     "## 执行流程（严格按顺序）",
     "1. get_session_context — 获取会话上下文与约束",
-    "2. report_generation_status('分析需求', ...) — 汇报开始",
+    sourceDocumentPaths.length > 0
+      ? `2. read_file 读取源文档（${sourceDocumentPaths.join("、")}）并提炼与本页相关内容，然后 report_generation_status('分析需求', ...)`
+      : "2. report_generation_status('分析需求', ...) — 汇报开始",
     "   调用 report_generation_status 时，progress 必须是数字字面量（例如 10、35、88），不要传字符串（如 \"10\"）",
     "   进度上报必须精细且单调递增，不允许回退：建议区间为 分析需求(8-18) / 上下文读取(18-30) / 页面写入(30-88，按页线性推进) / 验证(88-96) / 完成(98-100)",
     "   关键动作都应上报一次，避免长时间无状态更新",

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   topic TEXT,
   style_id TEXT,
   page_count INTEGER,
+  reference_document_path TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
@@ -222,6 +223,9 @@ const enforceSessionsSchema = async (client: LibSqlClient): Promise<void> => {
   const columns = await getTableColumns(client, "sessions");
   if (!columns.has("style_id")) {
     await client.execute("ALTER TABLE sessions ADD COLUMN style_id TEXT");
+  }
+  if (!columns.has("reference_document_path")) {
+    await client.execute("ALTER TABLE sessions ADD COLUMN reference_document_path TEXT");
   }
 };
 

@@ -188,6 +188,7 @@ export class AgentManager {
       topic?: string
       styleId?: string
       pageCount?: number
+      referenceDocumentPath?: string | null
     }
   ): Promise<string> {
     const model = config.model.trim();
@@ -210,6 +211,7 @@ export class AgentManager {
       topic: config.topic,
       styleId: config.styleId,
       pageCount: config.pageCount,
+      referenceDocumentPath: config.referenceDocumentPath,
       provider: config.provider,
       model,
     });

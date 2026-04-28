@@ -70,7 +70,7 @@
     printReadyEmitted = true;
     var pageId = resolvePageIdForPrint();
     try {
-      console.log("__PPT_PRINT_READY__:" + pageId);
+      console.log("__PPT_PRINT_READY__dfaarcsin1_:" + pageId);
     } catch (_err) {}
   }
 

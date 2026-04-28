@@ -449,6 +449,8 @@ export const runDeepAgentDeckGeneration = async (args: {
   userMessage: string;
   outlineTitles: string[];
   outlineItems: OutlineItem[];
+  sourceDocumentPaths?: string[];
+  generationMode?: "generate" | "retry";
   pageTasks?: Array<{
     pageNumber: number;
     pageId: string;
@@ -654,6 +656,8 @@ export const runDeepAgentDeckGeneration = async (args: {
         userMessage: args.userMessage,
         outlineTitles: [page.title],
         outlineItems: [{ title: page.title, contentOutline: page.outline }],
+        sourceDocumentPaths: args.sourceDocumentPaths,
+        mode: args.generationMode ?? "generate",
         pageFileMap: { [page.pageId]: currentPagePath },
         selectedPageId: page.pageId,
         selectedPageNumber: page.pageNumber,
@@ -680,6 +684,8 @@ export const runDeepAgentDeckGeneration = async (args: {
                 pageNumber: page.pageNumber,
                 pageTitle: page.title,
                 pageOutline: page.outline,
+                sourceDocumentPaths: args.sourceDocumentPaths,
+                isRetryMode: args.generationMode === "retry",
                 designContract: args.designContract,
                 retryContext,
               }),

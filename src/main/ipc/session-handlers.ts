@@ -22,6 +22,8 @@ export function registerSessionHandlers(ctx: IpcContext): void {
 
   ipcMain.handle('session:create', async (_event, payload) => {
     const { topic, styleId, pageCount } = payload
+    const referenceDocumentPath =
+      typeof payload?.referenceDocumentPath === 'string' ? payload.referenceDocumentPath.trim() : ''
     const storagePath = await resolveStoragePath()
     const settings = await db.getAllSettings()
     const provider = String(settings.provider || '').trim()
@@ -44,6 +46,29 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       fs.mkdirSync(projectDir, { recursive: true })
     }
     await ensureSessionAssets(projectDir)
+    const copyReferenceDocumentToSession = async (): Promise<string | null> => {
+      if (!referenceDocumentPath) return null
+      const storageRoot = fs.existsSync(storagePath)
+        ? await fs.promises.realpath(storagePath)
+        : path.resolve(storagePath)
+      const docsDir = path.join(projectDir, 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const sourcePath = path.resolve(referenceDocumentPath)
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error('解析后的文档不存在，请重新解析文档')
+      }
+      const sourceRealPath = await fs.promises.realpath(sourcePath)
+      const relativeToStorage = path.relative(storageRoot, sourceRealPath)
+      if (relativeToStorage.startsWith('..') || path.isAbsolute(relativeToStorage)) {
+        throw new Error('文档路径不在用户配置目录内，请重新解析文档')
+      }
+      const ext = path.extname(sourceRealPath).toLowerCase() || '.md'
+      const fileName = `${Date.now()}${ext}`
+      const targetPath = path.join(docsDir, fileName)
+      await fs.promises.copyFile(sourceRealPath, targetPath)
+      return `/docs/${fileName}`
+    }
+    const sessionReferenceDocumentPath = await copyReferenceDocumentToSession()
 
     const normalizedStyleId = typeof styleId === 'string' ? styleId.trim() : ''
     if (!normalizedStyleId) {
@@ -68,7 +93,8 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       projectDir,
       topic,
       styleId: normalizedStyleId,
-      pageCount
+      pageCount,
+      referenceDocumentPath: sessionReferenceDocumentPath
     })
 
     return { sessionId }

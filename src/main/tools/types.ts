@@ -30,7 +30,7 @@ export interface DesignContract {
 }
 
 export interface SessionDeckGenerationContext {
-  mode?: "generate" | "edit";
+  mode?: "generate" | "edit" | "retry";
   editScope?: "main" | "page";
   sessionId: string;
   projectDir: string;
@@ -45,6 +45,7 @@ export interface SessionDeckGenerationContext {
   userMessage: string;
   outlineTitles: string[];
   outlineItems: OutlineItem[];
+  sourceDocumentPaths?: string[];
   designContract?: DesignContract;
   // Edit-mode fields (filled when mode=edit)
   selectedPageId?: string;

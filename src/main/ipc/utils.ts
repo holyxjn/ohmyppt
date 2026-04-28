@@ -6,6 +6,10 @@ export const normalizeSession = (session: Record<string, unknown> | null | undef
     ...session,
     styleId: session.styleId ?? session.style_id ?? null,
     page_count: session.page_count ?? session.pageCount ?? null,
+    referenceDocumentPath:
+      session.referenceDocumentPath ?? session.reference_document_path ?? null,
+    reference_document_path:
+      session.reference_document_path ?? session.referenceDocumentPath ?? null,
     created_at: session.created_at ?? session.createdAt ?? null,
     updated_at: session.updated_at ?? session.updatedAt ?? null,
   };

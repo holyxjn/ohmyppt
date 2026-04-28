@@ -201,7 +201,11 @@ export function SessionGeneratingPage() {
             sessionId: id,
             userMessage: state.initialPrompt?.trim() || undefined
           })
-        : ipc.startGenerate({ sessionId: id, userMessage: initialPrompt, type: 'deck' })
+        : ipc.startGenerate({
+            sessionId: id,
+            userMessage: initialPrompt,
+            type: 'deck'
+          })
       void request
         .then((result) => {
           if (result?.runId) {

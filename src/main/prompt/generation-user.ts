@@ -30,6 +30,8 @@ export function buildSinglePageGenerationPrompt(args: {
   pageNumber: number;
   pageTitle: string;
   pageOutline: string;
+  sourceDocumentPaths?: string[];
+  isRetryMode?: boolean;
   designContract?: DesignContract;
   retryContext?: {
     attempt: number;
@@ -49,6 +51,20 @@ export function buildSinglePageGenerationPrompt(args: {
         "- 如果上次是动画/图表 API 问题，请统一使用 PPT.animate / PPT.createTimeline / PPT.stagger / PPT.createChart。",
       ]
     : [];
+  const sourceDocumentInstructions =
+    args.sourceDocumentPaths && args.sourceDocumentPaths.length > 0
+      ? [
+          "",
+          "源文档要求（必须优先执行）：",
+          `- 本页生成前必须先用 read_file 读取源文档：${args.sourceDocumentPaths.join("、")}`,
+          "- 先从本页标题和内容要点中提取关键词、业务对象、时间节点、系统名和指标，再到源文档中匹配相关段落。",
+          "- 只使用与本页大纲直接相关的源文档事实，不把其他页面的材料提前塞入本页。",
+          args.isRetryMode
+            ? "- 当前是失败页重试，只围绕本页标题和内容要点在源文档中匹配补充材料，不重构整套大纲。"
+            : "",
+          "- 不要只根据大纲扩写；不得编造源文档没有的精确数字、日期、系统名或功能状态。",
+        ].filter(Boolean)
+      : [];
   return [
     "请只生成并写入这一页，不要修改其他页面。",
     "",
@@ -57,6 +73,7 @@ export function buildSinglePageGenerationPrompt(args: {
     `目标页面：${args.pageId}（第 ${args.pageNumber} 页）`,
     `页面标题：${args.pageTitle}`,
     `内容要点：${args.pageOutline || "按主题自行扩展，但保持信息密度适中"}`,
+    ...sourceDocumentInstructions,
     "",
     "整套演示设计契约（必须遵守，保持跨页一致）：",
     formatDesignContract(args.designContract),
