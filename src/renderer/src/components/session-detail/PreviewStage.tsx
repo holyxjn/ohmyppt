@@ -72,7 +72,7 @@ export function PreviewStage({
                   variant={dragEditing ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    'rounded-full px-3 text-xs shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    'rounded-full px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
                     dragEditing
                       ? 'bg-[#5d6b4d] text-white'
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
@@ -83,7 +83,7 @@ export function PreviewStage({
                   }}
                   disabled={isGenerating}
                 >
-                  <Move className="mr-1.5 h-3.5 w-3.5" />
+                  <Move className="mr-1 h-3 w-3" />
                   {dragEditing ? '退出调整' : '调整位置'}
                 </Button>
                 <Button
@@ -91,7 +91,7 @@ export function PreviewStage({
                   variant={inspecting ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    'rounded-full px-3 text-xs shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    'rounded-full px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
                     inspecting
                       ? 'bg-[#5d6b4d] text-white'
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
@@ -102,7 +102,7 @@ export function PreviewStage({
                   }}
                   disabled={isGenerating}
                 >
-                  <Crosshair className="mr-1.5 h-3.5 w-3.5" />
+                  <Crosshair className="mr-1 h-3 w-3" />
                   {inspecting ? '退出检选' : '检选元素'}
                 </Button>
               </div>
@@ -113,12 +113,12 @@ export function PreviewStage({
               </div>
             )}
             {inspecting && (
-              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-3 py-1.5 text-xs text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
+              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-2.5 py-1.5 text-[11px] leading-none text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
                 点击页面元素以选中
               </div>
             )}
             {dragEditing && (
-              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eef5e8]/92 px-3 py-1.5 text-xs text-[#4f6340] shadow-[0_8px_18px_rgba(93,107,77,0.12)] backdrop-blur-sm">
+              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eef5e8]/92 px-2.5 py-1.5 text-[11px] leading-none text-[#4f6340] shadow-[0_8px_18px_rgba(93,107,77,0.12)] backdrop-blur-sm">
                 拖拽模块调整位置，松手后自动保存
               </div>
             )}

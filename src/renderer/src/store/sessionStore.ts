@@ -55,6 +55,7 @@ interface SessionStore {
     topic: string
     styleId: string
     pageCount?: number
+    referenceDocumentPath?: string
   }) => Promise<string>
   loadSession: (sessionId: string) => Promise<void>
   loadMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) => Promise<void>

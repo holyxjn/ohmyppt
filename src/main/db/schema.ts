@@ -6,6 +6,7 @@ export const sessions = sqliteTable("sessions", {
   topic: text("topic"),
   styleId: text("style_id"),
   pageCount: integer("page_count"),
+  referenceDocumentPath: text("reference_document_path"),
   status: text("status").notNull().default("active"),
   provider: text("provider").notNull(),
   model: text("model").notNull(),

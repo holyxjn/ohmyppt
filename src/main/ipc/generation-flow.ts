@@ -53,6 +53,7 @@ export type GenerationContext = {
   messageScope: GenerateChatType
   messagePageId?: string
   imagePaths: string[]
+  sourceDocumentPaths: string[]
   topic: string
   deckTitle: string
 }
@@ -91,6 +92,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     createDeckProgressEmitter,
     resolveStoragePath,
     formatImagePathsForPrompt,
+    assertPathInAllowedRoots,
     decryptApiKey,
     ensureSessionAssets,
     scaffoldProjectFiles,
@@ -138,6 +140,12 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
           .map((item) => String(item || '').trim())
           .filter((item) => item.startsWith('./images/'))
           .slice(0, 10)
+      : []
+    const rawDocPaths = Array.isArray(input?.docPaths)
+      ? input.docPaths
+          .map((item) => String(item || '').trim())
+          .filter(Boolean)
+          .slice(0, 1)
       : []
     const requestedType =
       input?.type === 'page' ? 'page' : input?.type === 'deck' ? 'deck' : undefined
@@ -208,6 +216,51 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       fs.mkdirSync(projectDir, { recursive: true })
     }
     await ensureSessionAssets(projectDir)
+    const latestGenerationRun = await db.getLatestGenerationRun(sessionId)
+    const isFirstDeckGeneration = effectiveMode === 'generate' && !latestGenerationRun
+    const rawReferenceDocumentPath =
+      sessionRecord.referenceDocumentPath ?? sessionRecord.reference_document_path
+    const referenceDocumentPath =
+      typeof rawReferenceDocumentPath === 'string' ? rawReferenceDocumentPath.trim() : ''
+    const sourceDocumentPaths = await (async (): Promise<string[]> => {
+      if (effectiveMode === 'edit') return []
+      const shouldUseReferenceDocument =
+        (effectiveMode === 'generate' && isFirstDeckGeneration) || effectiveMode === 'retry'
+      if (rawDocPaths.length === 0 && (!shouldUseReferenceDocument || !referenceDocumentPath)) {
+        return []
+      }
+      const sessionDocsDir = path.join(projectDir, 'docs')
+      await fs.promises.mkdir(sessionDocsDir, { recursive: true })
+      if (rawDocPaths.length === 0 && referenceDocumentPath) {
+        const normalizedReferenceDocumentPath = referenceDocumentPath.startsWith('/')
+          ? referenceDocumentPath
+          : `/docs/${referenceDocumentPath}`
+        if (!normalizedReferenceDocumentPath.startsWith('/docs/')) return []
+        const filePath = path.resolve(projectDir, normalizedReferenceDocumentPath.replace(/^\/+/, ''))
+        const relativeToProject = path.relative(projectDir, filePath)
+        if (relativeToProject.startsWith('..') || path.isAbsolute(relativeToProject)) return []
+        if (fs.existsSync(filePath)) {
+          return [normalizedReferenceDocumentPath]
+        }
+        return []
+      }
+      const candidates = rawDocPaths
+      const copiedPaths: string[] = []
+      for (const candidate of candidates) {
+        const sourcePath = await assertPathInAllowedRoots({
+          filePath: candidate,
+          mode: 'read',
+          sessionId
+        })
+        const safeName = path.basename(sourcePath).replace(/[\\/:"*?<>|]+/g, '-')
+        const targetPath = path.join(sessionDocsDir, safeName)
+        if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
+          await fs.promises.copyFile(sourcePath, targetPath)
+        }
+        copiedPaths.push(`/docs/${safeName}`)
+      }
+      return copiedPaths
+    })()
 
     const settings = await db.getAllSettings()
     const provider = String(settings.provider || '').trim()
@@ -312,6 +365,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       messageScope: normalizedChatType,
       messagePageId: normalizedChatType === 'page' ? normalizedChatPageId : undefined,
       imagePaths,
+      sourceDocumentPaths,
       topic,
       deckTitle
     }
@@ -1102,6 +1156,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       userMessage: context.userMessage,
       outlineTitles,
       outlineItems,
+      sourceDocumentPaths: context.sourceDocumentPaths,
+      generationMode: 'generate',
       designContract,
       projectDir: context.entry.projectDir,
       indexPath,
@@ -1592,6 +1648,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         title: page.title,
         contentOutline: page.contentOutline
       })),
+      sourceDocumentPaths: context.sourceDocumentPaths,
+      generationMode: 'retry',
       pageTasks: retryPages.map((page) => ({
         pageNumber: page.pageNumber,
         pageId: page.pageId,

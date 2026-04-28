@@ -24,6 +24,8 @@ export interface Session {
   topic: string | null;
   styleId: string | null;
   page_count: number | null;
+  reference_document_path: string | null;
+  referenceDocumentPath?: string | null;
   status: SessionStatus;
   provider: string;
   model: string;
@@ -182,6 +184,7 @@ export class PPTDatabase {
     topic?: string;
     styleId?: string;
     pageCount?: number;
+    referenceDocumentPath?: string | null;
     provider: string;
     model: string;
   }): Promise<string> {
@@ -194,6 +197,7 @@ export class PPTDatabase {
       topic: data.topic || null,
       styleId: data.styleId || null,
       pageCount: data.pageCount || null,
+      referenceDocumentPath: data.referenceDocumentPath || null,
       status: "active",
       provider: data.provider,
       model: data.model,

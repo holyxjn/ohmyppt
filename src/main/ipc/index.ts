@@ -12,6 +12,7 @@ import { registerSettingsHandlers } from './settings-handlers'
 import { registerPreviewHandlers } from './preview-handlers'
 import { registerFileHandlers } from './file-handlers'
 import { registerDragEditorHandlers } from './drag-editor-handlers'
+import { registerDocumentParseHandlers } from './document-parse-handlers'
 
 export function setupIPC(
   mainWindow: BrowserWindow,
@@ -30,4 +31,5 @@ export function setupIPC(
   registerPreviewHandlers(context)
   registerFileHandlers(context)
   registerDragEditorHandlers(context)
+  registerDocumentParseHandlers(context)
 }

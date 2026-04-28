@@ -5,7 +5,9 @@
 ### 中文
 
 - 新增页面元素拖拽调整：在预览中开启“调整位置”后，可直接拖拽带结构标识的页面模块并保存位置。
+- 新增从文档创建演示：可上传 txt、md、csv、docx 文档，自动整理主题、页数和详细描述。
 - 补充动画能力文档：说明基于 Anime.js v4 的基础整元素动画，并加入示例 GIF。
+- 优化文档生成体验：上传较长文档后，每页内容会更贴近原文对应部分，生成速度和稳定性更好。
 - 优化会话详情页结构：拆分页面侧栏、预览区、顶部工具栏和消息面板。
 
 ## 2026-04-27
@@ -47,7 +49,9 @@
 ### English
 
 - Added drag-to-position editing: enable Adjust Position in preview to drag structured page blocks and persist their layout.
+- Added document-based creation: upload txt, md, csv, or docx files to automatically prepare the topic, page count, and description.
 - Added animation documentation: describes basic Anime.js v4-powered whole-element animations with an example GIF.
+- Improved document-based creation: pages now stay closer to the relevant parts of long uploaded documents, with better speed and stability.
 - Improved the session detail architecture: split the page sidebar, preview stage, top toolbar, and message panel, and added a page-level UI store for local state.
 
 ## 2026-04-27

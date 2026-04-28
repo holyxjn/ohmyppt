@@ -2,6 +2,8 @@ import type {
   GenerateChunkEvent,
   GenerateRetryFailedPayload,
   GenerateStartPayload,
+  ParseDocumentPlanPayload,
+  ParsedDocumentPlanResult,
   UploadedAsset
 } from '@shared/generation.js'
 import type { UpdateAvailablePayload } from '@shared/app-update.js'
@@ -93,6 +95,7 @@ export interface CreateSessionPayload {
   topic: string
   styleId: string
   pageCount?: number
+  referenceDocumentPath?: string
 }
 
 export const ipc = {
@@ -139,6 +142,8 @@ export const ipc = {
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
   uploadAssets: (payload: UploadAssetsPayload) =>
     getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
+  parseDocumentPlan: (payload: ParseDocumentPlanPayload) =>
+    getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
   chooseAndUploadAssets: (sessionId: string) =>
     getIpc().invoke('assets:chooseAndUpload', { sessionId }) as Promise<{
       assets: UploadedAsset[]

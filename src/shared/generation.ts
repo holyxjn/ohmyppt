@@ -9,6 +9,28 @@ export interface UploadedAsset {
   createdAt: number
 }
 
+export interface ParseDocumentPlanPayload {
+  files: Array<{
+    path: string
+    name?: string
+  }>
+  topic?: string
+  pageCount?: number
+  existingBrief?: string
+}
+
+export interface ParsedDocumentPlanResult {
+  topic: string
+  pageCount: number
+  briefText: string
+  files: Array<{
+    name: string
+    type: 'markdown' | 'text' | 'csv' | 'docx'
+    characterCount: number
+    path: string
+  }>
+}
+
 export interface GenerateStartPayload {
   sessionId: string
   userMessage: string
