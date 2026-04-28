@@ -70,7 +70,10 @@
 - 📄 **多格式导出** — 支持 PDF、批量 PNG，并提供可编辑 PPTX 导出（持续优化中）
 - 🧩 **更稳的页面生成** — 生成时会按固定 16:9 画布与内容高度预算组织页面，减少内容溢出
 
-<img width="500" alt="Oh My PPT" src="./docs/images/6.png" />
+<p align="center">
+ <img width="49%" alt="Oh My PPT - 7" src="./docs/images/7.png" />
+ <img width="49%" alt="Oh My PPT - 6" src="./docs/images/6.png" />
+</p>
 
 
 <a id="workflow"></a>
