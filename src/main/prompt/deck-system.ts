@@ -31,7 +31,8 @@ export function buildDeckAgentSystemPrompt(
           "",
           "## 源文档（最高优先级内容依据）",
           "本次会话来自用户上传文档。生成内容时必须优先依据源文档，不要只根据摘要或页面大纲发挥。",
-          "在生成页面前，必须使用 read_file 读取以下源文档；不要无差别搬运全文，而是按每页大纲匹配材料：",
+          "单页 prompt 可能包含程序侧预检索片段；若片段已覆盖本页要点，优先使用片段，不需要重复读取整份源文档。",
+          "如果没有预检索片段，或片段不足、冲突、缺关键事实，必须使用 read_file 读取以下源文档补充确认：",
           ...sourceDocumentPaths.map((docPath) => `- ${docPath}`),
           "读文档策略：",
           "1. 先根据当前页标题、contentOutline、用户补充需求提取关键词、业务对象、时间节点、系统名和指标。",
@@ -128,7 +129,7 @@ export function buildDeckAgentSystemPrompt(
     "## 执行流程（严格按顺序）",
     "1. get_session_context — 获取会话上下文与约束",
     sourceDocumentPaths.length > 0
-      ? `2. read_file 读取源文档（${sourceDocumentPaths.join("、")}）并提炼与本页相关内容，然后 report_generation_status('分析需求', ...)`
+      ? `2. 优先使用单页 prompt 中的参考文档检索片段；片段不足时 read_file 读取源文档（${sourceDocumentPaths.join("、")}）补充确认，然后 report_generation_status('分析需求', ...)`
       : "2. report_generation_status('分析需求', ...) — 汇报开始",
     "   调用 report_generation_status 时，progress 必须是数字字面量（例如 10、35、88），不要传字符串（如 \"10\"）",
     "   进度上报必须精细且单调递增，不允许回退：建议区间为 分析需求(8-18) / 上下文读取(18-30) / 页面写入(30-88，按页线性推进) / 验证(88-96) / 完成(98-100)",

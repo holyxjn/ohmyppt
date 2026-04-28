@@ -18,6 +18,10 @@ import {
 import type { GenerateChunkEvent } from "@shared/generation";
 import type { DesignContract, OutlineItem } from "../tools/types";
 import { extractModelText, extractJsonBlock, sleep } from "./utils";
+import {
+  createReferenceDocumentRetriever,
+  formatReferenceDocumentSnippets,
+} from "../utils/reference-document-retrieval";
 
 // ── Shared agent stream processor ───────────────────────────────────────
 
@@ -595,6 +599,14 @@ export const runDeepAgentDeckGeneration = async (args: {
     },
   });
 
+  const referenceDocumentRetriever = args.sourceDocumentPaths?.length
+    ? await createReferenceDocumentRetriever({
+        sessionId: args.sessionId,
+        projectDir: args.projectDir,
+        sourceDocumentPaths: args.sourceDocumentPaths,
+      })
+    : null;
+
   const generateSinglePage = async (
     page: {
       pageNumber: number;
@@ -635,6 +647,27 @@ export const runDeepAgentDeckGeneration = async (args: {
       pagePath: currentPagePath,
       outline: page.outline || "",
       outlineLength: (page.outline || "").length,
+    });
+
+    const referenceDocumentSnippets = referenceDocumentRetriever
+      ? formatReferenceDocumentSnippets(
+          referenceDocumentRetriever.search({
+            pageId: page.pageId,
+            pageTitle: page.title,
+            pageOutline: page.outline,
+            userMessage: args.userMessage,
+          })
+        )
+      : "";
+    log.info("[deepagent] reference document snippets prepared", {
+      sessionId: args.sessionId,
+      pageId: page.pageId,
+      pageNumber: page.pageNumber,
+      title: page.title,
+      hasSourceDocuments: Boolean(args.sourceDocumentPaths?.length),
+      hasRetriever: Boolean(referenceDocumentRetriever),
+      injected: referenceDocumentSnippets.trim().length > 0,
+      injectedCharacterCount: referenceDocumentSnippets.length,
     });
 
     const deepAgent = createSessionDeckAgent({
@@ -685,6 +718,7 @@ export const runDeepAgentDeckGeneration = async (args: {
                 pageTitle: page.title,
                 pageOutline: page.outline,
                 sourceDocumentPaths: args.sourceDocumentPaths,
+                referenceDocumentSnippets,
                 isRetryMode: args.generationMode === "retry",
                 designContract: args.designContract,
                 retryContext,

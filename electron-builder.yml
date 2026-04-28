@@ -19,6 +19,7 @@ files:
   - '!docs/video/*'
 asarUnpack:
   - resources/**
+  - node_modules/@node-rs/**/*.node
 forceCodeSigning: false
 win:
   target:

@@ -31,6 +31,7 @@ export function buildSinglePageGenerationPrompt(args: {
   pageTitle: string;
   pageOutline: string;
   sourceDocumentPaths?: string[];
+  referenceDocumentSnippets?: string;
   isRetryMode?: boolean;
   designContract?: DesignContract;
   retryContext?: {
@@ -53,17 +54,32 @@ export function buildSinglePageGenerationPrompt(args: {
     : [];
   const sourceDocumentInstructions =
     args.sourceDocumentPaths && args.sourceDocumentPaths.length > 0
-      ? [
-          "",
-          "源文档要求（必须优先执行）：",
-          `- 本页生成前必须先用 read_file 读取源文档：${args.sourceDocumentPaths.join("、")}`,
-          "- 先从本页标题和内容要点中提取关键词、业务对象、时间节点、系统名和指标，再到源文档中匹配相关段落。",
-          "- 只使用与本页大纲直接相关的源文档事实，不把其他页面的材料提前塞入本页。",
-          args.isRetryMode
-            ? "- 当前是失败页重试，只围绕本页标题和内容要点在源文档中匹配补充材料，不重构整套大纲。"
-            : "",
-          "- 不要只根据大纲扩写；不得编造源文档没有的精确数字、日期、系统名或功能状态。",
-        ].filter(Boolean)
+      ? args.referenceDocumentSnippets && args.referenceDocumentSnippets.trim().length > 0
+        ? [
+            "",
+            args.referenceDocumentSnippets.trim(),
+            "",
+            "源文档要求（必须优先执行）：",
+            "- 本页已有程序侧预检索片段。请优先基于这些片段生成页面内容。",
+            "- 如果片段已经覆盖本页标题和内容要点，不需要重复读取整份源文档。",
+            `- 如果片段不足、互相冲突，或缺少关键事实，必须使用 read_file 读取源文档补充确认：${args.sourceDocumentPaths.join("、")}`,
+            "- 只使用与本页大纲直接相关的源文档事实，不把其他页面的材料提前塞入本页。",
+            args.isRetryMode
+              ? "- 当前是失败页重试，只围绕本页标题和内容要点在源文档中匹配补充材料，不重构整套大纲。"
+              : "",
+            "- 不要只根据大纲扩写；不得编造片段和源文档没有的精确数字、日期、系统名或功能状态。",
+          ].filter(Boolean)
+        : [
+            "",
+            "源文档要求（必须优先执行）：",
+            `- 本页没有命中预检索片段。生成页面前必须先用 read_file 读取源文档：${args.sourceDocumentPaths.join("、")}`,
+            "- 先从本页标题和内容要点中提取关键词、业务对象、时间节点、系统名和指标，再到源文档中匹配相关段落。",
+            "- 不要无差别搬运全文，只使用与本页大纲直接相关的源文档事实。",
+            args.isRetryMode
+              ? "- 当前是失败页重试，只围绕本页标题和内容要点在源文档中匹配补充材料，不重构整套大纲。"
+              : "",
+            "- 不要只根据大纲扩写；不得编造源文档没有的精确数字、日期、系统名或功能状态。",
+          ].filter(Boolean)
       : [];
   return [
     "请只生成并写入这一页，不要修改其他页面。",

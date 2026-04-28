@@ -51,6 +51,134 @@ const stripInlineImagesFromHtml = (html: string): string =>
 const stripMarkdownDataImages = (markdown: string): string =>
   markdown.replace(/!\[[^\]]*]\(data:[^)]+\)/gi, '').replace(/!\[[^\]]*]\(\s*\)/g, '')
 
+const previewValue = (value: unknown, maxLength = 240): string => {
+  const source =
+    typeof value === 'string'
+      ? value
+      : value === undefined
+        ? ''
+        : (() => {
+            try {
+              return JSON.stringify(value)
+            } catch {
+              return String(value)
+            }
+          })()
+  const compact = source.replace(/\s+/g, ' ').trim()
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact
+}
+
+const getObject = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+
+const readMessageField = (message: Record<string, unknown>, key: string): unknown => {
+  const direct = message[key]
+  if (direct !== undefined) return direct
+  const kwargs = getObject(message.kwargs)
+  if (kwargs && kwargs[key] !== undefined) return kwargs[key]
+  return undefined
+}
+
+const summarizeToolCall = (toolCall: unknown): {
+  id: string
+  name: string
+  argsPreview: string
+  argsLength: number
+} | null => {
+  const record = getObject(toolCall)
+  if (!record) return null
+  const functionRecord = getObject(record.function)
+  const rawArgs = record.args ?? record.arguments ?? functionRecord?.arguments ?? ''
+  const argsText = typeof rawArgs === 'string' ? rawArgs : previewValue(rawArgs, 10_000)
+  const name = String(record.name ?? functionRecord?.name ?? '').trim()
+  const id = String(record.id ?? record.tool_call_id ?? '').trim()
+  if (!name && !id && !argsText) return null
+  return {
+    id,
+    name,
+    argsPreview: previewValue(argsText),
+    argsLength: argsText.length
+  }
+}
+
+const logDocumentPlanToolEvents = (
+  data: unknown,
+  seenToolEvents: Set<string>,
+  source: 'updates' | 'messages'
+): void => {
+  const visitMessage = (message: unknown) => {
+    const record = getObject(message)
+    if (!record) return
+    const toolCallsSources = [
+      readMessageField(record, 'tool_calls'),
+      readMessageField(record, 'tool_call_chunks'),
+      getObject(readMessageField(record, 'additional_kwargs'))?.tool_calls
+    ]
+    for (const calls of toolCallsSources) {
+      if (!Array.isArray(calls)) continue
+      for (const call of calls) {
+        const summary = summarizeToolCall(call)
+        if (!summary) continue
+        const key = `call:${summary.id}:${summary.name}:${summary.argsPreview}`
+        if (seenToolEvents.has(key)) continue
+        seenToolEvents.add(key)
+        log.info('[documents:parsePlan] tool_call', {
+          source,
+          toolCallId: summary.id || null,
+          toolName: summary.name || null,
+          argsLength: summary.argsLength,
+          argsPreview: summary.argsPreview
+        })
+      }
+    }
+
+    const messageType = String(
+      readMessageField(record, 'type') ?? readMessageField(record, 'role') ?? ''
+    )
+    const toolCallId = String(readMessageField(record, 'tool_call_id') ?? '').trim()
+    const toolName = String(readMessageField(record, 'name') ?? '').trim()
+    if (toolCallId || messageType === 'tool') {
+      const content = readMessageField(record, 'content')
+      const contentText = typeof content === 'string' ? content : previewValue(content, 10_000)
+      const key = `result:${toolCallId}:${toolName}:${contentText.length}`
+      if (!seenToolEvents.has(key)) {
+        seenToolEvents.add(key)
+        log.info('[documents:parsePlan] tool_result', {
+          source,
+          toolCallId: toolCallId || null,
+          toolName: toolName || null,
+          contentLength: contentText.length
+        })
+      }
+    }
+  }
+
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+      return
+    }
+    const record = getObject(value)
+    if (!record) return
+    if (
+      readMessageField(record, 'tool_calls') !== undefined ||
+      readMessageField(record, 'tool_call_chunks') !== undefined ||
+      readMessageField(record, 'tool_call_id') !== undefined ||
+      readMessageField(record, 'role') === 'tool' ||
+      readMessageField(record, 'type') === 'tool'
+    ) {
+      visitMessage(record)
+    }
+    for (const nested of Object.values(record)) {
+      if (nested && typeof nested === 'object') visit(nested)
+    }
+  }
+
+  visit(data)
+}
+
 const convertDocxToMarkdown = async (filePath: string): Promise<string> => {
   const result = await mammoth.convertToHtml({ path: filePath })
   if (result.messages.length > 0) {
@@ -283,11 +411,17 @@ const runDocumentPlanAgent = async (args: {
   )
 
   let messageBuffer = ''
+  const seenToolEvents = new Set<string>()
   for await (const chunk of stream as AsyncIterable<unknown>) {
     if (!Array.isArray(chunk) || chunk.length < 3) continue
     const mode = chunk[1] as string
     const data = chunk[2]
+    if (mode === 'updates') {
+      logDocumentPlanToolEvents(data, seenToolEvents, 'updates')
+      continue
+    }
     if (mode !== 'messages' || !Array.isArray(data)) continue
+    logDocumentPlanToolEvents(data, seenToolEvents, 'messages')
     for (const message of data as Array<Record<string, unknown>>) {
       const content = extractModelText(message).trim()
       if (content) {
