@@ -6,12 +6,7 @@ import log from "electron-log/main.js";
 import type { SessionDeckGenerationContext, ToolStreamConfig } from "./types";
 import { emitToolStatus } from "./types";
 import { validateHtmlContent } from "./html-utils";
-import { SESSION_ASSET_SCRIPT_SRCS } from "../ipc/page-assets";
-
-const ANIME_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.anime;
-const TAILWIND_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.tailwind;
-const CHARTJS_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.chart;
-const PPT_RUNTIME_ASSET_SRC = SESSION_ASSET_SCRIPT_SRCS.runtime;
+import { buildSessionAssetHeadTags } from "../ipc/page-assets";
 export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
   :root {
     --ppt-page-bg: #ffffff;
@@ -550,10 +545,7 @@ function buildScaffoldDocument(args: {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="${ANIME_ASSET_SRC}"></script>
-    <script src="${TAILWIND_ASSET_SRC}"></script>
-    <script src="${CHARTJS_ASSET_SRC}"></script>
-    <script src="${PPT_RUNTIME_ASSET_SRC}"></script>
+    ${buildSessionAssetHeadTags()}
     ${BASE_PAGE_STYLE_TAG}
   </head>
   <body data-page-id="${pageId}">
@@ -817,7 +809,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     }
     const remoteResources = extractRemoteRuntimeResources(content);
     if (remoteResources.length > 0) {
-      const detail = `检测到 ${remoteResources.length} 个远程 script/link 资源。仅允许使用本地 ./assets/*.js`;
+      const detail = `检测到 ${remoteResources.length} 个远程 script/link 资源。仅允许使用系统预注入的本地 ./assets/*`;
       emitNormalizedToolStatus(config, {
         label: `外链资源校验失败 ${resolvedPageId}`,
         detail,
@@ -826,7 +818,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       });
       throw new Error([
         `检测到禁止的 CDN/远程资源引用 (${resolvedPageId})，已拒绝写入。`,
-        "请移除所有 script/link 的 http(s) 或 // 外链，仅保留本地 ./assets/anime.v4.js、./assets/ppt-runtime.js、./assets/tailwindcss.v3.js、./assets/chart.v4.js。",
+        "请移除所有 script/link 的 http(s) 或 // 外链，仅使用系统预注入的本地 ./assets/* 资源。",
         "示例命中：",
         ...remoteResources.map((item) => `- ${item}`),
       ].join("\n"));
@@ -917,7 +909,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           : hasSelector
             ? [
               "index.html 只是总览壳，主要内容在 page-x.html",
-              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许 ./assets/*.js 本地资源",
+              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源",
               "Selector 编辑模式：先用 read_file 读取目标页面，再用 grep 搜索选择器/文本定位，最后用 edit_file(old_string, new_string) 精准替换",
               "不要调用 write_file / update_page_file / update_single_page_file，edit_file 直接修改即可",
               "仅修改 selector 命中节点，禁止整页重写、禁止改动无关区域",
@@ -925,7 +917,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
             ]
             : [
               "index.html 只是总览壳，主要内容写入 page-x.html",
-              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许 ./assets/*.js 本地资源",
+              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源",
               "单页任务只允许使用 update_single_page_file(pageId, content)，禁止调用 update_page_file",
               "单页任务必须写入 selectedPagePath 对应的 page 文件，不需要改 index.html",
               isEditMode
@@ -1181,7 +1173,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           return `部分页面尚未填充: ${emptyPages.join(", ")}。已完成 ${filledCount}/${targetPageIds.length} 页。单页任务请用 update_single_page_file(pageId, content)，多页任务请用 update_page_file(content) 继续填充。`;
         }
         if (remoteRuntimePages.length > 0) {
-          return `验证失败：以下页面包含禁止的 CDN/远程 script/link 资源: ${remoteRuntimePages.join(", ")}。请移除外链并仅保留本地 ./assets/*.js。`;
+          return `验证失败：以下页面包含禁止的 CDN/远程 script/link 资源: ${remoteRuntimePages.join(", ")}。请移除外链并仅使用系统预注入的本地 ./assets/* 资源。`;
         }
         const isSinglePageCheck = targetPageIds.length === 1;
         emitNormalizedToolStatus(config, {

@@ -82,7 +82,7 @@ export const extractHtmlPageToPptxSlide = async ({
     await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
     const readyResult = await readyWaitPromise
     if (readyResult.timedOut) {
-      log.warn('[export:pptx] print ready timeout', {
+      log.warn('[export:pptx] a print rc ready timeout sin1', {
         pageId: page.pageId,
         htmlPath: page.htmlPath,
         timeoutMs

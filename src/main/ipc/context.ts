@@ -12,6 +12,7 @@ import { sleep } from './utils'
 import {
   buildPageScaffoldHtml,
   buildProjectIndexHtml,
+  SESSION_ASSET_DIR_NAMES,
   SESSION_ASSET_FILE_NAMES,
   type DeckPageFile
 } from './template'
@@ -854,12 +855,20 @@ export function createIpcContext(
         await fs.promises.copyFile(sourcePath, targetPath)
       })
     )
+    await Promise.all(
+      SESSION_ASSET_DIR_NAMES.map(async (dirName) => {
+        const sourcePath = resolveSessionAssetSourcePath(dirName)
+        const targetPath = path.join(assetsDir, dirName)
+        await fs.promises.rm(targetPath, { recursive: true, force: true })
+        await fs.promises.cp(sourcePath, targetPath, { recursive: true })
+      })
+    )
     log.info('[assets] session assets ready', {
       projectDir,
       assetsDir,
       imagesDir,
       docsDir,
-      count: SESSION_ASSET_FILE_NAMES.length,
+      count: SESSION_ASSET_FILE_NAMES.length + SESSION_ASSET_DIR_NAMES.length,
       env: is.dev ? 'dev' : 'prod'
     })
   }

@@ -61,12 +61,14 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 
 - 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
 - 📄 **Document-based creation** — Upload txt, md, csv, or docx files to prepare topic, page count, and description automatically, then keep using the source document during generation
-- **Import PPTX for editing** — Convert local PPTX files into in-app HTML pages, then continue previewing, adjusting positions, and chat-based editing
+- 📥 **Import PPTX for editing** — Convert local PPTX files into in-app HTML pages, then continue previewing, adjusting positions, and chat-based editing
 - 🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
 - 🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles  
 - ✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  
 - 🎬 **Animation support** — Page transitions plus basic Anime.js v4-powered whole-element motion
+- 🧮 **Math formula rendering** — Display common LaTeX formulas for classes, teaching decks, and technical talks
 - 📄 **Multi-format export** — Export to PDF, batch PNG, or editable PPTX (still being improved)
+- 🏷️ **Session management** — Session list distinguishes AI-created decks from imported PPTX decks, and deck names can be renamed
 - 🧩 **More reliable slide layout** — Generation follows a fixed 16:9 canvas and content-height budget to reduce overflow
 
 
@@ -81,6 +83,8 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 > 💡 Input your intent or upload a document → AI plans outline → generates visual direction → renders page by page → preview & chat edits → export PDF / PNG / PPTX
 
 On the home page, you can use “Upload Document” to let the app extract the topic, page count, and detailed description first. It works well for product plans, requirement docs, meeting materials, and CSV-based notes that you want to turn into an editable deck.
+
+Document parsing also checks whether the outline and page count match. For example, if the outline clearly contains five pages, the creation form will try to use five pages too. Your documents stay in the local workspace; the app only prepares them as AI-readable text.
 
 If you already have an existing PPTX file, click “Import PPTX” on the home page to convert it into editable in-app pages. This import flow is independent from AI generation and does not affect document parsing or the normal generation workflow.
 
@@ -147,7 +151,7 @@ Oh My PPT currently supports three export modes:
 
 - **PDF**: best for sharing, archiving, and printing.
 - **PNG**: batch-export every slide as an image for docs, Notion, articles, or social posts.
-- **PPTX**: export an editable file for PowerPoint / Keynote. Text, images, colors, and basic layout are preserved where possible, while complex HTML, animation, and some charts are still being improved.
+- **PPTX**: export an editable file for PowerPoint / Keynote. Text, images, colors, formulas, and basic layout are preserved where possible, while text overlap, mixed-language layout, complex HTML, animation, and some charts are still being improved.
 
 Export uses a static slide state where possible, so entrance animations are less likely to affect PDF or image output.
 

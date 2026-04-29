@@ -2,7 +2,12 @@
 
 ## 2026-04-29
 
-- 新增 PPTX 导入：可把本地 PPTX 转成应用内可编辑的演示稿，再继续预览、调整和对话修改。(后续还需要完善)
+- 新增 PPTX 导入：可把本地 PPTX 转成应用内可编辑的演示稿，再继续预览、调整和对话修改。
+- 优化从文档创建演示：上传文档后会更稳定地整理主题、页数和详细描述，大纲页数会更贴近实际内容。
+- 新增数学公式渲染：生成的页面可直接显示常见 LaTeX 公式，导出时也会尽量保留公式效果。
+- 优化可编辑 PPTX 导出：减少文字重叠问题，提升中英文混排和公式页面的导出效果。
+- 优化首页入口：文档解析和 PPTX 导入入口更清晰，并提示本地文档只会在本机处理。
+- 优化会话列表：可区分 AI 创建和 PPTX 导入的演示稿，并支持修改演示稿名称。
 
 
 ## 2026-04-28
@@ -52,7 +57,12 @@
 
 ## 2026-04-29
 
-- Added PPTX import: convert local PPTX files into editable in-app presentations, then continue previewing, adjusting, and chat-based editing. (Further improvements are still needed.)
+- Added PPTX import: convert local PPTX files into editable in-app presentations for previewing, positioning, and chat-based editing.
+- Improved document-based creation: uploaded documents now produce more reliable topics, page counts, and descriptions, with outlines that better match the content.
+- Added math formula rendering: generated pages can display common LaTeX formulas, and exports try to preserve formula visuals.
+- Improved editable PPTX export: reduced text overlap and improved mixed Chinese/English and formula-heavy slides.
+- Improved the Home page: document parsing and PPTX import are easier to find, with clearer local-document privacy messaging.
+- Improved the session list: imported PPTX sessions are easier to identify, and presentation names can be renamed.
 
 
 ## 2026-04-28

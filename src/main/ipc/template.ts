@@ -2,7 +2,7 @@
 import { escapeHtml } from "./utils";
 import * as cheerio from "cheerio";
 import { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from "../tools";
-import { SESSION_ASSET_SCRIPT_SRCS } from "./page-assets";
+import { buildSessionAssetHeadTags } from "./page-assets";
 
 export interface DeckPageFile {
   pageNumber: number;
@@ -11,7 +11,14 @@ export interface DeckPageFile {
   htmlPath: string;
 }
 
-export { SESSION_ASSET_FILE_NAMES, SESSION_ASSET_SCRIPT_SRCS } from "./page-assets";
+export {
+  SESSION_ASSET_DIR_NAMES,
+  SESSION_ASSET_FILES,
+  SESSION_ASSET_FILE_NAMES,
+  SESSION_ASSET_SCRIPT_SRCS,
+  SESSION_ASSET_STYLE_HREFS,
+  buildSessionAssetHeadTags
+} from "./page-assets";
 
 export const buildPageScaffoldHtml = (page: {
   pageNumber: number;
@@ -25,10 +32,7 @@ export const buildPageScaffoldHtml = (page: {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${safeTitle}</title>
-    <script src="${SESSION_ASSET_SCRIPT_SRCS.anime}"></script>
-    <script src="${SESSION_ASSET_SCRIPT_SRCS.tailwind}"></script>
-    <script src="${SESSION_ASSET_SCRIPT_SRCS.chart}"></script>
-    <script src="${SESSION_ASSET_SCRIPT_SRCS.runtime}"></script>
+    ${buildSessionAssetHeadTags()}
     ${BASE_PAGE_STYLE_TAG}
     <style>
       .scaffold-card {
