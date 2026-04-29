@@ -2,8 +2,8 @@
   if (!global || typeof global !== "object") return;
 
   var ppt = global.PPT && typeof global.PPT === "object" ? global.PPT : (global.PPT = {});
-  if (ppt.__runtimeVersion === "1.1.0") return;
-  ppt.__runtimeVersion = "1.1.0";
+  if (ppt.__runtimeVersion === "1.2.0") return;
+  ppt.__runtimeVersion = "1.2.0";
 
   function resolveSearchParams() {
     try {
@@ -293,6 +293,31 @@
     return Array.from(set);
   }
 
+  function renderMath(root) {
+    var target = root || (global.document ? document.body : null);
+    if (!target || typeof global.renderMathInElement !== "function") {
+      return Promise.resolve(false);
+    }
+    try {
+      global.renderMathInElement(target, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "\\(", right: "\\)", display: false },
+        ],
+        ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "option"],
+        ignoredClasses: ["katex", "katex-display", "katex-html", "katex-mathml"],
+        throwOnError: false,
+        strict: "ignore",
+        trust: false,
+      });
+    } catch (err) {
+      try { console.warn("[PPT.renderMath] arcsin1 failed", err); } catch (_err) {}
+      return Promise.resolve(false);
+    }
+    return waitFrames(2).then(function () { return true; });
+  }
+
   function markChartReady(chart) {
     if (!chart || typeof chart !== "object") return Promise.resolve();
     var readyTask = waitFrames(2).then(function () {
@@ -454,6 +479,22 @@
     return count;
   };
 
+  ppt.renderMath = function (root) {
+    return trackPrintTask(renderMath(root));
+  };
+
+  function autoRenderMathWhenReady() {
+    if (!global.document) return;
+    var run = function () {
+      ppt.renderMath(document.querySelector(".ppt-page-content") || document.body);
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run, { once: true });
+    } else {
+      run();
+    }
+  }
+
   ppt.whenReadyForPrint = function (timeoutMs) {
     var timeout = Math.max(0, Number(timeoutMs) || 5000);
     var startAt = Date.now();
@@ -491,6 +532,8 @@
       }),
     ]);
   };
+
+  autoRenderMathWhenReady();
 
   if (isPrintMode) {
     ppt.whenReadyForPrint(printTimeoutMs).then(function () {

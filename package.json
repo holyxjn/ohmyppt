@@ -1,6 +1,6 @@
 {
   "name": "oh-my-ppt",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Oh My PPT - Local-first AI presentation workbench",
   "main": "./out/main/index.js",
   "author": "arcsin1",
@@ -54,6 +54,7 @@
     "drizzle-orm": "^0.44.5",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.3.9",
+    "katex": "^0.16.45",
     "lucide-react": "^0.574.0",
     "mammoth": "^1.12.0",
     "nanoid": "^5.1.9",

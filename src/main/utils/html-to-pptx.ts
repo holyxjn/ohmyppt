@@ -124,17 +124,41 @@ const normalizeText = (value: string): string =>
     .replace(/[\u200b-\u200d\ufeff]/g, '')
     .trim()
 
+const normalizePptxText = (value: string): string => {
+  const lines = value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u200b-\u200d\ufeff]/g, '')
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+  while (lines.length > 0 && !lines[0]) lines.shift()
+  while (lines.length > 0 && !lines[lines.length - 1]) lines.pop()
+  return lines.join('\n')
+}
+
+const hasCjkText = (value: string): boolean => /[\u3400-\u9fff\uf900-\ufaff]/.test(value)
+
+const resolveExportFontFace = (text: string, value: string | undefined): string => {
+  const fontFace = sanitizeFontFace(value)
+  if (!hasCjkText(text)) return fontFace
+  if (/^(aptos|arial|helvetica|inter|system-ui|-apple-system|sans-serif|serif)$/i.test(fontFace)) {
+    return 'Microsoft YaHei'
+  }
+  return fontFace
+}
+
 const normalizeDataUriMime = (value: string): string => {
   const match = value.match(/^data:(image\/(?:png|jpeg|jpg|gif));base64,/i)
   if (!match) return ''
   return match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase()
 }
 
-const dataUriToBuffer = (dataUri: string): Buffer | null => {
-  const mimeType = normalizeDataUriMime(dataUri)
-  if (!mimeType) return null
-  const base64 = dataUri.slice(dataUri.indexOf(',') + 1)
-  return Buffer.from(base64, 'base64')
+const estimateDataUriBytes = (dataUri: string): number => {
+  const commaIndex = dataUri.indexOf(',')
+  if (commaIndex < 0) return 0
+  const base64 = dataUri.slice(commaIndex + 1).replace(/\s/g, '')
+  if (!base64) return 0
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding)
 }
 
 const buildRgbToHexScript = (): string => `
@@ -181,6 +205,17 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     .replace(/[\\u200b-\\u200d\\ufeff]/g, '')
     .trim();
   const clampText = (value) => normalize(value).slice(0, maxTextChars);
+  const normalizeLines = (value) => {
+    const lines = String(value || '')
+      .replace(/\\r\\n?/g, '\\n')
+      .replace(/[\\u200b-\\u200d\\ufeff]/g, '')
+      .split('\\n')
+      .map((line) => line.replace(/[^\\S\\n]+/g, ' ').trim());
+    while (lines.length > 0 && !lines[0]) lines.shift();
+    while (lines.length > 0 && !lines[lines.length - 1]) lines.pop();
+    return lines.join('\\n');
+  };
+  const clampBlockText = (value) => normalizeLines(value).slice(0, maxTextChars);
   ${buildRgbToHexScript()}
 
   const pageElement =
@@ -231,7 +266,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     if (Number(style.opacity || '1') < 0.04) return false;
     if (rect.width < 2 || rect.height < 2) return false;
     if (rect.bottom < 0 || rect.right < 0 || rect.left > pageWidthPx || rect.top > pageHeightPx) return false;
-    if (element.closest('script, style, noscript')) return false;
+    if (element.closest('script, style, noscript, .katex, .katex-mathml')) return false;
     return true;
   };
 
@@ -294,6 +329,13 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   const texts = [];
   const textSeen = new Set();
   const consumedTextElements = new Set();
+  const maxPreciseLineRunChars = 180;
+  const isInsideConsumedTextElement = (element) => {
+    for (const parent of consumedTextElements) {
+      if (parent.contains(element)) return true;
+    }
+    return false;
+  };
   const textWidthIn = (x, width, fontSizePt, text, shouldWrap = false) => {
     if (shouldWrap) return Math.max(0.12, Math.min(slideWidthIn - x, width));
     const hasCjk = /[\\u3400-\\u9fff\\uf900-\\ufaff]/.test(text);
@@ -309,7 +351,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     [text.toLowerCase(), Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)].join('|');
   const pushTextBox = (text, rect, parentStyle, parentElement, shouldWrap = false) => {
     if (texts.length >= maxTextBoxes) return;
-    text = clampText(text);
+    text = shouldWrap ? clampBlockText(text) : clampText(text);
     if (!text) return;
     if (!isVisible(parentElement, parentStyle, rect)) return;
     if (rect.width < 2 || rect.height < 2) return;
@@ -326,7 +368,9 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       x,
       y: pxToInY(rect.top),
       w: textWidthIn(x, sizeToInX(rect.width), fontSizePt, text, shouldWrap),
-      h: shouldWrap ? Math.max(0.08, sizeToInY(rect.height)) : textHeightIn(sizeToInY(rect.height), fontSizePt),
+      h: shouldWrap
+        ? Math.max(0.12, sizeToInY(rect.height) + Math.max(0.02, fontSizePt / 72 * 0.08))
+        : textHeightIn(sizeToInY(rect.height), fontSizePt),
       fontSize: fontSizePt,
       fontFace,
       color: rgbToHex(parentStyle.color) || '111827',
@@ -346,8 +390,10 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       opacity: Number(parentStyle.opacity || '1'),
       rotate: parseRotate(parentStyle),
       lineSpacing: parentStyle.lineHeight && parentStyle.lineHeight !== 'normal'
-        ? (Number.parseFloat(parentStyle.lineHeight) || 0) * pointsPerPx
-        : undefined,
+        ? Math.max(fontSizePt * 1.08, (Number.parseFloat(parentStyle.lineHeight) || 0) * pointsPerPx)
+        : text.includes('\\n')
+          ? fontSizePt * 1.18
+          : undefined,
       charSpacing: parentStyle.letterSpacing && parentStyle.letterSpacing !== 'normal'
         ? (Number.parseFloat(parentStyle.letterSpacing) || 0) * pointsPerPx
         : undefined,
@@ -355,11 +401,12 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     });
   };
   const hasNestedTextBlock = (element) =>
-    Boolean(element.querySelector('h1,h2,h3,h4,h5,h6,p,li,blockquote,td,th,figcaption,div,[data-ppt-text],[data-role="title"],.title,.slide-title,.page-title'));
+    Boolean(element.querySelector('h1,h2,h3,h4,h5,h6,p,li,blockquote,td,th,figcaption,div,[data-ppt-text],[data-role="title"],.title,.slide-title,.page-title,.katex'));
   const shouldExportElementText = (element, style, text) => {
     if (!text) return false;
+    if (element.querySelector?.('.katex')) return false;
     if (hasNestedTextBlock(element)) return false;
-    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME'].includes(element.tagName)) return false;
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'MATH'].includes(element.tagName)) return false;
     const tag = element.tagName;
     if (/^H[1-6]$/.test(tag) || ['P', 'LI', 'BLOCKQUOTE', 'TD', 'TH', 'FIGCAPTION'].includes(tag)) return true;
     if (element.matches('[data-ppt-text],[data-role="title"],.title,.slide-title,.page-title')) return true;
@@ -374,11 +421,11 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     ));
     for (const element of candidates) {
       if (texts.length >= maxTextBoxes) break;
-      if (element.closest('script, style, noscript, svg, canvas, video, iframe')) continue;
-      if (Array.from(consumedTextElements).some((parent) => parent.contains(element))) continue;
+      if (element.closest('script, style, noscript, svg, canvas, video, iframe, .katex, .katex-mathml')) continue;
+      if (isInsideConsumedTextElement(element)) continue;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
-      const text = clampText(element.textContent);
+      const text = clampBlockText(element.innerText || element.textContent);
       if (!isVisible(element, style, rect)) continue;
       if (!shouldExportElementText(element, style, text)) continue;
       const fontSizePx = Number.parseFloat(style.fontSize || '16') || 16;
@@ -390,6 +437,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   };
   const getLineTextRuns = (node) => {
     const source = String(node.textContent || '');
+    if (source.length > maxPreciseLineRunChars) return [];
     const groups = [];
     let activeGroup = null;
     for (let offset = 0; offset < source.length; offset += 1) {
@@ -438,7 +486,8 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   };
   const addTextNode = (node, parentStyle, parentElement) => {
     if (texts.length >= maxTextBoxes) return;
-    if (parentElement && Array.from(consumedTextElements).some((element) => element.contains(parentElement))) return;
+    if (parentElement && isInsideConsumedTextElement(parentElement)) return;
+    if (parentElement && parentElement.closest?.('.katex, .katex-mathml')) return;
     const text = clampText(node.textContent);
     if (!text) return;
     const range = document.createRange();
@@ -448,12 +497,14 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     range.detach();
     const fontSizePx = Number.parseFloat(parentStyle.fontSize || '16') || 16;
     const isBrowserWrapped = lineRects.length > 1 || rect.height > fontSizePx * 1.7;
-    if (isBrowserWrapped && text.length > 8) {
+    if (isBrowserWrapped) {
       const runs = getLineTextRuns(node);
       if (runs.length > 1) {
         runs.forEach((run) => pushTextBox(run.text, run.rect, parentStyle, parentElement, false));
         return;
       }
+      pushTextBox(text, rect, parentStyle, parentElement, true);
+      return;
     }
     pushTextBox(text, rect, parentStyle, parentElement, false);
   };
@@ -467,7 +518,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const element = node;
     if (consumedTextElements.has(element)) return;
-    if (element.closest('script, style, noscript, svg, canvas, video, iframe')) return;
+    if (element.closest('script, style, noscript, svg, canvas, video, iframe, .katex, .katex-mathml')) return;
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     if (!isVisible(element, style, rect)) return;
@@ -558,7 +609,7 @@ export const normalizeExtractedHtmlToPptxSlide = (
   const texts = textsRaw
     .map((item): HtmlToPptxTextBox | null => {
       const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
-      const text = normalizeText(String(row.text || '')).slice(0, DEFAULT_MAX_TEXT_CHARS)
+      const text = normalizePptxText(String(row.text || '')).slice(0, DEFAULT_MAX_TEXT_CHARS)
       if (!text) return null
       return {
         text,
@@ -567,7 +618,7 @@ export const normalizeExtractedHtmlToPptxSlide = (
         w: clamp(Number(row.w) || 0.4, 0.1, DEFAULT_SLIDE_WIDTH),
         h: clamp(Number(row.h) || 0.2, 0.08, DEFAULT_SLIDE_HEIGHT),
         fontSize: clamp(Number(row.fontSize) || 12, 6, 54),
-        fontFace: sanitizeFontFace(String(row.fontFace || '')),
+        fontFace: resolveExportFontFace(text, String(row.fontFace || '')),
         color: normalizeHexColor(String(row.color || ''), '111827'),
         bold: Boolean(row.bold),
         italic: Boolean(row.italic),
@@ -627,8 +678,7 @@ export const normalizeExtractedHtmlToPptxSlide = (
       const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
       const dataUri = String(row.dataUri || '')
       const mimeType = normalizeDataUriMime(dataUri)
-      const imageBuffer = dataUriToBuffer(dataUri)
-      if (!mimeType || !imageBuffer || imageBuffer.length > DEFAULT_MAX_IMAGE_BYTES) return null
+      if (!mimeType || estimateDataUriBytes(dataUri) > DEFAULT_MAX_IMAGE_BYTES) return null
       return {
         dataUri,
         mimeType,
@@ -724,13 +774,15 @@ const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
     })
 
     sourceSlide.texts.forEach((textBox) => {
-      slide.addText(textBox.text, {
+      const text = textBox.text
+      if (!text) return
+      slide.addText(text, {
         x: textBox.x,
         y: textBox.y,
         w: textBox.w,
         h: textBox.h,
         fontSize: textBox.fontSize,
-        fontFace: sanitizeFontFace(textBox.fontFace),
+        fontFace: resolveExportFontFace(text, textBox.fontFace),
         color: normalizeHexColor(textBox.color, '111827'),
         bold: Boolean(textBox.bold),
         italic: Boolean(textBox.italic),

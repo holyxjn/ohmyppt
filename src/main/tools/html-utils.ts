@@ -71,7 +71,13 @@ const isAllowedRuntimeAsset = (src: string): boolean => {
     clean.endsWith("assets/chart.v4.js") ||
     clean.endsWith("/assets/tailwindcss.v3.js") ||
     clean.endsWith("./assets/tailwindcss.v3.js") ||
-    clean.endsWith("assets/tailwindcss.v3.js")
+    clean.endsWith("assets/tailwindcss.v3.js") ||
+    clean.endsWith("/assets/katex.min.js") ||
+    clean.endsWith("./assets/katex.min.js") ||
+    clean.endsWith("assets/katex.min.js") ||
+    clean.endsWith("/assets/katex-auto-render.min.js") ||
+    clean.endsWith("./assets/katex-auto-render.min.js") ||
+    clean.endsWith("assets/katex-auto-render.min.js")
   );
 };
 
@@ -125,7 +131,7 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
   if (disallowedScriptSrc.length > 0) {
     const preview = disallowedScriptSrc.slice(0, 3).join(", ");
     errors.push(
-      `检测到不允许的 script src：${preview}。仅允许 ./assets/anime.v4.js、./assets/ppt-runtime.js、./assets/chart.v4.js、./assets/tailwindcss.v3.js`
+      `检测到不允许的 script src：${preview}。仅允许系统预注入的本地 ./assets/*.js`
     );
   }
   if (/anime\s*\(\s*\{[\s\S]{0,240}?targets\s*:/im.test(html)) {

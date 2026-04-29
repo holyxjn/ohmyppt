@@ -195,6 +195,21 @@ const sanitizeCssValue = (property: string, rawValue: string, scale: number): st
   return null
 }
 
+const sanitizeImportedCssColor = (rawValue: unknown): string | null => {
+  if (typeof rawValue !== 'string') return null
+  return sanitizeCssValue('color', rawValue, 1)
+}
+
+const sanitizeGradientStop = (rawColor: unknown, rawPosition: unknown): string | null => {
+  const color = sanitizeImportedCssColor(rawColor)
+  if (!color) return null
+  const position = typeof rawPosition === 'string' || typeof rawPosition === 'number'
+    ? String(rawPosition).trim()
+    : ''
+  if (!position) return color
+  return /^[0-9.]+%?$/.test(position) ? `${color} ${position}` : color
+}
+
 const sanitizeStyleAttribute = (style: string, scale: number): string => {
   return style
     .split(';')
@@ -300,7 +315,8 @@ const fillToCss = async (
 ): Promise<string[]> => {
   if (!fill) return []
   if (fill.type === 'color' && fill.value) {
-    return [`background:${fill.value}`]
+    const color = sanitizeImportedCssColor(fill.value)
+    return color ? [`background:${color}`] : []
   }
   if (fill.type === 'image' && fill.value?.base64) {
     const imagePath = await writeImageDataUrl(
@@ -318,8 +334,10 @@ const fillToCss = async (
     }
   }
   if (fill.type === 'gradient' && Array.isArray(fill.value?.colors) && fill.value.colors.length) {
-    const colors = fill.value.colors.map((item) => `${item.color} ${item.pos}`).join(', ')
-    return [`background:linear-gradient(135deg, ${colors})`]
+    const colors = fill.value.colors
+      .map((item) => sanitizeGradientStop(item.color, item.pos))
+      .filter((item): item is string => Boolean(item))
+    return colors.length ? [`background:linear-gradient(135deg, ${colors.join(', ')})`] : []
   }
   return []
 }
@@ -355,8 +373,9 @@ const buildBlockStyle = (args: {
 const borderCss = (element: Record<string, unknown>, scale: number): string[] => {
   const width = clampNumber(element.borderWidth)
   if (width <= 0) return []
-  const color = typeof element.borderColor === 'string' && element.borderColor ? element.borderColor : '#d1d5db'
-  const type = typeof element.borderType === 'string' && element.borderType ? element.borderType : 'solid'
+  const color = sanitizeImportedCssColor(element.borderColor) || '#d1d5db'
+  const rawType = typeof element.borderType === 'string' ? element.borderType.trim().toLowerCase() : ''
+  const type = ['solid', 'dashed', 'dotted', 'double'].includes(rawType) ? rawType : 'solid'
   return [`border:${Math.max(1, width * scale).toFixed(1)}px ${type} ${color}`]
 }
 
@@ -468,6 +487,7 @@ const buildShapeBlock = async (args: {
     zIndex: args.zIndex,
     offsetX: args.offsetX,
     offsetY: args.offsetY,
+    overflow: 'hidden',
     extra: [...fillCss, ...borderCss(args.element, args.textScale)]
   })
   return `<div data-block-id="${escapeHtml(args.blockId)}" style="${css}"></div>`
