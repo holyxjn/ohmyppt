@@ -72,9 +72,13 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 - 🧩 **More reliable slide layout** — Generation follows a fixed 16:9 canvas and content-height budget to reduce overflow
 
 
+<p>
+ <img width="600" alt="Oh My PPT - 9" src="./docs/images/9.png" />
+</p>
+
 <p align="center">
- <img width="45%" alt="Oh My PPT - 7" src="./docs/images/7.png" />
- <img width="45%" alt="Oh My PPT - 6" src="./docs/images/8.png" />
+<img width="45%" alt="Oh My PPT - 10" src="./docs/images/10.png" />
+<img width="45%" alt="Oh My PPT - 11" src="./docs/images/8.png" />
 </p>
 
 <a id="workflow"></a>

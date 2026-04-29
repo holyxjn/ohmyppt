@@ -73,9 +73,13 @@
 - 🏷️ **会话管理** — 会话列表可区分 AI 创建和 PPTX 导入，也支持修改演示稿名称
 - 🧩 **更稳的页面生成** — 生成时会按固定 16:9 画布与内容高度预算组织页面，减少内容溢出
 
+<p>
+ <img width="600" alt="Oh My PPT - 9" src="./docs/images/9.png" />
+</p>
+
 <p align="center">
- <img width="45%" alt="Oh My PPT - 9" src="./docs/images/9.png" />
- <img width="45%" alt="Oh My PPT - 8" src="./docs/images/8.png" />
+<img width="45%" alt="Oh My PPT - 10" src="./docs/images/10.png" />
+<img width="45%" alt="Oh My PPT - 11" src="./docs/images/8.png" />
 </p>
 
 
