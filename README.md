@@ -20,7 +20,7 @@
     Prompt in → Deck out 👇
   </p>
 
-  <img src="https://arcsin1.github.io/ppt.gif" alt="Oh My PPT" width="600" />
+  <img src="https://arcsin1.github.io/ppt2.gif" alt="Oh My PPT" width="600" />
 
   [观看完整演示视频](https://arcsin1.github.io/ohmyppt2.mp4) | [下载安装包](https://github.com/arcsin1/oh-my-ppt/releases)
 </div>
