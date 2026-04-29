@@ -4,6 +4,9 @@ import type {
   GenerateStartPayload,
   ParseDocumentPlanPayload,
   ParsedDocumentPlanResult,
+  PptxImportPayload,
+  PptxImportProgressPayload,
+  PptxImportResult,
   UploadedAsset
 } from '@shared/generation.js'
 import type { UpdateAvailablePayload } from '@shared/app-update.js'
@@ -124,6 +127,8 @@ export const ipc = {
   }) => getIpc().invoke('session:getMessages', payload) as Promise<unknown[]>,
   deleteSession: (sessionId: string) =>
     getIpc().invoke('session:delete', sessionId) as Promise<{ success: boolean }>,
+  updateSessionTitle: (payload: { sessionId: string; title: string }) =>
+    getIpc().invoke('session:updateTitle', payload) as Promise<{ ok: boolean }>,
   startGenerate: (payload: GenerateStartPayload) =>
     getIpc().invoke('generate:start', payload) as Promise<{
       success: boolean
@@ -144,6 +149,8 @@ export const ipc = {
     getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
   parseDocumentPlan: (payload: ParseDocumentPlanPayload) =>
     getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
+  importPptx: (payload: PptxImportPayload) =>
+    getIpc().invoke('pptx:import', payload) as Promise<PptxImportResult>,
   chooseAndUploadAssets: (sessionId: string) =>
     getIpc().invoke('assets:chooseAndUpload', { sessionId }) as Promise<{
       assets: UploadedAsset[]
@@ -243,6 +250,13 @@ export const ipc = {
   onGenerateChunk: (callback: (chunk: GenerateChunkEvent) => void): (() => void) => {
     const channel = 'generate:chunk'
     const handler = (_event: unknown, chunk: unknown): void => callback(chunk as GenerateChunkEvent)
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  },
+  onPptxImportProgress: (callback: (payload: PptxImportProgressPayload) => void): (() => void) => {
+    const channel = 'pptx:import:progress'
+    const handler = (_event: unknown, payload: unknown): void =>
+      callback(payload as PptxImportProgressPayload)
     getIpc().on(channel, handler)
     return () => getIpc().removeListener(channel, handler)
   },

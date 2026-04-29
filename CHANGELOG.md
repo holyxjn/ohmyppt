@@ -1,5 +1,10 @@
 # 更新日志 / Changelog
 
+## 2026-04-29
+
+- 新增 PPTX 导入：可把本地 PPTX 转成应用内可编辑的演示稿，再继续预览、调整和对话修改。(后续还需要完善)
+
+
 ## 2026-04-28
 
 ### 中文
@@ -44,6 +49,11 @@
 - 补充 macOS 与 Windows 未签名应用打开说明。
 
 ---
+
+## 2026-04-29
+
+- Added PPTX import: convert local PPTX files into editable in-app presentations, then continue previewing, adjusting, and chat-based editing. (Further improvements are still needed.)
+
 
 ## 2026-04-28
 

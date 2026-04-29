@@ -7,6 +7,8 @@ export interface Session {
   topic: string | null
   styleId: string | null
   page_count: number | null
+  referenceDocumentPath?: string | null
+  reference_document_path?: string | null
   status: string
   provider: string
   model: string
@@ -60,6 +62,7 @@ interface SessionStore {
   loadSession: (sessionId: string) => Promise<void>
   loadMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
+  updateSessionTitle: (payload: { sessionId: string; title: string }) => Promise<void>
   setCurrentSession: (session: Session | null) => void
   setMessages: (messages: Message[]) => void
   addMessage: (message: Message) => void
@@ -120,6 +123,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     await get().fetchSessions()
     if (get().currentSession?.id === sessionId) {
       set({ currentSession: null, currentMessages: [], currentGeneratedPages: [] })
+    }
+  },
+
+  updateSessionTitle: async ({ sessionId, title }) => {
+    await ipc.updateSessionTitle({ sessionId, title })
+    await get().fetchSessions()
+    const currentSession = get().currentSession
+    if (currentSession?.id === sessionId) {
+      set({ currentSession: { ...currentSession, title } })
     }
   },
 

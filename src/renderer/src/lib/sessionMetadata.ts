@@ -5,6 +5,7 @@ type SessionLike = {
 }
 
 type SessionMetadata = {
+  source?: unknown
   generatedPages?: unknown[]
   failedPages?: unknown[]
 }

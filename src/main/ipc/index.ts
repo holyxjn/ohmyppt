@@ -13,6 +13,7 @@ import { registerPreviewHandlers } from './preview-handlers'
 import { registerFileHandlers } from './file-handlers'
 import { registerDragEditorHandlers } from './drag-editor-handlers'
 import { registerDocumentParseHandlers } from './document-parse-handlers'
+import { registerPptxImportHandlers } from './pptx-import-handlers'
 
 export function setupIPC(
   mainWindow: BrowserWindow,
@@ -32,4 +33,5 @@ export function setupIPC(
   registerFileHandlers(context)
   registerDragEditorHandlers(context)
   registerDocumentParseHandlers(context)
+  registerPptxImportHandlers(context)
 }
