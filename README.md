@@ -72,8 +72,8 @@
 - 🧩 **更稳的页面生成** — 生成时会按固定 16:9 画布与内容高度预算组织页面，减少内容溢出
 
 <p align="center">
- <img width="49%" alt="Oh My PPT - 7" src="./docs/images/7.png" />
- <img width="49%" alt="Oh My PPT - 6" src="./docs/images/8.png" />
+ <img width="45%" alt="Oh My PPT - 9" src="./docs/images/9.png" />
+ <img width="45%" alt="Oh My PPT - 8" src="./docs/images/8.png" />
 </p>
 
 

@@ -71,8 +71,8 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 
 
 <p align="center">
- <img width="49%" alt="Oh My PPT - 7" src="./docs/images/7.png" />
- <img width="49%" alt="Oh My PPT - 6" src="./docs/images/8.png" />
+ <img width="45%" alt="Oh My PPT - 7" src="./docs/images/7.png" />
+ <img width="45%" alt="Oh My PPT - 6" src="./docs/images/8.png" />
 </p>
 
 <a id="workflow"></a>
