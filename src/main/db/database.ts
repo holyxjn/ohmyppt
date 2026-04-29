@@ -14,7 +14,7 @@ type MessageRole = "user" | "assistant" | "system" | "tool";
 type MessageType = "text" | "tool_call" | "tool_result" | "stream_chunk";
 type ChatScope = "main" | "page";
 type StyleSource = "builtin" | "custom" | "override";
-type GenerationRunMode = "generate" | "retry" | "edit";
+type GenerationRunMode = "generate" | "retry" | "edit" | "import";
 type GenerationRunStatus = "running" | "completed" | "failed" | "partial";
 type GenerationPageStatus = "pending" | "running" | "completed" | "failed";
 
@@ -227,6 +227,20 @@ export class PPTDatabase {
       .run();
   }
 
+  async updateSessionTitle(sessionId: string, title: string): Promise<void> {
+    const updatedAt = Math.floor(Date.now() / 1000);
+    await this.db
+      .update(schema.sessions)
+      .set({ title, updatedAt })
+      .where(eq(schema.sessions.id, sessionId))
+      .run();
+    await this.db
+      .update(schema.projects)
+      .set({ title, updatedAt })
+      .where(eq(schema.projects.sessionId, sessionId))
+      .run();
+  }
+
   async updateSessionDesignContract(sessionId: string, designContract: unknown): Promise<void> {
     await this.db
       .update(schema.sessions)
@@ -251,6 +265,7 @@ export class PPTDatabase {
   async deleteSession(sessionId: string): Promise<void> {
     await this.db.delete(schema.generationPages).where(eq(schema.generationPages.sessionId, sessionId)).run();
     await this.db.delete(schema.generationRuns).where(eq(schema.generationRuns.sessionId, sessionId)).run();
+    await this.db.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run();
     await this.db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
   }
 

@@ -61,6 +61,7 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 
 - 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
 - 📄 **Document-based creation** — Upload txt, md, csv, or docx files to prepare topic, page count, and description automatically, then keep using the source document during generation
+- **Import PPTX for editing** — Convert local PPTX files into in-app HTML pages, then continue previewing, adjusting positions, and chat-based editing
 - 🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
 - 🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles  
 - ✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  
@@ -80,6 +81,8 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 > 💡 Input your intent or upload a document → AI plans outline → generates visual direction → renders page by page → preview & chat edits → export PDF / PNG / PPTX
 
 On the home page, you can use “Upload Document” to let the app extract the topic, page count, and detailed description first. It works well for product plans, requirement docs, meeting materials, and CSV-based notes that you want to turn into an editable deck.
+
+If you already have an existing PPTX file, click “Import PPTX” on the home page to convert it into editable in-app pages. This import flow is independent from AI generation and does not affect document parsing or the normal generation workflow.
 
 If you do not have a document, you can still enter a topic and description directly, and the app will generate the deck creatively from your request.
 

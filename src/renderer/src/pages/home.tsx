@@ -11,7 +11,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '../components/ui/Select'
-import { CircleAlert, FileText, Loader2, Sparkles } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
+import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
@@ -22,6 +23,8 @@ const MAX_PAGE_COUNT = 40
 const DEFAULT_PAGE_COUNT = 5
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+const MAX_PPTX_SIZE_MB = 80
+const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 const SETTINGS_REQUIRED_MESSAGE = '请先前往系统设置完成模型与存储目录配置。'
 
 const resolvePageCount = (raw: string): number => {
@@ -43,9 +46,12 @@ export function HomePage(): ReactElement {
     Array<{ id: string; label: string; description: string }>
   >([])
   const [parsingDocument, setParsingDocument] = useState(false)
+  const [importingPptx, setImportingPptx] = useState(false)
+  const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
+  const pptxInputRef = useRef<HTMLInputElement | null>(null)
 
   const validateForm = (): string => {
     const topicText = topic.trim()
@@ -155,6 +161,11 @@ export function HomePage(): ReactElement {
     documentInputRef.current?.click()
   }
 
+  const handleImportPptxClick = (): void => {
+    if (importingPptx) return
+    pptxInputRef.current?.click()
+  }
+
   const handleDocumentFilesSelected = async (files: FileList | null): Promise<void> => {
     const selectedFiles = Array.from(files || [])
     if (documentInputRef.current) {
@@ -223,9 +234,74 @@ export function HomePage(): ReactElement {
     }
   }
 
+  const handlePptxFilesSelected = async (files: FileList | null): Promise<void> => {
+    const selectedFiles = Array.from(files || [])
+    if (pptxInputRef.current) {
+      pptxInputRef.current.value = ''
+    }
+    if (selectedFiles.length === 0) return
+    if (selectedFiles.length > 1) {
+      error('PPTX 数量超出限制', {
+        description: '一次只能导入一个 PPTX 文件。'
+      })
+      return
+    }
+    const selectedFile = selectedFiles[0]
+    if (!/\.pptx$/i.test(selectedFile.name)) {
+      error('文件格式不支持', {
+        description: '请上传 .pptx 文件。'
+      })
+      return
+    }
+    if (selectedFile.size > MAX_PPTX_SIZE_BYTES) {
+      error('PPTX 文件过大', {
+        description: `单个 PPTX 不能超过 ${MAX_PPTX_SIZE_MB}MB。`
+      })
+      return
+    }
+    const filePath = window.electron?.getPathForFile?.(selectedFile) || ''
+    if (!filePath) {
+      error('无法读取 PPTX 路径', {
+        description: '请重新选择本地 PPTX 文件。'
+      })
+      return
+    }
+
+    setImportingPptx(true)
+    setPptxImportProgress('正在准备导入 PPTX…')
+    try {
+      const result = await ipc.importPptx({
+        filePath,
+        title: selectedFile.name.replace(/\.pptx$/i, ''),
+        styleId: selectedStyleId || null
+      })
+      success('PPTX 导入完成', {
+        description:
+          result.warnings.length > 0
+            ? `已导入 ${result.pageCount} 页，存在 ${result.warnings.length} 条降级提示。`
+            : `已导入 ${result.pageCount} 页。`
+      })
+      navigate(`/sessions/${result.sessionId}`)
+    } catch (err) {
+      error('PPTX 导入失败', {
+        description: err instanceof Error ? err.message : '请稍后重试'
+      })
+    } finally {
+      setImportingPptx(false)
+      setPptxImportProgress(null)
+    }
+  }
+
   useEffect(() => {
     void fetchSettings()
   }, [fetchSettings])
+
+  useEffect(() => {
+    // 提前注册，避免主进程导入刚开始时的进度事件丢失。
+    return ipc.onPptxImportProgress((payload) => {
+      setPptxImportProgress(`${payload.label}${payload.progress ? ` · ${payload.progress}%` : ''}`)
+    })
+  }, [])
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-6">
@@ -243,39 +319,75 @@ export function HomePage(): ReactElement {
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-lg border border-[#d8cfbc]/70 bg-[#f8f4ec] px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-[#3e4a32]">从文档生成(可选)</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              支持 txt、md、csv、docx，单个不超过 {MAX_DOCUMENT_SIZE_MB}MB；解析后会自动填充主题、页数和详细描述(大纲)。
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              后续生成中会自动使用解析后的完整文档内容去生成创意ppt。
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {referenceDocumentPath && !parsingDocument ? (
-              <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-xs text-[#4f6340]">
-                已解析
-              </span>
+        <div>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <TooltipProvider delayDuration={180}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleParseDocumentClick}
+                        disabled={parsingDocument || importingPptx}
+                        className="shrink-0"
+                      >
+                        {parsingDocument ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileText className="mr-2 h-4 w-4" />
+                        )}
+                        {parsingDocument ? '解析中…' : '上传文档自动解析'}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start">
+                    支持 txt、md、csv、docx，单个不超过 {MAX_DOCUMENT_SIZE_MB}MB。解析后会自动填充主题、页数和详细描述，这里填入的是文档大纲；后续生成会继续参考实际文档内容进行 AI 创意生成。
+                  </TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleImportPptxClick}
+                        disabled={importingPptx || parsingDocument}
+                        className="shrink-0"
+                      >
+                        {importingPptx ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileUp className="mr-2 h-4 w-4" />
+                        )}
+                        {importingPptx ? '导入中…' : '导入 PPTX 直接AI编辑'}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start">
+                    支持导入 .pptx 文件，单个不超过 {MAX_PPTX_SIZE_MB}MB。导入后会转换成可编辑页面。
+                  </TooltipContent>
+                </Tooltip>
+
+                {referenceDocumentPath && !parsingDocument ? (
+                  <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-xs text-[#4f6340]">
+                    已解析
+                  </span>
+                ) : null}
+              </div>
+            </TooltipProvider>
+
+            {pptxImportProgress ? (
+              <p className="min-w-0 text-xs text-[#4f6340]">{pptxImportProgress}</p>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleParseDocumentClick}
-              disabled={parsingDocument}
-              title={`支持解析 txt、md、csv、docx 文档；单个不超过 ${MAX_DOCUMENT_SIZE_MB}MB（不支持图片解析）`}
-              className="shrink-0"
-            >
-              {parsingDocument ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="mr-2 h-4 w-4" />
-              )}
-              {parsingDocument ? '解析中…' : '上传文档解析'}
-            </Button>
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            你的所有文档都只会存在本地，只是解析为 AI 可读文档。
+          </p>
 
           <input
             ref={documentInputRef}
@@ -284,6 +396,14 @@ export function HomePage(): ReactElement {
             multiple={false}
             className="hidden"
             onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
+          />
+          <input
+            ref={pptxInputRef}
+            type="file"
+            accept=".pptx"
+            multiple={false}
+            className="hidden"
+            onChange={(event) => void handlePptxFilesSelected(event.target.files)}
           />
         </div>
         {documentParseError && (

@@ -118,6 +118,19 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     )
   })
 
+  ipcMain.handle('session:updateTitle', async (_event, payload: unknown) => {
+    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
+    const title = typeof record.title === 'string' ? record.title.trim() : ''
+    if (!sessionId) throw new Error('会话 ID 不能为空')
+    if (!title) throw new Error('会话名称不能为空')
+    if (title.length > 120) throw new Error('会话名称不能超过 120 个字符')
+    const existingSession = await db.getSession(sessionId)
+    if (!existingSession) throw new Error('会话不存在或已被删除')
+    await db.updateSessionTitle(sessionId, title)
+    return { ok: true }
+  })
+
   ipcMain.handle('session:get', async (_event, sessionId) => {
     const session = await db.getSession(sessionId)
     const messages = await db.getSessionMessages(sessionId, { chatScope: 'main' })

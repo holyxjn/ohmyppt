@@ -124,4 +124,5 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 export type MessageType = "text" | "tool_call" | "tool_result" | "stream_chunk";
 export type ChatScope = "main" | "page";
 export type GenerationRunStatus = "running" | "completed" | "failed" | "partial";
+export type GenerationRunMode = "generate" | "retry" | "edit" | "import";
 export type GenerationPageStatus = "pending" | "running" | "completed" | "failed";

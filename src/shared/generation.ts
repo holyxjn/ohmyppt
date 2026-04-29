@@ -31,6 +31,27 @@ export interface ParsedDocumentPlanResult {
   }>
 }
 
+export interface PptxImportPayload {
+  filePath: string
+  title?: string
+  styleId?: string | null
+}
+
+export interface PptxImportProgressPayload {
+  sessionId?: string
+  stage: 'reading' | 'parsing' | 'media' | 'pages' | 'index' | 'database' | 'completed'
+  progress: number
+  label: string
+  pageNumber?: number
+  totalPages?: number
+}
+
+export interface PptxImportResult {
+  sessionId: string
+  pageCount: number
+  warnings: string[]
+}
+
 export interface GenerateStartPayload {
   sessionId: string
   userMessage: string
