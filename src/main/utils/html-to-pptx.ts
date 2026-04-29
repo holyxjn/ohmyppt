@@ -347,6 +347,12 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const padding = Math.max(0.03, Math.min(0.16, fontSizePt / 72 * 0.12));
     return Math.max(0.08, height * 1.12 + padding);
   };
+  const isVerticalWritingMode = (style) => /vertical/i.test(String(style.writingMode || ''));
+  const normalizeVerticalText = (value) => {
+    const source = normalize(value).replace(/\s+/g, '');
+    if (!source) return '';
+    return Array.from(source).join('\\n');
+  };
   const makeTextKey = (text, rect) =>
     [text.toLowerCase(), Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)].join('|');
   const pushTextBox = (text, rect, parentStyle, parentElement, shouldWrap = false) => {
@@ -355,6 +361,12 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     if (!text) return;
     if (!isVisible(parentElement, parentStyle, rect)) return;
     if (rect.width < 2 || rect.height < 2) return;
+    const isVerticalText = isVerticalWritingMode(parentStyle);
+    if (isVerticalText) {
+      text = normalizeVerticalText(text);
+      if (!text) return;
+      shouldWrap = false;
+    }
     const key = makeTextKey(text, rect);
     if (textSeen.has(key)) return;
     textSeen.add(key);
@@ -367,8 +379,12 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       text,
       x,
       y: pxToInY(rect.top),
-      w: textWidthIn(x, sizeToInX(rect.width), fontSizePt, text, shouldWrap),
-      h: shouldWrap
+      w: isVerticalText
+        ? Math.max(0.12, sizeToInX(rect.width) + Math.max(0.02, fontSizePt / 72 * 0.08))
+        : textWidthIn(x, sizeToInX(rect.width), fontSizePt, text, shouldWrap),
+      h: isVerticalText
+        ? Math.max(0.12, sizeToInY(rect.height))
+        : shouldWrap
         ? Math.max(0.12, sizeToInY(rect.height) + Math.max(0.02, fontSizePt / 72 * 0.08))
         : textHeightIn(sizeToInY(rect.height), fontSizePt),
       fontSize: fontSizePt,
@@ -378,7 +394,9 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       italic: parentStyle.fontStyle === 'italic' || parentStyle.fontStyle === 'oblique',
       underline: String(parentStyle.textDecoration || '').includes('underline'),
       strike: String(parentStyle.textDecoration || '').includes('line-through'),
-      align: shouldWrap
+      align: isVerticalText
+        ? 'center'
+        : shouldWrap
         ? parentStyle.textAlign === 'center'
           ? 'center'
           : parentStyle.textAlign === 'right' || parentStyle.textAlign === 'end'
@@ -391,6 +409,8 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       rotate: parseRotate(parentStyle),
       lineSpacing: parentStyle.lineHeight && parentStyle.lineHeight !== 'normal'
         ? Math.max(fontSizePt * 1.08, (Number.parseFloat(parentStyle.lineHeight) || 0) * pointsPerPx)
+        : isVerticalText
+          ? fontSizePt * 1.02
         : text.includes('\\n')
           ? fontSizePt * 1.18
           : undefined,

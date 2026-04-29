@@ -828,7 +828,7 @@ const buildSlideHtml = async (args: {
     title: args.title
   })
   const $ = cheerio.load(scaffold, { scriptingEnabled: false })
-  $('.ppt-page-root').first().removeClass('p-8').attr('style', 'padding:0;')
+  $('.ppt-page-root').first().removeClass('p-2 p-8').attr('style', 'padding:0;')
   $('.ppt-page-content').first().html(body)
   const html = $.html()
   const validation = validatePersistedPageHtml(html, args.pageId)

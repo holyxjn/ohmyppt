@@ -133,7 +133,7 @@ const DEFAULT_DESIGN_CONTRACT: DesignContract = {
   background: "root uses a consistent full-canvas background with no exposed white edges",
   palette: ["#f8fafc", "#334155", "#64748b", "#94a3b8"],
   titleStyle: "text-5xl font-semibold text-slate-800",
-  layoutMotif: "spacious 16:9 grids with clear title and content regions",
+  layoutMotif: "varied 16:9 editorial layouts with flexible title placement inside the content area",
   chartStyle: "readable Chart.js v4 charts with restrained colors and stable canvas height",
   shapeLanguage: "8px radius, light borders, subtle shadows",
 };

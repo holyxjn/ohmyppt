@@ -107,14 +107,14 @@ export function buildInspectorInjectScript(): string {
       const owner = el.closest("[data-block-id]");
       const ownerBlockId = owner ? owner.getAttribute("data-block-id") : "";
       if (ownerBlockId) {
-        return (
+        const roleSelector =
           scope +
           ' [data-block-id="' +
           attrEscape(ownerBlockId) +
           '"] [data-role="' +
           attrEscape(role) +
-          '"]'
-        );
+          '"]';
+        if (isUniqueSelector(roleSelector)) return roleSelector;
       }
     }
 
@@ -125,12 +125,65 @@ export function buildInspectorInjectScript(): string {
       return idSelector;
     }
 
+    const root = el.closest("[data-ppt-guard-root='1'], .ppt-page-root");
+    if (root) {
+      const rootSelector = root.getAttribute("data-ppt-guard-root") === "1"
+        ? '[data-ppt-guard-root="1"]'
+        : ".ppt-page-root";
+      const segments = [];
+      let current = el;
+      while (current && current !== root) {
+        const parent = current.parentElement;
+        if (!parent) break;
+        const index = Array.prototype.indexOf.call(parent.children, current);
+        if (index < 0) break;
+        const tag = current.tagName ? current.tagName.toLowerCase() : "*";
+        segments.unshift(tag + ":nth-child(" + (index + 1) + ")");
+        current = parent;
+      }
+      if (current === root && segments.length > 0) {
+        const selector = scope + " " + rootSelector + " " + segments.join(" > ");
+        if (isUniqueSelector(selector)) return selector;
+      }
+    }
+
     return buildScopedSelector(scope, el);
+  };
+
+  const isInsidePageRoot = (element) => {
+    return element && (element.closest(".ppt-page-root") !== null || element.closest("[data-ppt-guard-root='1']") !== null);
+  };
+
+  const getContentRoot = (element) => {
+    return element && element.closest('[data-block-id="content"], [data-role="content"]');
+  };
+
+  const isScaffoldBlock = (element) => {
+    if (!(element instanceof Element)) return false;
+    const blockId = element.getAttribute("data-block-id");
+    const role = element.getAttribute("data-role");
+    return blockId === "content" || role === "content";
+  };
+
+  const isUsableTarget = (element) => {
+    if (!(element instanceof Element)) return false;
+    if (!isInsidePageRoot(element)) return false;
+    if (isScaffoldBlock(element)) return false;
+    const contentRoot = getContentRoot(element);
+    if (!contentRoot || element === contentRoot) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width >= 2 && rect.height >= 2;
   };
 
   const pickTarget = (origin) => {
     if (!(origin instanceof Element)) return null;
-    return origin.closest("[data-block-id], [data-role], h1, h2, h3, h4, h5, h6, p, li, img, canvas, table, section, article, div");
+    let candidate = origin;
+    const contentRoot = getContentRoot(origin);
+    while (candidate && candidate !== contentRoot) {
+      if (isUsableTarget(candidate) && buildStableSelector(candidate)) return candidate;
+      candidate = candidate.parentElement;
+    }
+    return null;
   };
 
   const ensureStyle = () => {
@@ -187,7 +240,7 @@ export function buildInspectorInjectScript(): string {
     if (!selector) {
       console.log(LOG_PREFIX + JSON.stringify({
         type: "invalid",
-        message: "请点击更外层块（如带 data-block-id 的容器）",
+        message: "无法为该元素生成稳定选择器，请点击 content 内的可见元素",
       }));
       event.preventDefault();
       event.stopPropagation();

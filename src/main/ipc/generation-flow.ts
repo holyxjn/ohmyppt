@@ -223,15 +223,35 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     const referenceDocumentPath =
       typeof rawReferenceDocumentPath === 'string' ? rawReferenceDocumentPath.trim() : ''
     const sourceDocumentPaths = await (async (): Promise<string[]> => {
+      const sessionDocsDir = path.join(projectDir, 'docs')
+      if (rawDocPaths.length > 0) {
+        await fs.promises.mkdir(sessionDocsDir, { recursive: true })
+        const copiedPaths: string[] = []
+        for (const candidate of rawDocPaths) {
+          const sourcePath = await assertPathInAllowedRoots({
+            filePath: candidate,
+            mode: 'read',
+            sessionId
+          })
+          const safeName = path.basename(sourcePath).replace(/[\\/:"*?<>|]+/g, '-')
+          const targetPath = path.join(sessionDocsDir, safeName)
+          if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
+            await fs.promises.copyFile(sourcePath, targetPath)
+          }
+          copiedPaths.push(`/docs/${safeName}`)
+        }
+        return copiedPaths
+      }
+
       if (effectiveMode === 'edit') return []
       const shouldUseReferenceDocument =
         (effectiveMode === 'generate' && isFirstDeckGeneration) || effectiveMode === 'retry'
-      if (rawDocPaths.length === 0 && (!shouldUseReferenceDocument || !referenceDocumentPath)) {
+      if (!shouldUseReferenceDocument || !referenceDocumentPath) {
         return []
       }
-      const sessionDocsDir = path.join(projectDir, 'docs')
+
       await fs.promises.mkdir(sessionDocsDir, { recursive: true })
-      if (rawDocPaths.length === 0 && referenceDocumentPath) {
+      if (referenceDocumentPath) {
         const normalizedReferenceDocumentPath = referenceDocumentPath.startsWith('/')
           ? referenceDocumentPath
           : `/docs/${referenceDocumentPath}`
@@ -244,22 +264,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         }
         return []
       }
-      const candidates = rawDocPaths
-      const copiedPaths: string[] = []
-      for (const candidate of candidates) {
-        const sourcePath = await assertPathInAllowedRoots({
-          filePath: candidate,
-          mode: 'read',
-          sessionId
-        })
-        const safeName = path.basename(sourcePath).replace(/[\\/:"*?<>|]+/g, '-')
-        const targetPath = path.join(sessionDocsDir, safeName)
-        if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
-          await fs.promises.copyFile(sourcePath, targetPath)
-        }
-        copiedPaths.push(`/docs/${safeName}`)
-      }
-      return copiedPaths
+      return []
     })()
 
     const settings = await db.getAllSettings()

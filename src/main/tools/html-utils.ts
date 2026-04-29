@@ -91,16 +91,16 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
   }
   // Strict new-structure mode: content must be a page fragment only.
   if (/<\!doctype[\s>]/i.test(html)) {
-    errors.push("检测到 <!doctype>。请仅传页面主体片段，不要传完整文档。");
+    errors.push("检测到 <!doctype>。请仅传页面片段，不要传完整文档。");
   }
   if (/<html[\s>]/i.test(html) || /<\/html>/i.test(html)) {
-    errors.push("检测到 <html> 标签。请仅传页面主体片段，不要传完整文档。");
+    errors.push("检测到 <html> 标签。请仅传页面片段，不要传完整文档。");
   }
   if (/<head[\s>]/i.test(html) || /<\/head>/i.test(html)) {
-    errors.push("检测到 <head> 标签。请仅传页面主体片段，不要传完整文档。");
+    errors.push("检测到 <head> 标签。请仅传页面片段，不要传完整文档。");
   }
   if (/<body[\s>]/i.test(html) || /<\/body>/i.test(html)) {
-    errors.push("检测到 <body> 标签。请仅传页面主体片段，不要传完整文档。");
+    errors.push("检测到 <body> 标签。请仅传页面片段，不要传完整文档。");
   }
   if (/<meta[\s>]/i.test(html)) {
     errors.push("检测到 <meta> 标签。页面片段中禁止包含 head 元信息。");
@@ -176,6 +176,35 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
       errors.push(`<${tag}> 开闭标签数量不一致（${opens} 个开, ${closes} 个闭），内容可能被截断`);
     }
   }
+  try {
+    const $ = cheerio.load(html, { scriptingEnabled: false });
+    if ($("[data-page-scaffold]").length < 1) {
+      errors.push("缺少 section[data-page-scaffold] 页面片段根节点");
+    }
+    if ($('[data-block-id="content"][data-role="content"], [data-role="content"][data-block-id="content"]').length < 1) {
+      errors.push('缺少 main[data-block-id="content"][data-role="content"] 内容入口');
+    }
+    if ($('[data-role="title"]').length < 1) {
+      errors.push('缺少 data-role="title" 标题语义元素');
+    }
+    const blockIds = new Map<string, number>();
+    $("[data-block-id]").each((_, node) => {
+      const id = ($(node).attr("data-block-id") || "").trim();
+      if (!id) return;
+      blockIds.set(id, (blockIds.get(id) || 0) + 1);
+    });
+    if (blockIds.size < 2) {
+      errors.push("data-block-id 可编辑标识过少：至少需要 content 和 1 个内容子块");
+    }
+    const duplicatedBlockIds = Array.from(blockIds.entries())
+      .filter(([, count]) => count > 1)
+      .map(([id]) => id);
+    if (duplicatedBlockIds.length > 0) {
+      errors.push(`data-block-id 必须唯一，重复项：${duplicatedBlockIds.join(", ")}`);
+    }
+  } catch {
+    errors.push("HTML 片段结构解析失败");
+  }
   return { valid: errors.length === 0, errors };
 };
 
@@ -233,6 +262,18 @@ export const validatePersistedPageHtml = (
   }
   if ($("[data-block-id]").length < 2) {
     errors.push("data-block-id 可编辑块少于 2 个");
+  }
+  const blockIds = new Map<string, number>();
+  $("[data-block-id]").each((_, node) => {
+    const id = ($(node).attr("data-block-id") || "").trim();
+    if (!id) return;
+    blockIds.set(id, (blockIds.get(id) || 0) + 1);
+  });
+  const duplicatedBlockIds = Array.from(blockIds.entries())
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id);
+  if (duplicatedBlockIds.length > 0) {
+    errors.push(`data-block-id 重复：${duplicatedBlockIds.join(", ")}`);
   }
 
   $("canvas").each((index, node) => {

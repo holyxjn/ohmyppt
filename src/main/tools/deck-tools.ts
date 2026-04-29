@@ -29,13 +29,14 @@ export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
     isolation: isolate;
     background: var(--ppt-page-bg);
   }
+  .ppt-page-root.p-2 { padding: 0.5rem; }
   .ppt-page-root.p-8 { padding: 2rem; }
   .ppt-page-root.p-12 { padding: 3rem; }
-  .ppt-page-root[data-ppt-guard-root="1"]:not(.p-8):not(.p-12) {
-    padding: 2rem;
+  .ppt-page-root[data-ppt-guard-root="1"]:not(.p-2):not(.p-8):not(.p-12) {
+    padding: 0.5rem;
   }
-  body > .ppt-page-root:not([data-ppt-guard-root="1"]):not(.p-8):not(.p-12) {
-    padding: 2rem;
+  body > .ppt-page-root:not([data-ppt-guard-root="1"]):not(.p-2):not(.p-8):not(.p-12) {
+    padding: 0.5rem;
   }
   .ppt-page-fit-scope {
     position: relative;
@@ -549,7 +550,7 @@ function buildScaffoldDocument(args: {
     ${BASE_PAGE_STYLE_TAG}
   </head>
   <body data-page-id="${pageId}">
-    <main class="ppt-page-root p-8" data-ppt-guard-root="1">
+    <main class="ppt-page-root p-2" data-ppt-guard-root="1">
       <div class="ppt-page-fit-scope">
         <div class="ppt-page-content">
           ${innerContent}
@@ -1082,7 +1083,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           "单页编辑专用工具。必须显式传入 pageId 和 content；工具会校验 pageId 是否与当前单页上下文一致，避免误改其他页面。",
         schema: z.object({
           pageId: z.string().describe("目标 pageId，例如 page-5（必须与当前单页上下文一致）"),
-          content: z.string().describe("页面 HTML 内容（<main> 内部的片段，不要传 <!doctype>/<html>/<body> 标签）"),
+          content: z.string().describe("页面 HTML 片段：必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；不要传 <!doctype>/<html>/<body> 标签"),
         }),
       }
     ),
@@ -1111,10 +1112,10 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       {
         name: "update_page_file",
         description:
-          "多页生成/全局编辑工具（单页上下文禁用）。生成模式可不传 pageId 自动按顺序定位；编辑模式必须显式传 pageId，避免误写其它页面。只需传页面主体内容（<main> 内部），工具会自动包装为完整 HTML 文档并注入运行时。禁止传完整 HTML 文档。写入前会自动验证 HTML。",
+          "多页生成/全局编辑工具（单页上下文禁用）。生成模式可不传 pageId 自动按顺序定位；编辑模式必须显式传 pageId，避免误写其它页面。content 必须是页面 HTML 片段，包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；工具会自动包装为完整 HTML 文档并注入运行时。禁止传完整 HTML 文档。写入前会自动验证 HTML。",
         schema: z.object({
           pageId: z.string().optional().describe("可选：目标 section id，例如 page-1。不传则自动按上下文/顺序定位。"),
-          content: z.string().describe("页面 HTML 内容（<main> 内部的片段，不要传 <!doctype>/<html>/<body> 标签）"),
+          content: z.string().describe("页面 HTML 片段：必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；不要传 <!doctype>/<html>/<body> 标签"),
         }),
       }
     ),
