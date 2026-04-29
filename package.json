@@ -27,6 +27,7 @@
     "electron:generate-icons": "npx @arcsin1/electron-icon-builder --input=./resources/icon.png --output=build --flatten"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.6",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@joplin/turndown-plugin-gfm": "^1.0.64",

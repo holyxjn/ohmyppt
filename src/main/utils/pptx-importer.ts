@@ -6,6 +6,7 @@ import { parse, type Chart, type Element, type Fill, type Slide } from 'pptxtojs
 import { buildPageScaffoldHtml, buildProjectIndexHtml, type DeckPageFile } from '../ipc/template'
 import { escapeHtml } from '../ipc/utils'
 import { validatePersistedPageHtml } from '../tools/html-utils'
+import { PptxTextValidator } from './pptx-text-validator'
 
 const PAGE_WIDTH = 1600
 const PAGE_HEIGHT = 900
@@ -43,6 +44,11 @@ type FlattenedElement = {
   width: number
   height: number
   text: string
+}
+
+type TextImportAdjustment = {
+  content: string
+  extraCss: string[]
 }
 
 export type ImportedPptxPage = {
@@ -168,13 +174,20 @@ const DANGEROUS_TAGS = new Set([
 
 const ALLOWED_TEXT_STYLE_PROPS = new Set([
   'color',
+  'background',
+  'background-image',
   'background-color',
+  'background-clip',
+  '-webkit-background-clip',
+  '-webkit-text-fill-color',
   'font-size',
   'font-weight',
   'font-style',
   'font-family',
   'text-decoration',
+  'text-decoration-line',
   'text-align',
+  'text-shadow',
   'line-height',
   'vertical-align',
   'letter-spacing'
@@ -184,6 +197,13 @@ const sanitizeCssValue = (property: string, rawValue: string, scale: number): st
   const value = rawValue.trim()
   if (!value) return null
   if (/url\s*\(|expression\s*\(|javascript:|data:/i.test(value)) return null
+  const normalizedProperty = property.trim().toLowerCase()
+  if (normalizedProperty === 'background' || normalizedProperty === 'background-image') {
+    if (!/^(?:linear-gradient|radial-gradient)\s*\(/i.test(value)) return null
+  }
+  if (normalizedProperty === 'background-clip' || normalizedProperty === '-webkit-background-clip') {
+    return /^(?:text|border-box|padding-box|content-box)$/i.test(value) ? value : null
+  }
   if (property === 'font-size' || property === 'line-height') {
     const ptMatch = value.match(/^([0-9.]+)pt$/i)
     if (ptMatch) {
@@ -191,8 +211,37 @@ const sanitizeCssValue = (property: string, rawValue: string, scale: number): st
       return `${px.toFixed(1)}px`
     }
   }
+  if (normalizedProperty === 'font-family') {
+    return /^[\p{L}\p{N}\s,.'"_-]+$/u.test(value) ? value : null
+  }
   if (/^[#a-z0-9\s.,()%'"-]+$/i.test(value)) return value
   return null
+}
+
+const ensureVisibleTextStyle = (style: string): string => {
+  if (!style) return ''
+  const hasTransparentText =
+    /(?:^|;)\s*color\s*:\s*transparent\s*(?:;|$)/i.test(style) ||
+    /(?:^|;)\s*-webkit-text-fill-color\s*:\s*transparent\s*(?:;|$)/i.test(style)
+  if (!hasTransparentText) return style
+
+  const hasGradientBackground =
+    /(?:^|;)\s*background(?:-image)?\s*:\s*(?:linear-gradient|radial-gradient)\s*\(/i.test(style)
+  const hasTextClip =
+    /(?:^|;)\s*(?:-webkit-)?background-clip\s*:\s*text\s*(?:;|$)/i.test(style)
+
+  if (hasGradientBackground && hasTextClip) {
+    return style.includes('-webkit-background-clip')
+      ? style
+      : `${style};-webkit-background-clip:text`
+  }
+
+  return style
+    .replace(/((?:^|;)\s*color\s*:\s*)transparent(\s*(?:;|$))/gi, '$1#111827$2')
+    .replace(
+      /((?:^|;)\s*-webkit-text-fill-color\s*:\s*)transparent(\s*(?:;|$))/gi,
+      '$1#111827$2'
+    )
 }
 
 const sanitizeImportedCssColor = (rawValue: unknown): string | null => {
@@ -211,23 +260,25 @@ const sanitizeGradientStop = (rawColor: unknown, rawPosition: unknown): string |
 }
 
 const sanitizeStyleAttribute = (style: string, scale: number): string => {
-  return style
-    .split(';')
-    .map((part) => {
-      const [propertyRaw, ...valueParts] = part.split(':')
-      const property = propertyRaw?.trim().toLowerCase()
-      const valueRaw = valueParts.join(':')
-      if (!property || !ALLOWED_TEXT_STYLE_PROPS.has(property)) return ''
-      const value = sanitizeCssValue(property, valueRaw, scale)
-      return value ? `${property}:${value}` : ''
-    })
-    .filter(Boolean)
-    .join(';')
+  return ensureVisibleTextStyle(
+    style
+      .split(';')
+      .map((part) => {
+        const [propertyRaw, ...valueParts] = part.split(':')
+        const property = propertyRaw?.trim().toLowerCase()
+        const valueRaw = valueParts.join(':')
+        if (!property || !ALLOWED_TEXT_STYLE_PROPS.has(property)) return ''
+        const value = sanitizeCssValue(property, valueRaw, scale)
+        return value ? `${property}:${value}` : ''
+      })
+      .filter(Boolean)
+      .join(';')
+  )
 }
 
 const sanitizeContentHtml = (html: string, scale: number): string => {
   if (!html) return ''
-  const $ = cheerio.load(`<body>${html}</body>`, { scriptingEnabled: false })
+  const $ = cheerio.load(html, { scriptingEnabled: false }, false)
   $('*').each((_, node) => {
     const rawNode = node as unknown as { tagName?: string; attribs?: Record<string, string> }
     const element = $(node)
@@ -259,7 +310,86 @@ const sanitizeContentHtml = (html: string, scale: number): string => {
       }
     }
   })
-  return $('body').html() || ''
+  return $.root().html() || ''
+}
+
+const parseCssPx = (style: string, property: string): number | null => {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = style.match(new RegExp(`${escaped}\\s*:\\s*([0-9.]+)px`, 'i'))
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) ? value : null
+}
+
+const parseCssValue = (style: string, property: string): string | null => {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = style.match(new RegExp(`${escaped}\\s*:\\s*([^;]+)`, 'i'))
+  return match?.[1]?.trim() || null
+}
+
+const extractTextTypography = (
+  content: string,
+  element: Record<string, unknown>,
+  textScale: number
+): {
+  fontSize: number
+  lineHeight: number
+  fontFamily: string
+  fontWeight: string
+  fontStyle: string
+  letterSpacing: number
+} => {
+  const $ = cheerio.load(`<body>${content}</body>`, { scriptingEnabled: false })
+  let style = ''
+  $('*').each((_, node) => {
+    const candidate = $(node).attr('style') || ''
+    if (candidate && (!style || candidate.includes('font-size'))) style = candidate
+  })
+  const fontSize =
+    parseCssPx(style, 'font-size') ||
+    Math.max(10, clampNumber(element.fontSize || element.font_size || 18) * textScale)
+  const lineHeight = parseCssPx(style, 'line-height') || fontSize * 1.18
+  return {
+    fontSize,
+    lineHeight,
+    fontFamily:
+      parseCssValue(style, 'font-family') ||
+      String(element.fontFace || element.fontFamily || element.font || 'Arial'),
+    fontWeight:
+      parseCssValue(style, 'font-weight') ||
+      (element.fontBold || element.bold ? '700' : '400'),
+    fontStyle: parseCssValue(style, 'font-style') || (element.fontItalic ? 'italic' : 'normal'),
+    letterSpacing: parseCssPx(style, 'letter-spacing') || 0
+  }
+}
+
+const scaleContentTypography = (content: string, ratio: number): string => {
+  if (ratio >= 0.995) return content
+  const $ = cheerio.load(`<body>${content}</body>`, { scriptingEnabled: false })
+  $('*').each((_, node) => {
+    const element = $(node)
+    const style = element.attr('style') || ''
+    if (!style) return
+    const scaled = style
+      .split(';')
+      .map((part) => {
+        const [propertyRaw, ...valueParts] = part.split(':')
+        const property = propertyRaw?.trim()
+        const value = valueParts.join(':').trim()
+        if (!property || !value) return ''
+        if (/^(font-size|line-height|letter-spacing)$/i.test(property)) {
+          const pxMatch = value.match(/^([0-9.]+)px$/i)
+          if (pxMatch) {
+            return `${property}:${Math.max(0, Number(pxMatch[1]) * ratio).toFixed(1)}px`
+          }
+        }
+        return `${property}:${value}`
+      })
+      .filter(Boolean)
+      .join(';')
+    if (scaled) element.attr('style', scaled)
+  })
+  return $('body').html() || content
 }
 
 const getRegistryKey = (key: string, dataUrl: string): string => {
@@ -379,6 +509,67 @@ const borderCss = (element: Record<string, unknown>, scale: number): string[] =>
   return [`border:${Math.max(1, width * scale).toFixed(1)}px ${type} ${color}`]
 }
 
+const adjustTextBlockWithPretext = async (args: {
+  validator?: PptxTextValidator
+  element: Record<string, unknown>
+  blockId: string
+  content: string
+  text: string
+  scaleX: number
+  scaleY: number
+  textScale: number
+  offsetX: number
+  offsetY: number
+  pageNumber?: number
+  warnings?: ImportWarning[]
+}): Promise<TextImportAdjustment> => {
+  if (!args.validator || args.text.length < 2) {
+    return { content: args.content, extraCss: [] }
+  }
+  const y = (clampNumber(args.element.top) + clampNumber(args.offsetY)) * args.scaleY
+  const width = Math.max(1, clampNumber(args.element.width) * args.scaleX)
+  const height = Math.max(1, clampNumber(args.element.height) * args.scaleY)
+  const typography = extractTextTypography(args.content, args.element, args.textScale)
+  const [result] = await args.validator.measure([
+    {
+      id: args.blockId,
+      text: args.text,
+      width,
+      height,
+      ...typography
+    }
+  ])
+  if (!result || (!result.overflow && result.suggestedFontSize >= typography.fontSize - 0.5)) {
+    return {
+      content: args.content,
+      extraCss: [
+        `font-size:${typography.fontSize.toFixed(1)}px`,
+        `line-height:${typography.lineHeight.toFixed(1)}px`
+      ]
+    }
+  }
+
+  const fontRatio = Math.min(1, result.suggestedFontSize / typography.fontSize)
+  const maxHeight = Math.max(1, PAGE_HEIGHT - y - 2)
+  const nextHeight = Math.min(maxHeight, Math.max(height, result.suggestedHeight))
+  const extraCss = [
+    `font-size:${result.suggestedFontSize.toFixed(1)}px`,
+    `line-height:${result.suggestedLineHeight.toFixed(1)}px`
+  ]
+  if (nextHeight > height + 1) {
+    extraCss.push(`height:${nextHeight.toFixed(1)}px`)
+  }
+  args.warnings?.push({
+    pageNumber: args.pageNumber,
+    message: `文本块 ${args.blockId} 已按 Pretext 测量调整排版`
+  })
+
+  return {
+    content: scaleContentTypography(args.content, fontRatio),
+    extraCss
+  }
+}
+
 const titleFromSlide = (slide: Slide, pageNumber: number): string => {
   const candidates = flattenElements([...(slide.layoutElements || []), ...(slide.elements || [])])
     .filter((item) => (item.element.type === 'text' || item.element.type === 'shape') && item.text.length > 0)
@@ -414,8 +605,28 @@ const buildTextBlock = async (args: {
   zIndex: number
   offsetX: number
   offsetY: number
+  pageNumber?: number
+  warnings?: ImportWarning[]
+  textValidator?: PptxTextValidator
 }): Promise<string> => {
   const fillCss = await fillToCss(args.element.fill as Fill | undefined, args.imagesDir, args.registry)
+  const rawContent = String(args.element.content || '')
+  const text = stripHtml(rawContent)
+  const sanitizedContent = sanitizeContentHtml(rawContent, args.textScale)
+  const adjustment = await adjustTextBlockWithPretext({
+    validator: args.textValidator,
+    element: args.element,
+    blockId: args.blockId,
+    content: sanitizedContent,
+    text,
+    scaleX: args.scaleX,
+    scaleY: args.scaleY,
+    textScale: args.textScale,
+    offsetX: args.offsetX,
+    offsetY: args.offsetY,
+    pageNumber: args.pageNumber,
+    warnings: args.warnings
+  })
   const css = buildBlockStyle({
     element: args.element,
     scaleX: args.scaleX,
@@ -423,11 +634,10 @@ const buildTextBlock = async (args: {
     zIndex: args.zIndex,
     offsetX: args.offsetX,
     offsetY: args.offsetY,
-    extra: [...fillCss, ...borderCss(args.element, args.textScale), 'padding:0.1px']
+    extra: [...fillCss, ...borderCss(args.element, args.textScale), 'padding:0.1px', ...adjustment.extraCss]
   })
   const roleAttr = args.role ? ` data-role="${escapeHtml(args.role)}"` : ''
-  const content = sanitizeContentHtml(String(args.element.content || ''), args.textScale)
-  return `<section data-block-id="${escapeHtml(args.blockId)}"${roleAttr} style="${css}">${content || '&nbsp;'}</section>`
+  return `<section data-block-id="${escapeHtml(args.blockId)}"${roleAttr} style="${css}">${adjustment.content || '&nbsp;'}</section>`
 }
 
 const buildImageBlock = async (args: {
@@ -475,6 +685,9 @@ const buildShapeBlock = async (args: {
   zIndex: number
   offsetX: number
   offsetY: number
+  pageNumber?: number
+  warnings?: ImportWarning[]
+  textValidator?: PptxTextValidator
 }): Promise<string> => {
   if (typeof args.element.content === 'string' && stripHtml(args.element.content).length > 0) {
     return buildTextBlock(args)
@@ -612,6 +825,9 @@ const renderElement = async (args: {
   offsetX: number
   offsetY: number
   titleAssigned: boolean
+  pageNumber?: number
+  warnings?: ImportWarning[]
+  textValidator?: PptxTextValidator
 }): Promise<{ html: string; titleAssigned: boolean }> => {
   const nextBlockId = (prefix: string): string => {
     args.blockCounters[prefix] = (args.blockCounters[prefix] || 0) + 1
@@ -707,7 +923,10 @@ const renderElement = async (args: {
         textScale: args.textScale,
         offsetX: args.offsetX,
         offsetY: args.offsetY,
-        zIndex: args.zIndex
+        zIndex: args.zIndex,
+        pageNumber: args.pageNumber,
+        warnings: args.warnings,
+        textValidator: args.textValidator
       }),
       titleAssigned: args.titleAssigned || shouldBeTitle
     }
@@ -727,7 +946,10 @@ const renderElement = async (args: {
         textScale: args.textScale,
         offsetX: args.offsetX,
         offsetY: args.offsetY,
-        zIndex: args.zIndex
+        zIndex: args.zIndex,
+        pageNumber: args.pageNumber,
+        warnings: args.warnings,
+        textValidator: args.textValidator
       }),
       titleAssigned: args.titleAssigned || shouldBeTitle
     }
@@ -764,6 +986,7 @@ const buildSlideHtml = async (args: {
   size: { width: number; height: number }
   projectDir: string
   registry: ImageRegistry
+  textValidator?: PptxTextValidator
 }): Promise<{ html: string; contentOutline: string; warnings: ImportWarning[] }> => {
   const imagesDir = path.join(args.projectDir, 'images')
   const scaleX = PAGE_WIDTH / Math.max(1, args.size.width)
@@ -791,7 +1014,10 @@ const buildSlideHtml = async (args: {
         zIndex: index + 2,
         offsetX: 0,
         offsetY: 0,
-        titleAssigned
+        titleAssigned,
+        pageNumber: args.pageNumber,
+        warnings,
+        textValidator: args.textValidator
       })
       if (result.html) rendered.push(result.html)
       titleAssigned = result.titleAssigned
@@ -883,37 +1109,43 @@ export async function importPptxToEditableHtml(args: {
   const registry: ImageRegistry = { index: 0, byKey: new Map() }
   const pages: ImportedPptxPage[] = []
   const allWarnings: ImportWarning[] = []
-  for (let i = 0; i < slides.length; i += 1) {
-    const pageNumber = i + 1
-    const pageId = `page-${pageNumber}`
-    const pageTitle = titleFromSlide(slides[i], pageNumber)
-    args.onProgress?.({
-      stage: 'pages',
-      progress: 25 + Math.round((pageNumber / slides.length) * 58),
-      label: `正在导入第 ${pageNumber} / ${slides.length} 页`,
-      pageNumber,
-      totalPages: slides.length
-    })
-    const htmlPath = path.join(args.projectDir, `${pageId}.html`)
-    const rendered = await buildSlideHtml({
-      slide: slides[i],
-      pageNumber,
-      pageId,
-      title: pageTitle,
-      size: parsed.size,
-      projectDir: args.projectDir,
-      registry
-    })
-    await fs.promises.writeFile(htmlPath, rendered.html, 'utf-8')
-    pages.push({
-      pageNumber,
-      pageId,
-      title: pageTitle,
-      htmlPath,
-      html: rendered.html,
-      contentOutline: rendered.contentOutline
-    })
-    allWarnings.push(...rendered.warnings)
+  const textValidator = new PptxTextValidator()
+  try {
+    for (let i = 0; i < slides.length; i += 1) {
+      const pageNumber = i + 1
+      const pageId = `page-${pageNumber}`
+      const pageTitle = titleFromSlide(slides[i], pageNumber)
+      args.onProgress?.({
+        stage: 'pages',
+        progress: 25 + Math.round((pageNumber / slides.length) * 58),
+        label: `正在导入并校验第 ${pageNumber} / ${slides.length} 页`,
+        pageNumber,
+        totalPages: slides.length
+      })
+      const htmlPath = path.join(args.projectDir, `${pageId}.html`)
+      const rendered = await buildSlideHtml({
+        slide: slides[i],
+        pageNumber,
+        pageId,
+        title: pageTitle,
+        size: parsed.size,
+        projectDir: args.projectDir,
+        registry,
+        textValidator
+      })
+      await fs.promises.writeFile(htmlPath, rendered.html, 'utf-8')
+      pages.push({
+        pageNumber,
+        pageId,
+        title: pageTitle,
+        htmlPath,
+        html: rendered.html,
+        contentOutline: rendered.contentOutline
+      })
+      allWarnings.push(...rendered.warnings)
+    }
+  } finally {
+    textValidator.close()
   }
   args.onProgress?.({ stage: 'index', progress: 90, label: '正在生成演示总览' })
   await fs.promises.writeFile(

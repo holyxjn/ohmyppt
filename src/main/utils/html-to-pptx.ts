@@ -1,4 +1,6 @@
 import PptxGenJS from 'pptxgenjs'
+import { createRequire } from 'module'
+import { pathToFileURL } from 'url'
 
 export type HtmlToPptxTextAlign = 'left' | 'center' | 'right' | 'justify'
 
@@ -94,6 +96,8 @@ const DEFAULT_SLIDE_WIDTH = 13.333
 const DEFAULT_SLIDE_HEIGHT = 7.5
 const DEFAULT_MAX_TEXT_CHARS = 1000
 const DEFAULT_MAX_IMAGE_BYTES = 2 * 1024 * 1024
+const require = createRequire(import.meta.url)
+const PRETEXT_MODULE_URL = pathToFileURL(require.resolve('@chenglou/pretext')).toString()
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value))
@@ -200,6 +204,13 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   const maxImages = ${JSON.stringify(maxImages)};
   const maxTextChars = ${JSON.stringify(maxTextChars)};
   const maxImageDataUriLength = ${JSON.stringify(Math.ceil((maxImageBytes * 4) / 3) + 128)};
+  const pretextModuleUrl = ${JSON.stringify(PRETEXT_MODULE_URL)};
+  let pretext = null;
+  try {
+    pretext = await import(pretextModuleUrl);
+  } catch (_error) {
+    pretext = null;
+  }
   const normalize = (value) => String(value || '')
     .replace(/\\s+/g, ' ')
     .replace(/[\\u200b-\\u200d\\ufeff]/g, '')
@@ -347,6 +358,62 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const padding = Math.max(0.03, Math.min(0.16, fontSizePt / 72 * 0.12));
     return Math.max(0.08, height * 1.12 + padding);
   };
+  const resolveLineHeightPx = (style, fontSizePx) => {
+    const lineHeight = Number.parseFloat(style.lineHeight || '');
+    return Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : fontSizePx * 1.18;
+  };
+  const resolveLetterSpacingPx = (style) => {
+    if (!style.letterSpacing || style.letterSpacing === 'normal') return 0;
+    const letterSpacing = Number.parseFloat(style.letterSpacing);
+    return Number.isFinite(letterSpacing) ? letterSpacing : 0;
+  };
+  const buildCanvasFont = (style, fontSizePx) => {
+    const weight = Number.parseInt(style.fontWeight || '400', 10) || 400;
+    const italic = style.fontStyle === 'italic' || style.fontStyle === 'oblique' ? 'italic' : '';
+    const family = String(style.fontFamily || 'Aptos').split(',')[0].replace(/["']/g, '').trim() || 'Aptos';
+    const familyToken = /^[a-z0-9 -]+$/i.test(family) ? family : '"' + family.replace(/"/g, '') + '"';
+    return [italic, String(weight), fontSizePx.toFixed(2) + 'px', familyToken].filter(Boolean).join(' ');
+  };
+  const layoutTextWithPretext = (text, rect, style) => {
+    if (!pretext || !text || rect.width < 4 || rect.height < 4) return null;
+    if (parseRotate(style)) return null;
+    const fontSizePx = Number.parseFloat(style.fontSize || '16') || 16;
+    const lineHeightPx = resolveLineHeightPx(style, fontSizePx);
+    try {
+      const prepared = pretext.prepareWithSegments(text, buildCanvasFont(style, fontSizePx), {
+        whiteSpace: 'pre-wrap',
+        letterSpacing: resolveLetterSpacingPx(style)
+      });
+      const result = pretext.layoutWithLines(prepared, Math.max(1, rect.width), lineHeightPx);
+      if (!result?.lines?.length) return null;
+      return {
+        lineHeightPx,
+        lines: result.lines
+          .map((line, index) => {
+            const lineText = normalize(String(line.text || ''));
+            if (!lineText) return null;
+            const lineWidth = Math.max(1, Math.min(rect.width, Number(line.width) || rect.width));
+            let left = rect.left;
+            if (style.textAlign === 'center') left += Math.max(0, (rect.width - lineWidth) / 2);
+            else if (style.textAlign === 'right' || style.textAlign === 'end') left += Math.max(0, rect.width - lineWidth);
+            return {
+              text: lineText,
+              rect: {
+                left,
+                top: rect.top + index * lineHeightPx,
+                right: left + lineWidth,
+                bottom: rect.top + (index + 1) * lineHeightPx,
+                width: lineWidth,
+                height: lineHeightPx
+              }
+            };
+          })
+          .filter(Boolean)
+      };
+    } catch (_error) {
+      return null;
+    }
+  };
   const isVerticalWritingMode = (style) => /vertical/i.test(String(style.writingMode || ''));
   const normalizeVerticalText = (value) => {
     const source = normalize(value).replace(/\s+/g, '');
@@ -366,6 +433,13 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       text = normalizeVerticalText(text);
       if (!text) return;
       shouldWrap = false;
+    }
+    if (shouldWrap && !isVerticalText) {
+      const pretextLayout = layoutTextWithPretext(text, rect, parentStyle);
+      if (pretextLayout && pretextLayout.lines.length > 0) {
+        pretextLayout.lines.forEach((line) => pushTextBox(line.text, line.rect, parentStyle, parentElement, false));
+        return;
+      }
     }
     const key = makeTextKey(text, rect);
     if (textSeen.has(key)) return;
