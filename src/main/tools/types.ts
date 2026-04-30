@@ -1,4 +1,5 @@
 import log from "electron-log/main.js";
+import type { LayoutIntent } from "@shared/layout-intent";
 
 // ── Marker constants ──
 
@@ -17,6 +18,7 @@ export type ToolStreamConfig = {
 export interface OutlineItem {
   title: string;
   contentOutline: string;
+  layoutIntent?: LayoutIntent;
 }
 
 export interface DesignContract {

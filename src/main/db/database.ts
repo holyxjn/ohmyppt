@@ -102,6 +102,7 @@ export interface GenerationPageRecord {
   page_number: number;
   title: string;
   content_outline: string | null;
+  layout_intent: string | null;
   html_path: string | null;
   status: GenerationPageStatus;
   error: string | null;
@@ -297,6 +298,10 @@ export class PPTDatabase {
         typeof (row.contentOutline ?? row.content_outline) === "string"
           ? String(row.contentOutline ?? row.content_outline)
           : null,
+      layout_intent:
+        typeof (row.layoutIntent ?? row.layout_intent) === "string"
+          ? String(row.layoutIntent ?? row.layout_intent)
+          : null,
       html_path:
         typeof (row.htmlPath ?? row.html_path) === "string"
           ? String(row.htmlPath ?? row.html_path)
@@ -367,6 +372,7 @@ export class PPTDatabase {
     pageNumber: number;
     title: string;
     contentOutline?: string | null;
+    layoutIntent?: string | null;
     htmlPath?: string | null;
     status: GenerationPageStatus;
     error?: string | null;
@@ -382,6 +388,7 @@ export class PPTDatabase {
       pageNumber: data.pageNumber,
       title: data.title,
       contentOutline: data.contentOutline || null,
+      layoutIntent: data.layoutIntent || null,
       htmlPath: data.htmlPath || null,
       status: data.status,
       error: data.error || null,
@@ -395,6 +402,7 @@ export class PPTDatabase {
         pageNumber: values.pageNumber,
         title: values.title,
         contentOutline: values.contentOutline,
+        layoutIntent: values.layoutIntent,
         htmlPath: values.htmlPath,
         status: values.status,
         error: values.error,

@@ -4,6 +4,7 @@ import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { Button } from '../ui/Button'
 import { PreviewIframe } from '../preview/PreviewIframe'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import type { DragEditorMovePayload } from '../preview/drag-editor-script'
 import type { SessionPreviewPage } from './types'
 import { useT } from '@renderer/i18n'
@@ -38,6 +39,7 @@ export function PreviewStage({
   const setInspecting = useSessionDetailUiStore((state) => state.setInspecting)
   const setDragEditing = useSessionDetailUiStore((state) => state.setDragEditing)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
+  const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
 
   useEffect(() => {
     if (!inspecting && !dragEditing) return
@@ -61,9 +63,16 @@ export function PreviewStage({
         <div className="pointer-events-none absolute -bottom-24 left-8 h-48 w-64 rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#c8b89e]/22" />
         {selectedPage ? (
           <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_14px_32px_rgba(93,107,77,0.14)]">
-            <div className="pointer-events-none absolute left-5 top-5 z-20 max-w-[calc(100%-9rem)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
-              {sessionTitle || t('sessionDetail.sessionFallback')}
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="absolute left-5 top-5 z-20 w-[300px] max-w-[calc(100%-9rem)] truncate rounded-full bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
+                  {displayTitle}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start">
+                {displayTitle}
+              </TooltipContent>
+            </Tooltip>
             <PreviewIframe
               key={`preview-${selectedPage.pageId}-${previewKey}-${previewRefreshKey}`}
               src={selectedPage.sourceUrl}

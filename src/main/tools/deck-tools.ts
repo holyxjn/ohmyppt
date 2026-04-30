@@ -68,8 +68,19 @@ export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
   }
   .ppt-page-content canvas {
     display: block;
+    width: 100%;
+    height: 100%;
     max-width: 100% !important;
     max-height: 100% !important;
+  }
+  .ppt-page-content .ppt-chart-frame {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .ppt-page-content .ppt-chart-frame > canvas {
+    width: 100% !important;
+    height: 100% !important;
   }
   .ppt-page-content [data-block-id*="chart"],
   .ppt-page-content [data-block-id*="graph"],
@@ -469,37 +480,92 @@ function extractRemoteRuntimeResources(content: string): string[] {
   return hits;
 }
 
+const CHART_FRAME_CLASS = "ppt-chart-frame";
+const CHART_FRAME_DEFAULT_HEIGHT_CLASS = "h-[240px]";
+
+function splitClassNames(classRaw: string): string[] {
+  return classRaw.split(/\s+/).map((cls) => cls.trim()).filter(Boolean);
+}
+
+function classBaseName(cls: string): string {
+  return cls.split(":").pop() || cls;
+}
+
+function isChartCanvasLayoutClass(cls: string): boolean {
+  const base = classBaseName(cls);
+  return (
+    base === "flex-1" ||
+    /^h-/.test(base) ||
+    /^min-h-/.test(base) ||
+    /^max-h-/.test(base)
+  );
+}
+
+function isMarginUtilityClass(cls: string): boolean {
+  return /^-?m[trblxy]?-[^\s]+$/.test(classBaseName(cls));
+}
+
+function hasConcreteChartHeightClass(classes: Iterable<string>): boolean {
+  return Array.from(classes).some((cls) => {
+    const base = classBaseName(cls);
+    if (/^(?:h|min-h)-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false;
+    return /^(?:h|min-h)-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base);
+  });
+}
+
+function hasConcreteChartHeightStyle(styleRaw: string): boolean {
+  return /(?:^|;)\s*(?:height|min-height)\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
+    styleRaw
+  );
+}
+
 function stabilizeChartCanvases(html: string): string {
   try {
     const $ = cheerio.load(html, { scriptingEnabled: false });
     $("canvas").each((_, node) => {
       const canvas = $(node);
-      const classRaw = (canvas.attr("class") || "").trim();
-      if (classRaw) {
-        const classSet = new Set(
-          classRaw
-            .split(/\s+/)
-            .filter(Boolean)
-            .filter((cls) => cls !== "flex-1" && cls !== "h-full" && cls !== "min-h-full")
-        );
-        if (classSet.size > 0) canvas.attr("class", Array.from(classSet).join(" "));
-        else canvas.removeAttr("class");
-      }
+      const originalCanvasClasses = splitClassNames(canvas.attr("class") || "");
+      const wrapperClasses = originalCanvasClasses.filter(isMarginUtilityClass);
+      const canvasClassSet = new Set(
+        originalCanvasClasses.filter((cls) => !isChartCanvasLayoutClass(cls) && !isMarginUtilityClass(cls))
+      );
+      canvasClassSet.add("h-full");
+      canvasClassSet.add("w-full");
+      canvas.attr("class", Array.from(canvasClassSet).join(" "));
 
       const parent = canvas.parent();
       if (!parent.length) return;
 
       const parentClassRaw = (parent.attr("class") || "").trim();
       const parentClassSet = new Set(parentClassRaw.split(/\s+/).filter(Boolean));
-      const hasHeightClass = Array.from(parentClassSet).some(
-        (cls) => /^h-/.test(cls) || /^min-h-/.test(cls) || /^max-h-/.test(cls)
-      );
-      const parentStyle = (parent.attr("style") || "").toLowerCase();
-      const hasHeightStyle = /(?:^|;)\s*(?:height|min-height|max-height)\s*:/.test(parentStyle);
-      if (!hasHeightClass && !hasHeightStyle) {
-        parentClassSet.add("min-h-[240px]");
+      const parentStyle = parent.attr("style") || "";
+      const hasHeightClass = hasConcreteChartHeightClass(parentClassSet);
+      const hasHeightStyle = hasConcreteChartHeightStyle(parentStyle);
+      const parentElementChildren = parent.children();
+      const parentIsDedicatedFrame = parentElementChildren.length === 1 && parentElementChildren.get(0) === canvas.get(0);
+
+      if (parentIsDedicatedFrame && (hasHeightClass || hasHeightStyle)) {
+        parentClassSet.add(CHART_FRAME_CLASS);
+        parentClassSet.add("relative");
+        parentClassSet.add("min-w-0");
+        parentClassSet.add("overflow-hidden");
         parent.attr("class", Array.from(parentClassSet).join(" "));
+        return;
       }
+
+      const frame = $('<div></div>');
+      const frameClassSet = new Set([
+        CHART_FRAME_CLASS,
+        "relative",
+        CHART_FRAME_DEFAULT_HEIGHT_CLASS,
+        "w-full",
+        "min-w-0",
+        "overflow-hidden",
+        ...wrapperClasses
+      ]);
+      frame.attr("class", Array.from(frameClassSet).join(" "));
+      canvas.before(frame);
+      frame.append(canvas);
     });
     return $.html();
   } catch {

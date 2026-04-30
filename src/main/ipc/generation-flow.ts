@@ -2,6 +2,7 @@ import log from 'electron-log/main.js'
 import type { PPTDatabase } from '../db/database'
 import type { AgentManager } from '../agent'
 import type { GenerateStartPayload, GeneratedPagePayload } from '@shared/generation'
+import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
@@ -606,9 +607,16 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     const outlineByPageId = new Map(
       latestPageSnapshot.map((page) => [page.page_id, page.content_outline || ''])
     )
+    const layoutIntentByPageId = new Map(
+      latestPageSnapshot.map((page) => [
+        page.page_id,
+        page.layout_intent ? normalizeLayoutIntent(page.layout_intent) : undefined
+      ])
+    )
     const outlineItems = pageRefs.map((ref) => ({
       title: ref.title,
-      contentOutline: outlineByPageId.get(ref.pageId) || ''
+      contentOutline: outlineByPageId.get(ref.pageId) || '',
+      layoutIntent: layoutIntentByPageId.get(ref.pageId)
     }))
     const pageFileMap = Object.fromEntries(pageRefs.map((p) => [p.pageId, p.htmlPath]))
     const beforeMap = new Map<string, string>()
@@ -813,15 +821,15 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
 
     const changedPageIdSet = new Set(changedPageDescriptors.map((page) => page.pageId))
     for (const page of changedPageDescriptors) {
+      const outlineItem = outlineItems.find((_item, index) => pageRefs[index]?.pageId === page.pageId)
       await db.upsertGenerationPage({
         runId: context.runId,
         sessionId: context.sessionId,
         pageId: page.pageId,
         pageNumber: page.pageNumber,
         title: page.title,
-        contentOutline:
-          outlineItems.find((_item, index) => pageRefs[index]?.pageId === page.pageId)
-            ?.contentOutline || '',
+        contentOutline: outlineItem?.contentOutline || '',
+        layoutIntent: outlineItem?.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'completed'
       })
@@ -1034,7 +1042,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       const planned = plannedOutlineItems[index]
       return {
         title: planned?.title?.trim() || page.title,
-        contentOutline: planned?.contentOutline?.trim() || ''
+        contentOutline: planned?.contentOutline?.trim() || '',
+        layoutIntent: planned?.layoutIntent
       }
     })
     const outlineTitles = outlineItems.map((item) => item.title)
@@ -1047,6 +1056,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: outlineItems[page.pageNumber - 1]?.contentOutline || '',
+        layoutIntent: outlineItems[page.pageNumber - 1]?.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'pending'
       })
@@ -1142,6 +1152,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       pageId: string
       title: string
       contentOutline: string
+      layoutIntent?: LayoutIntent
       htmlPath: string
     }): Promise<void> => {
       if (!fs.existsSync(page.htmlPath)) {
@@ -1159,6 +1170,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'completed'
       })
@@ -1176,6 +1188,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       pageId: string
       title: string
       contentOutline: string
+      layoutIntent?: LayoutIntent
       htmlPath: string
       reason: string
     }): Promise<void> => {
@@ -1186,6 +1199,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'failed',
         error: page.reason
@@ -1358,6 +1372,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
           pageNumber: pageRef.pageNumber,
           title: pageRef.title,
           contentOutline: outlineItems[pageRef.pageNumber - 1]?.contentOutline || '',
+          layoutIntent: outlineItems[pageRef.pageNumber - 1]?.layoutIntent,
           htmlPath: pageRef.htmlPath,
           status: 'completed'
         })
@@ -1418,6 +1433,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
           pageNumber: pageRef.pageNumber,
           title: pageRef.title,
           contentOutline: outlineItems[pageRef.pageNumber - 1]?.contentOutline || '',
+          layoutIntent: outlineItems[pageRef.pageNumber - 1]?.layoutIntent,
           htmlPath: pageRef.htmlPath,
           status: 'failed',
           error: failedPage.reason
@@ -1573,6 +1589,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
             pageId: page.page_id,
             title: page.title || page.page_id,
             contentOutline: page.content_outline || '',
+            layoutIntent: page.layout_intent ? normalizeLayoutIntent(page.layout_intent) : undefined,
             htmlPath: page.html_path || path.join(context.entry.projectDir, `${page.page_id}.html`),
             retryCount: page.retry_count + 1
           }))
@@ -1599,6 +1616,10 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
                 title,
                 contentOutline:
                   typeof page.contentOutline === 'string' ? page.contentOutline.trim() : '',
+                layoutIntent:
+                  typeof page.layoutIntent === 'string'
+                    ? normalizeLayoutIntent(page.layoutIntent)
+                    : undefined,
                 htmlPath: htmlPathRaw
                   ? path.isAbsolute(htmlPathRaw)
                     ? htmlPathRaw
@@ -1635,6 +1656,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'pending',
         retryCount: page.retryCount
@@ -1668,6 +1690,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       pageId: string
       title: string
       contentOutline: string
+      layoutIntent?: LayoutIntent
       htmlPath: string
     }): Promise<void> => {
       if (!fs.existsSync(page.htmlPath)) {
@@ -1686,6 +1709,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'completed',
         retryCount: retryPage?.retryCount || 0
@@ -1698,6 +1722,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       pageId: string
       title: string
       contentOutline: string
+      layoutIntent?: LayoutIntent
       htmlPath: string
       reason: string
     }): Promise<void> => {
@@ -1709,6 +1734,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent,
         htmlPath: page.htmlPath,
         status: 'failed',
         error: page.reason,
@@ -1736,7 +1762,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       outlineTitles: retryPages.map((page) => page.title),
       outlineItems: retryPages.map((page) => ({
         title: page.title,
-        contentOutline: page.contentOutline
+        contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent
       })),
       sourceDocumentPaths: context.sourceDocumentPaths,
       generationMode: 'retry',
@@ -1744,7 +1771,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         pageId: page.pageId,
         title: page.title,
-        contentOutline: page.contentOutline
+        contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent
       })),
       designContract,
       projectDir: context.entry.projectDir,
@@ -1778,6 +1806,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
             pageNumber: page.pageNumber,
             title: page.title,
             contentOutline: page.contentOutline,
+            layoutIntent: page.layoutIntent,
             htmlPath: page.htmlPath,
             status: 'failed',
             error: failure?.reason || '页面重试失败',
@@ -1798,6 +1827,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
             pageNumber: page.pageNumber,
             title: page.title,
             contentOutline: page.contentOutline,
+            layoutIntent: page.layoutIntent,
             htmlPath: page.htmlPath,
             status: 'failed',
             error: reason,
@@ -1820,6 +1850,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
             pageNumber: page.pageNumber,
             title: page.title,
             contentOutline: page.contentOutline,
+            layoutIntent: page.layoutIntent,
             htmlPath: page.htmlPath,
             status: 'failed',
             error: reason,
@@ -1844,6 +1875,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
           pageNumber: page.pageNumber,
           title: page.title,
           contentOutline: page.contentOutline,
+          layoutIntent: page.layoutIntent,
           htmlPath: page.htmlPath,
           status: 'completed',
           retryCount: page.retryCount

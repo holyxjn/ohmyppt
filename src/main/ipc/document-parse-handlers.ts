@@ -25,6 +25,13 @@ const NULL_CHAR_PATTERN = new RegExp(String.fromCharCode(0), 'g')
 const CJK_PATTERN = /[\u3400-\u9fff]/
 const LATIN_WORD_PATTERN = /\b[A-Za-z][A-Za-z'-]{2,}\b/g
 
+class RetryableDocumentPlanQualityError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RetryableDocumentPlanQualityError'
+  }
+}
+
 const require = createRequire(import.meta.url)
 const mammoth = require('mammoth') as typeof import('mammoth')
 const TurndownService = require('turndown') as new (options?: Record<string, unknown>) => {
@@ -56,6 +63,16 @@ const isMostlyEnglishText = (value: string): boolean => {
   return latinWords >= 30 && cjkChars <= Math.max(10, latinWords * 0.08)
 }
 
+const isMostlyChineseText = (value: string): boolean => {
+  const sample = value.slice(0, 30_000)
+  const latinWords = countLatinWords(sample)
+  const cjkChars = countCjkChars(sample)
+  return cjkChars >= 50 && cjkChars > latinWords
+}
+
+const ENGLISH_BRIEF_LABEL_PATTERN =
+  /(?:^|\n)\s*(?:Presentation\s*goal|Presentationgoal|Audience\s*\/\s*context|Audiencecontext|Core\s*argument|Coreargument|Recommended\s*outline|Recommendedoutline|Per[-\s]*page\s*points|Per-pagepoints|Perpagepoints|Facts\s*\/\s*metrics\s*\/\s*terms\s*to\s*preserve|Facts\/metrics\/termstopreserve|Factsmetricstermstopreserve|Style\s*or\s*expression\s*notes|Styleorexpressionnotes|Page\s*\d{1,2})\s*[:：]/i
+
 const assertPlanLanguageMatchesSource = async (args: {
   file: PreparedSourceFile
   plan: Pick<ParsedDocumentPlanResult, 'topic' | 'briefText'>
@@ -64,12 +81,17 @@ const assertPlanLanguageMatchesSource = async (args: {
   if (countCjkChars(args.userText) >= 6) return
 
   const sourceText = await fs.promises.readFile(args.file.workspacePath, 'utf-8').catch(() => '')
-  if (!isMostlyEnglishText(sourceText)) return
-
   const outputText = `${args.plan.topic}\n${args.plan.briefText}`
-  if (countCjkChars(outputText) >= 12) {
-    throw new Error(
+
+  if (isMostlyEnglishText(sourceText) && countCjkChars(outputText) >= 12) {
+    throw new RetryableDocumentPlanQualityError(
       'The source document is primarily English, but topic/briefText were returned in Chinese. Return topic and briefText in English; do not translate the outline into Chinese.'
+    )
+  }
+
+  if (isMostlyChineseText(sourceText) && ENGLISH_BRIEF_LABEL_PATTERN.test(args.plan.briefText)) {
+    throw new RetryableDocumentPlanQualityError(
+      '源文档主要是中文，但 briefText 使用了英文结构标签。请用中文结构标签返回，例如：演示目标、受众/场景、核心观点、建议大纲、每页要点、必须保留的事实/指标/术语、风格/表达要求。不要使用 Presentation goal、Audience/context、Core argument、Recommended outline、Per-page points、Page 1 等英文模板标签。'
     )
   }
 }
@@ -628,7 +650,9 @@ const buildDocumentPlanPrompt = (args: {
     '- If the user explicitly asks for a language, use that language.',
     '- Otherwise, topic and briefText must use the dominant language of the source document.',
     '- If the source document is primarily English, topic and briefText must be written in English. Do not translate the outline into Chinese.',
-    '- If the source document is primarily Chinese, topic and briefText should be written in Chinese.',
+    '- If the source document is primarily Chinese, topic and briefText must be written in Chinese.',
+    '- The section labels inside briefText must also use the selected output language. For Chinese output, use Chinese labels such as 演示目标、受众/场景、核心观点、建议大纲、每页要点、必须保留的事实/指标/术语、风格/表达要求.',
+    '- Do not use English template labels such as Presentation goal, Audience/context, Core argument, Recommended outline, Per-page points, Facts/metrics/terms to preserve, or Style or expression notes when the source document is Chinese.',
     '- Keep proper nouns, product names, technical terms, quoted text, and metrics in their original form when appropriate.',
     '',
     'Field rules:',
@@ -636,7 +660,7 @@ const buildDocumentPlanPrompt = (args: {
     `- pageCount: an integer suitable for the creation form page-count input, from 1 to ${MAX_PAGE_COUNT}.`,
     '- briefText: a concise but structured outline suitable for the creation form detailed-brief input, in the selected output language.',
     '- briefText should establish generation direction and page structure; it does not need to expand every source detail.',
-    '- briefText should include: presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and style/expression notes when useful.',
+    '- briefText should include these sections in the selected output language: presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and style/expression notes when useful.',
     '- The recommended outline and per-page points should align with the source document structure and be close to pageCount.',
     '- Per-page points must be specific to the source content; avoid vague placeholders such as background/goals/value.',
     '- Before returning, silently check consistency: pageCount must match the number of recommended outline items and per-page point entries.',
@@ -662,7 +686,8 @@ const buildDocumentPlanPrompt = (args: {
     args.existingBrief ? `\nExisting user brief:\n${args.existingBrief}` : '',
     '',
     'Return format example:',
-    '{"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\n2. ...\\nPer-page points:\\nPage 1: ...\\nPage 2: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
+    'For Chinese source: {"topic":"AI动漫产业发展分析","pageCount":7,"briefText":"演示目标：...\\n受众/场景：...\\n核心观点：...\\n建议大纲：\\n1. ...\\n2. ...\\n每页要点：\\n第 1 页：...\\n第 2 页：...\\n必须保留的事实/指标/术语：...\\n风格/表达要求：..."}',
+    'For English source: {"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\n2. ...\\nPer-page points:\\nPage 1: ...\\nPage 2: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
   ].join('\n')
 
 const runDocumentPlanAgent = async (args: {
@@ -696,7 +721,7 @@ const runDocumentPlanAgent = async (args: {
       virtualMode: true
     }),
     systemPrompt:
-      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
+      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. The section labels inside briefText must also use that language. If the source document is primarily Chinese, do not use English template labels. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
   })
   const stream = await agent.stream(
     {
@@ -823,15 +848,25 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
         sourceVirtualPath: sourceFile.virtualPath
       })
       try {
-        plan = normalizeGeneratedPlan(responseText, fallbackPlan)
+        const candidatePlan = normalizeGeneratedPlan(responseText, fallbackPlan)
         await assertPlanLanguageMatchesSource({
           file: sourceFile,
-          plan,
+          plan: candidatePlan,
           userText: `${topic}\n${existingBrief}`
         })
+        plan = candidatePlan
         break
       } catch (error) {
         lastError = error
+        if (error instanceof RetryableDocumentPlanQualityError && attempt >= MAX_ATTEMPTS) {
+          plan = normalizeGeneratedPlan(responseText, fallbackPlan)
+          log.warn('[documents:parsePlan] quality check failed after retry, returning editable plan', {
+            attempt,
+            message: error.message,
+            responsePreview: responseText.slice(0, 400)
+          })
+          break
+        }
         log.warn('[documents:parsePlan] normalize failed, will retry', {
           attempt,
           message: error instanceof Error ? error.message : String(error),

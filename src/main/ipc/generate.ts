@@ -12,6 +12,7 @@ import {
   buildSinglePageGenerationPrompt
 } from '../prompt'
 import type { GenerateChunkEvent } from '@shared/generation'
+import { normalizeLayoutIntent } from '@shared/layout-intent'
 import { progressLabel, progressText } from '@shared/progress'
 import type { DesignContract, OutlineItem } from '../tools/types'
 import { extractModelText, extractJsonBlock, sleep } from './utils'
@@ -354,8 +355,8 @@ export const planDeckWithLLM = async (args: {
     throw new Error(
       uiText(
         args.appLocale,
-        'LLM plan_deck 返回格式不正确，期望 [{title, keyPoints[]}] 数组。',
-        'LLM plan_deck returned an invalid format; expected an array like [{ title, keyPoints[] }].'
+        'LLM plan_deck 返回格式不正确，期望 [{title, keyPoints[], layoutIntent}] 数组。',
+        'LLM plan_deck returned an invalid format; expected an array like [{ title, keyPoints[], layoutIntent }].'
       )
     )
   }
@@ -363,8 +364,8 @@ export const planDeckWithLLM = async (args: {
     throw new Error(
       uiText(
         args.appLocale,
-        'LLM plan_deck pages 返回格式不正确，期望 [{title, keyPoints[]}] 数组。',
-        'LLM plan_deck pages returned an invalid format; expected an array like [{ title, keyPoints[] }].'
+        'LLM plan_deck pages 返回格式不正确，期望 [{title, keyPoints[], layoutIntent}] 数组。',
+        'LLM plan_deck pages returned an invalid format; expected an array like [{ title, keyPoints[], layoutIntent }].'
       )
     )
   }
@@ -375,8 +376,8 @@ export const planDeckWithLLM = async (args: {
       throw new Error(
         uiText(
           args.appLocale,
-          `LLM plan_deck 第 ${index + 1} 项缺少 title，期望格式: { title, keyPoints[] }`,
-          `LLM plan_deck item ${index + 1} is missing title; expected format: { title, keyPoints[] }`
+          `LLM plan_deck 第 ${index + 1} 项缺少 title，期望格式: { title, keyPoints[], layoutIntent }`,
+          `LLM plan_deck item ${index + 1} is missing title; expected format: { title, keyPoints[], layoutIntent }`
         )
       )
     }
@@ -391,7 +392,8 @@ export const planDeckWithLLM = async (args: {
     }
     return {
       title,
-      contentOutline: normalizeOutlineText(keyPoints.join('；'))
+      contentOutline: normalizeOutlineText(keyPoints.join('；')),
+      layoutIntent: normalizeLayoutIntent(item.layoutIntent)
     }
   })
   if (items.length === 0) {
@@ -407,7 +409,8 @@ export const planDeckWithLLM = async (args: {
   while (items.length < args.totalPages) {
     items.push({
       title: uiText(args.appLocale, `第 ${items.length + 1} 页`, `Page ${items.length + 1}`),
-      contentOutline: ''
+      contentOutline: '',
+      layoutIntent: 'concept'
     })
   }
   return items.slice(0, args.totalPages)
@@ -526,6 +529,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     pageId: string
     title: string
     contentOutline?: string | null
+    layoutIntent?: OutlineItem['layoutIntent']
   }>
   designContract: DesignContract
   projectDir: string
@@ -538,6 +542,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     pageId: string
     title: string
     contentOutline: string
+    layoutIntent?: OutlineItem['layoutIntent']
     htmlPath: string
   }) => Promise<void>
   onPageFailed?: (page: {
@@ -545,6 +550,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     pageId: string
     title: string
     contentOutline: string
+    layoutIntent?: OutlineItem['layoutIntent']
     htmlPath: string
     reason: string
   }) => Promise<void>
@@ -554,19 +560,28 @@ export const runDeepAgentDeckGeneration = async (args: {
   summary: string
   failedPages: Array<{ pageId: string; title: string; reason: string }>
 }> => {
-  const pageRefs =
+  type PageRef = {
+    pageNumber: number
+    pageId: string
+    title: string
+    outline: string
+    layoutIntent?: OutlineItem['layoutIntent']
+  }
+  const pageRefs: PageRef[] =
     args.pageTasks && args.pageTasks.length > 0
       ? args.pageTasks.map((page) => ({
           pageNumber: page.pageNumber,
           pageId: page.pageId,
           title: page.title,
-          outline: page.contentOutline || ''
+          outline: page.contentOutline || '',
+          layoutIntent: page.layoutIntent
         }))
       : args.outlineTitles.map((title, index) => ({
           pageNumber: index + 1,
           pageId: `page-${index + 1}`,
           title,
-          outline: args.outlineItems[index]?.contentOutline || ''
+          outline: args.outlineItems[index]?.contentOutline || '',
+          layoutIntent: args.outlineItems[index]?.layoutIntent
         }))
   const totalPages = pageRefs.length
   const clampProgress = (value: number): number => Math.max(0, Math.min(100, Math.round(value)))
@@ -680,12 +695,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     : null
 
   const generateSinglePage = async (
-    page: {
-      pageNumber: number
-      pageId: string
-      title: string
-      outline: string
-    },
+    page: PageRef,
     workerLabel: string,
     retryContext?: {
       attempt: number
@@ -761,7 +771,9 @@ export const runDeepAgentDeckGeneration = async (args: {
         designContract: args.designContract,
         userMessage: args.userMessage,
         outlineTitles: [page.title],
-        outlineItems: [{ title: page.title, contentOutline: page.outline }],
+        outlineItems: [
+          { title: page.title, contentOutline: page.outline, layoutIntent: page.layoutIntent }
+        ],
         sourceDocumentPaths: args.sourceDocumentPaths,
         mode: args.generationMode ?? 'generate',
         pageFileMap: { [page.pageId]: currentPagePath },
@@ -790,6 +802,7 @@ export const runDeepAgentDeckGeneration = async (args: {
                 pageNumber: page.pageNumber,
                 pageTitle: page.title,
                 pageOutline: page.outline,
+                layoutIntent: page.layoutIntent,
                 sourceDocumentPaths: args.sourceDocumentPaths,
                 referenceDocumentSnippets,
                 isRetryMode: args.generationMode === 'retry',
@@ -865,6 +878,7 @@ export const runDeepAgentDeckGeneration = async (args: {
         pageId: page.pageId,
         title: page.title,
         contentOutline: page.outline,
+        layoutIntent: page.layoutIntent,
         htmlPath: currentPagePath
       })
 
@@ -1018,6 +1032,7 @@ export const runDeepAgentDeckGeneration = async (args: {
             pageId: page.pageId,
             title: page.title,
             contentOutline: page.outline,
+            layoutIntent: page.layoutIntent,
             htmlPath: args.pageFileMap[page.pageId] || '',
             reason
           })

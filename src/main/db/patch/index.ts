@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS generation_pages (
   page_number INTEGER NOT NULL,
   title TEXT NOT NULL,
   content_outline TEXT,
+  layout_intent TEXT,
   html_path TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   error TEXT,
@@ -266,6 +267,9 @@ const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
   if (!columns.has("content_outline")) {
     await client.execute("ALTER TABLE generation_pages ADD COLUMN content_outline TEXT");
   }
+  if (!columns.has("layout_intent")) {
+    await client.execute("ALTER TABLE generation_pages ADD COLUMN layout_intent TEXT");
+  }
   await client.execute("CREATE INDEX IF NOT EXISTS idx_generation_runs_session ON generation_runs(session_id, created_at)");
   await client.execute("CREATE INDEX IF NOT EXISTS idx_generation_pages_run ON generation_pages(run_id, page_number)");
   await client.execute("CREATE INDEX IF NOT EXISTS idx_generation_pages_session_status ON generation_pages(session_id, status, page_number)");
@@ -317,6 +321,7 @@ const upsertPatchedGenerationPage = async (
     pageNumber: number;
     title: string;
     contentOutline?: string | null;
+    layoutIntent?: string | null;
     htmlPath?: string | null;
     status: GenerationPageStatus;
     error?: string | null;
@@ -333,6 +338,7 @@ const upsertPatchedGenerationPage = async (
     pageNumber: data.pageNumber,
     title: data.title,
     contentOutline: data.contentOutline || null,
+    layoutIntent: data.layoutIntent || null,
     htmlPath: data.htmlPath || null,
     status: data.status,
     error: data.error || null,
@@ -346,6 +352,7 @@ const upsertPatchedGenerationPage = async (
       pageNumber: values.pageNumber,
       title: values.title,
       contentOutline: values.contentOutline,
+      layoutIntent: values.layoutIntent,
       htmlPath: values.htmlPath,
       status: values.status,
       error: values.error,
@@ -390,6 +397,7 @@ const patchGenerationRecordsFromMetadata = async (args: {
       pageNumber: number;
       title: string;
       contentOutline: string;
+      layoutIntent: string | null;
       htmlPath: string;
       status: GenerationPageStatus;
       error: string | null;
@@ -407,6 +415,10 @@ const patchGenerationRecordsFromMetadata = async (args: {
         pageNumber,
         title: String(page.title || `第 ${pageNumber} 页`),
         contentOutline: String(page.contentOutline ?? page.content_outline ?? ""),
+        layoutIntent:
+          typeof (page.layoutIntent ?? page.layout_intent) === "string"
+            ? String(page.layoutIntent ?? page.layout_intent)
+            : null,
         htmlPath: resolveLegacyPagePath(page, projectDir, pageId),
         status: "completed",
         error: null,
@@ -425,6 +437,10 @@ const patchGenerationRecordsFromMetadata = async (args: {
         pageNumber,
         title: String(page.title || `第 ${pageNumber} 页`),
         contentOutline: String(page.contentOutline ?? page.content_outline ?? ""),
+        layoutIntent:
+          typeof (page.layoutIntent ?? page.layout_intent) === "string"
+            ? String(page.layoutIntent ?? page.layout_intent)
+            : null,
         htmlPath: resolveLegacyPagePath(page, projectDir, pageId),
         status: "failed",
         error: String(page.reason || page.error || "旧 metadata 记录的失败页"),
@@ -470,6 +486,7 @@ const patchGenerationRecordsFromMetadata = async (args: {
         pageNumber: page.pageNumber,
         title: page.title,
         contentOutline: page.contentOutline,
+        layoutIntent: page.layoutIntent,
         htmlPath: page.htmlPath,
         status: page.status,
         error: page.error,

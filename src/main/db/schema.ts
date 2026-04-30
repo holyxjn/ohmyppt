@@ -64,6 +64,7 @@ export const generationPages = sqliteTable("generation_pages", {
   pageNumber: integer("page_number").notNull(),
   title: text("title").notNull(),
   contentOutline: text("content_outline"),
+  layoutIntent: text("layout_intent"),
   htmlPath: text("html_path"),
   status: text("status").notNull().default("pending"),
   error: text("error"),
