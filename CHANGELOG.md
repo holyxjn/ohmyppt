@@ -1,5 +1,12 @@
 # 更新日志 / Changelog
 
+## 2026-04-30
+
+- 优化页面调整体验：万物皆可拖拽和调整大小，可直接拖拽和缩放更多页面元素，包括文字、图片、公式、列表项、数据标签和图表容器。
+- 调整改为手动确认：拖拽或缩放后不会立即保存，可继续调整多个元素，最后统一保存或退出不保存。
+- 优化 AI 生成版式：标题和页面更加自由创意。
+- 优化图表显示：减少小数标签出现过长浮点数的问题，让坐标轴、tooltip 和标签更清爽。
+
 ## 2026-04-29
 
 - 新增 PPTX 导入：可把本地 PPTX 转成应用内可编辑的演示稿，再继续预览、调整和对话修改。
@@ -54,6 +61,14 @@
 - 补充 macOS 与 Windows 未签名应用打开说明。
 
 ---
+
+## 2026-04-30
+
+- Improved slide adjustment: more visible elements can now be dragged and resized, including text, images, formulas, list items, data labels, and chart containers.
+- Changed adjustments to manual confirmation: drag or resize multiple elements first, then save all changes together or exit without saving.
+- Improved preview refresh behavior: exiting without saving now reloads only the current slide instead of refreshing every thumbnail.
+- Improved AI layout variety: titles are no longer treated as fixed top headers, allowing side titles, corner titles, title cards, and chart-adjacent titles.
+- Improved chart readability: reduced overly long floating-point labels in axes, tooltips, and chart labels.
 
 ## 2026-04-29
 

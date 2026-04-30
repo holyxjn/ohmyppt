@@ -57,7 +57,7 @@ export const buildPageScaffoldHtml = (page: {
     </style>
   </head>
   <body data-page-id="${page.pageId}">
-    <main class="ppt-page-root p-8" data-ppt-guard-root="1">
+    <main class="ppt-page-root p-2" data-ppt-guard-root="1">
       <div class="ppt-page-fit-scope">
         <div class="ppt-page-content">
           <section class="scaffold-card" data-page-scaffold="1">

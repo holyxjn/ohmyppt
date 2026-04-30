@@ -252,14 +252,88 @@
   }
 
   function withPrintChartConfig(config) {
-    if (!isPrintMode || !config || typeof config !== "object") return config;
+    if (!config || typeof config !== "object") return config;
     var safe = Object.assign({}, config);
+    normalizeChartConfig(safe);
+    if (!isPrintMode) return safe;
     var options = Object.assign({}, (safe.options && typeof safe.options === "object") ? safe.options : {});
     options.animation = false;
     options.responsive = false;
     options.maintainAspectRatio = false;
     safe.options = options;
+    ensureChartNumberFormatters(safe);
     return safe;
+  }
+
+  function trimFloatingNoise(value, maxDecimals) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return value;
+    var decimals = Math.max(0, Math.min(12, Number(maxDecimals) || 6));
+    var factor = Math.pow(10, decimals);
+    var rounded = Math.round((value + Number.EPSILON) * factor) / factor;
+    return Object.is(rounded, -0) ? 0 : rounded;
+  }
+
+  function formatChartNumber(value, maxDecimals) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return String(value == null ? "" : value);
+    return String(trimFloatingNoise(value, maxDecimals));
+  }
+
+  function normalizeChartScalar(value) {
+    if (typeof value === "number") return trimFloatingNoise(value, 6);
+    if (typeof value === "string" && /^-?\d+\.\d{7,}$/.test(value.trim())) {
+      var parsed = Number(value);
+      if (Number.isFinite(parsed)) return formatChartNumber(parsed, 6);
+    }
+    return value;
+  }
+
+  function normalizeChartData(value) {
+    if (Array.isArray(value)) return value.map(normalizeChartData);
+    if (value && typeof value === "object") {
+      Object.keys(value).forEach(function (key) {
+        value[key] = normalizeChartData(value[key]);
+      });
+      return value;
+    }
+    return normalizeChartScalar(value);
+  }
+
+  function ensureChartNumberFormatters(config) {
+    if (!config || typeof config !== "object") return;
+    var options = config.options && typeof config.options === "object" ? config.options : (config.options = {});
+    var scales = options.scales && typeof options.scales === "object" ? options.scales : null;
+    if (scales) {
+      Object.keys(scales).forEach(function (scaleKey) {
+        var scale = scales[scaleKey];
+        if (!scale || typeof scale !== "object") return;
+        var ticks = scale.ticks && typeof scale.ticks === "object" ? scale.ticks : (scale.ticks = {});
+        if (typeof ticks.callback !== "function") {
+          ticks.callback = function (value) {
+            return typeof value === "number" ? formatChartNumber(value, 6) : String(value);
+          };
+        }
+      });
+    }
+    var plugins = options.plugins && typeof options.plugins === "object" ? options.plugins : (options.plugins = {});
+    var tooltip = plugins.tooltip && typeof plugins.tooltip === "object" ? plugins.tooltip : (plugins.tooltip = {});
+    var callbacks = tooltip.callbacks && typeof tooltip.callbacks === "object" ? tooltip.callbacks : (tooltip.callbacks = {});
+    if (typeof callbacks.label !== "function") {
+      callbacks.label = function (context) {
+        var label = context && context.dataset && context.dataset.label ? String(context.dataset.label) + ": " : "";
+        var value = context && context.parsed && typeof context.parsed === "object"
+          ? (context.parsed.y !== undefined ? context.parsed.y : context.parsed.x)
+          : context && context.raw;
+        return label + (typeof value === "number" ? formatChartNumber(value, 6) : String(value == null ? "" : value));
+      };
+    }
+  }
+
+  function normalizeChartConfig(config) {
+    if (config && config.data) {
+      config.data = normalizeChartData(config.data);
+    }
+    ensureChartNumberFormatters(config);
+    return config;
   }
 
   function resolveChartInstance(ChartCtor, target, canvas) {
@@ -430,8 +504,12 @@
     if (typeof patch === "function") {
       patch(chart);
     } else if (patch && typeof patch === "object") {
-      if (Object.prototype.hasOwnProperty.call(patch, "data")) chart.data = patch.data;
-      if (Object.prototype.hasOwnProperty.call(patch, "options")) chart.options = patch.options;
+      if (Object.prototype.hasOwnProperty.call(patch, "data")) chart.data = normalizeChartData(patch.data);
+      if (Object.prototype.hasOwnProperty.call(patch, "options")) {
+        var patchedConfig = { options: patch.options };
+        ensureChartNumberFormatters(patchedConfig);
+        chart.options = patchedConfig.options;
+      }
     }
     if (typeof chart.update === "function") {
       var mode = patch && typeof patch === "object" ? patch.mode : undefined;

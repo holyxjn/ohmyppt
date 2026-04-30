@@ -42,7 +42,7 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
     }
   });
 
-  Array.from(root.querySelectorAll('*')).slice(0, 900).forEach((element) => {
+  root.querySelectorAll('*').forEach((element) => {
     const node = element;
     const computed = getComputedStyle(node);
     if (computed.display === 'none' || computed.visibility === 'hidden') return;
@@ -68,7 +68,7 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
 export const FREEZE_PAGE_FOR_PPTX_SCRIPT = FREEZE_PAGE_FOR_EXPORT_SCRIPT
 
 export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
-(() => {
+(async () => {
   const existing = document.getElementById('ohmyppt-pptx-hide-text');
   if (existing) existing.remove();
   const isVisibleColor = (value) => {
@@ -84,6 +84,16 @@ export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
     }
     return '#111827';
   };
+  const style = document.createElement('style');
+  style.id = 'ohmyppt-pptx-hide-text';
+  style.textContent = [
+    'body :not(.katex):not(.katex *):not(canvas) { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
+    'body :not(.katex):not(.katex *)::before, body :not(.katex):not(.katex *)::after { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
+    '.katex, .katex * { -webkit-text-fill-color: currentColor !important; text-shadow: none !important; }',
+    'svg text, svg tspan { fill: transparent !important; stroke: transparent !important; }',
+    'input, textarea { color: transparent !important; -webkit-text-fill-color: transparent !important; }'
+  ].join('\\n');
+  document.head.appendChild(style);
   document.querySelectorAll('.katex').forEach((element) => {
     const node = element;
     const color = resolveVisibleTextColor(node);
@@ -91,15 +101,41 @@ export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
     node.style.webkitTextFillColor = color;
     node.style.fontFamily = 'KaTeX_Main, "Times New Roman", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif';
   });
-  const style = document.createElement('style');
-  style.id = 'ohmyppt-pptx-hide-text';
-  style.textContent = [
-    'body :not(.katex):not(.katex *) { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; caret-color: transparent !important; }',
-    '.katex, .katex * { -webkit-text-fill-color: currentColor !important; text-shadow: none !important; }',
-    'svg text, svg tspan { fill: transparent !important; stroke: transparent !important; }',
-    'input, textarea { color: transparent !important; -webkit-text-fill-color: transparent !important; }'
-  ].join('\\n');
-  document.head.appendChild(style);
+  const hideTextPaint = (node) => {
+    node.style.setProperty('color', 'transparent', 'important');
+    node.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+    node.style.setProperty('-webkit-text-stroke-color', 'transparent', 'important');
+    node.style.setProperty('text-shadow', 'none', 'important');
+    node.style.setProperty('text-decoration-color', 'transparent', 'important');
+    node.style.setProperty('caret-color', 'transparent', 'important');
+  };
+  const hasOwnTextNode = (element) =>
+    Array.from(element.childNodes || []).some((node) => node.nodeType === Node.TEXT_NODE && String(node.textContent || '').trim());
+  document.querySelectorAll('body *').forEach((element) => {
+    if (element.closest('.katex, .katex-mathml, script, style, noscript, canvas')) return;
+    if (hasOwnTextNode(element)) hideTextPaint(element);
+  });
+  document.querySelectorAll('svg text, svg tspan').forEach((element) => {
+    element.style.setProperty('fill', 'transparent', 'important');
+    element.style.setProperty('stroke', 'transparent', 'important');
+  });
+  void document.body.offsetHeight;
+  if (document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch (_err) {}
+  }
+  void document.body.offsetHeight;
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return true;
+})()
+`
+
+export const WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT = `
+(async () => {
+  void document.body.offsetHeight;
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  void document.body.offsetHeight;
   return true;
 })()
 `

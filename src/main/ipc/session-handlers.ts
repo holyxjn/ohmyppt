@@ -39,20 +39,18 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     if (!apiKey) {
       throw new Error('创建会话失败：请先前往系统设置填写 api_key。')
     }
-    const sessionId = crypto.randomUUID()
-    const projectDir = path.join(storagePath, sessionId)
-
-    if (!fs.existsSync(projectDir)) {
-      fs.mkdirSync(projectDir, { recursive: true })
+    const normalizedStyleId = typeof styleId === 'string' ? styleId.trim() : ''
+    if (!normalizedStyleId) {
+      throw new Error('创建会话失败：styleId 不能为空。')
     }
-    await ensureSessionAssets(projectDir)
-    const copyReferenceDocumentToSession = async (): Promise<string | null> => {
-      if (!referenceDocumentPath) return null
+    if (!hasStyleSkill(normalizedStyleId)) {
+      throw new Error(`创建会话失败：styleId 不存在 ${normalizedStyleId}`)
+    }
+    let validatedReferenceSourcePath: string | null = null
+    if (referenceDocumentPath) {
       const storageRoot = fs.existsSync(storagePath)
         ? await fs.promises.realpath(storagePath)
         : path.resolve(storagePath)
-      const docsDir = path.join(projectDir, 'docs')
-      await fs.promises.mkdir(docsDir, { recursive: true })
       const sourcePath = path.resolve(referenceDocumentPath)
       if (!fs.existsSync(sourcePath)) {
         throw new Error('解析后的文档不存在，请重新解析文档')
@@ -62,21 +60,27 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       if (relativeToStorage.startsWith('..') || path.isAbsolute(relativeToStorage)) {
         throw new Error('文档路径不在用户配置目录内，请重新解析文档')
       }
-      const ext = path.extname(sourceRealPath).toLowerCase() || '.md'
+      validatedReferenceSourcePath = sourceRealPath
+    }
+    const sessionId = crypto.randomUUID()
+    const projectDir = path.join(storagePath, sessionId)
+
+    if (!fs.existsSync(projectDir)) {
+      fs.mkdirSync(projectDir, { recursive: true })
+    }
+    await ensureSessionAssets(projectDir)
+    const copyReferenceDocumentToSession = async (): Promise<string | null> => {
+      if (!validatedReferenceSourcePath) return null
+      const docsDir = path.join(projectDir, 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const ext = path.extname(validatedReferenceSourcePath).toLowerCase() || '.md'
       const fileName = `${Date.now()}${ext}`
       const targetPath = path.join(docsDir, fileName)
-      await fs.promises.copyFile(sourceRealPath, targetPath)
+      await fs.promises.copyFile(validatedReferenceSourcePath, targetPath)
       return `/docs/${fileName}`
     }
     const sessionReferenceDocumentPath = await copyReferenceDocumentToSession()
 
-    const normalizedStyleId = typeof styleId === 'string' ? styleId.trim() : ''
-    if (!normalizedStyleId) {
-      throw new Error('创建会话失败：styleId 不能为空。')
-    }
-    if (!hasStyleSkill(normalizedStyleId)) {
-      throw new Error(`创建会话失败：styleId 不存在 ${normalizedStyleId}`)
-    }
     const styleDetail = getStyleDetail(normalizedStyleId)
     log.info('[session:create] style selected', {
       sessionId,

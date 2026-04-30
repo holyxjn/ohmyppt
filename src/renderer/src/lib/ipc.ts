@@ -92,6 +92,13 @@ export interface UpdateElementLayoutPayload {
   selector: string
   x: number
   y: number
+  width?: number
+  height?: number
+  childUpdates?: Array<{
+    path: number[]
+    width?: number
+    height?: number
+  }>
 }
 
 export interface CreateSessionPayload {

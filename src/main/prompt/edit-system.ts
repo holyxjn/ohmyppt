@@ -132,10 +132,17 @@ export function buildEditAgentSystemPrompt(
     "- 不要使用 w-[1600px]、h-[900px]、min-h-[900px]、w-screen、h-screen、min-h-screen 等锁死画布类",
     "- 不要使用 w-full、max-w-[100vw]、h-full、h-[100vh]、aspect-[...] 等响应式/视口相对类",
     "- 不要使用 flex/grid 的全屏填充模式",
-    "- 根容器 class 必须包含 p-8 或 p-12（默认 p-8；内容较少可用 p-12）",
+    "- 根容器 class 必须包含 p-2（默认 p-2），不要改成 p-8/p-12 这类大留白",
     "- 内容必须是真实 HTML 元素，禁止嵌套 iframe",
     "- 修改后需保持跨页视觉一致（背景体系/主色/字体），不要把目标页改成与整套风格割裂",
     "- 背景必须铺满画布：优先把背景挂在 .ppt-page-root[data-ppt-guard-root=\"1\"] 或 body，而不是仅局部卡片",
+    "- data-role=\"title\" 只是语义标记，不是固定顶部 header；重构页面时不要把标题强行恢复到顶部，也不要机械改成左侧标题",
+    "- 若用户要求优化版式，先根据内容叙事、主视觉位置和阅读路径判断使用上下布局、左右布局、顶部标题、角落标题、卡片内标题、图表旁标题或底部说明区，并保持页面可读",
+    "- 上下布局是一等选项：概念讲解、步骤推演、时间顺序、课堂知识点、公式说明、结论先行、列表总结等页面，优先考虑顶部标题 + 下方内容、上图下文、上结论下证据、上下分区",
+    "- 左右布局只适合明确对比、左右两组信息、标题与主视觉需要强分离、或主视觉天然占据一侧的页面；普通内容页不要默认左右分栏",
+    "- **硬约束：标题只要包含英文单词/英文缩写/年份/数字编号/中英混排，就禁止使用 writing-mode 竖排，必须横排显示**",
+    "- 竖排只用于纯中文且 2-6 个字符的短标签；中文完整标题超过 8 个字必须横排。需要竖向视觉时，用短竖排标签 + 横排完整标题组合",
+    "- 含英文标题需要侧边视觉时，只允许横排标题整体 rotate(-90deg/90deg) 或侧栏横排排版；禁止把英文、年份、数字逐字竖排",
     "- **标题字号统一**：所有页面的 h1 标题必须使用 text-5xl（48px），禁止使用 text-6xl / text-7xl / text-8xl",
     "",
     PAGE_SEMANTIC_STRUCTURE,
@@ -154,8 +161,10 @@ export function buildEditAgentSystemPrompt(
     "- 禁止直接调用 new Chart(...)，请改用 PPT.createChart(canvasOrSelector, config)",
     "- **严禁使用 CDN**：禁止输出任何 https:// / http:// / //cdn... 的 <script> 或 <link> 外链资源",
     "- 若修改图表，务必保证 canvas 外层容器有明确高度（如 h-64 / h-[280px]），不要只给 canvas 使用 flex-1/h-full",
+    "- 图表 labels、ticks、tooltip 中的数字必须先格式化，避免显示 0.30000000000000004 这类 JS 浮点误差；小数建议用 Number(value.toFixed(3)) 或明确字符串标签",
     "- 严禁重复引入 anime.js、tailwindcss、chart.js、KaTeX 或 ppt-runtime 的 script/link 标签",
     "- 布局优先 Tailwind utility class，必要时再补充少量页面内 <style>",
+    "- 新增或重构主要可视元素时必须补稳定唯一 class；新增可编辑子块时同时补唯一 data-block-id，便于后续检选、拖拽和局部编辑",
     "- 动画编排请通过 `PPT.createTimeline(...)` 与 `PPT.stagger(...)` 完成，不要直接调用 anime 全局对象",
     "- 禁止默认隐藏态：不要使用 opacity-0 / invisible / style=\"opacity:0\" / style=\"visibility:hidden\"",
     "- 页面初始态必须可见；动画只做增强，不可依赖隐藏态作为前提",
@@ -189,10 +198,13 @@ export function buildEditAgentSystemPrompt(
       ? "- 不要调用 write_file / update_page_file / update_single_page_file（edit_file 直接修改文件即可）"
       : "",
     !hasSelector
-      ? "- 页面写入工具会自动将你的内容包装进标准页面框架，请只传页面主体内容"
+      ? "- 页面写入工具会自动将你的内容包装进标准页面框架，请只传页面片段"
       : "",
     !hasSelector
-      ? "- 不要生成 <!doctype>、<html>、<head>、<body> 等完整文档结构，只需传 <main> 内部的内容片段"
+      ? "- 片段必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；标题放在 content 内并标记 data-role=\"title\""
+      : "",
+    !hasSelector
+      ? "- 不要生成 <!doctype>、<html>、<head>、<body> 等完整文档结构"
       : "",
     !hasSelector
       ? "- 禁止输出 <meta>/<title>/<link> 这类 head 标签"

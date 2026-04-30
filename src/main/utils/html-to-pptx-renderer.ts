@@ -8,7 +8,8 @@ import {
 } from './html-to-pptx'
 import {
   FREEZE_PAGE_FOR_PPTX_SCRIPT,
-  HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
+  HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT,
+  WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT
 } from './html-to-pptx-browser-scripts'
 
 export interface HtmlPageForPptx {
@@ -106,7 +107,9 @@ export const extractHtmlPageToPptxSlide = async ({
     )
 
     await win.webContents.executeJavaScript(HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT, true)
-    await sleep(50)
+    await win.webContents.executeJavaScript(WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT, true)
+    await sleep(process.platform === 'win32' ? 180 : 80)
+    await win.webContents.executeJavaScript(WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT, true)
 
     const backgroundImage = await win.webContents.capturePage({
       x: 0,

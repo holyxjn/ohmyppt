@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Crosshair, Loader2, Move, Sparkles } from 'lucide-react'
+import { Check, Crosshair, Loader2, Move, Sparkles } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { Button } from '../ui/Button'
@@ -12,13 +12,23 @@ export function PreviewStage({
   sessionTitle,
   isGenerating,
   progressLabel,
-  onElementMoved
+  previewRefreshKey = 0,
+  pendingDragCount = 0,
+  isSavingDragEdits = false,
+  onElementMoved,
+  onSaveDragEdits,
+  onCancelDragEdits
 }: {
   selectedPage: SessionPreviewPage | null
   sessionTitle?: string | null
   isGenerating: boolean
   progressLabel?: string
+  previewRefreshKey?: number
+  pendingDragCount?: number
+  isSavingDragEdits?: boolean
   onElementMoved: (payload: DragEditorMovePayload) => void
+  onSaveDragEdits: () => void
+  onCancelDragEdits: () => void
 }): React.JSX.Element {
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const inspecting = useSessionDetailUiStore((state) => state.inspecting)
@@ -32,12 +42,15 @@ export function PreviewStage({
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         setInspecting(false)
+        if (dragEditing && pendingDragCount > 0) {
+          onCancelDragEdits()
+        }
         setDragEditing(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dragEditing, inspecting, setDragEditing, setInspecting])
+  }, [dragEditing, inspecting, onCancelDragEdits, pendingDragCount, setDragEditing, setInspecting])
 
   return (
     <main className="flex min-h-0 flex-1 flex-col px-3 py-3">
@@ -50,7 +63,7 @@ export function PreviewStage({
               {sessionTitle || '会话'}
             </div>
             <PreviewIframe
-              key={`preview-${selectedPage.pageId}-${previewKey}`}
+              key={`preview-${selectedPage.pageId}-${previewKey}-${previewRefreshKey}`}
               src={selectedPage.sourceUrl}
               htmlPath={selectedPage.htmlPath}
               pageId={selectedPage.pageId}
@@ -78,14 +91,34 @@ export function PreviewStage({
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
                   )}
                   onClick={() => {
+                    if (dragEditing && pendingDragCount > 0) {
+                      onCancelDragEdits()
+                    }
                     setDragEditing(!dragEditing)
                     setInspecting(false)
                   }}
-                  disabled={isGenerating}
+                  disabled={isGenerating || isSavingDragEdits}
                 >
                   <Move className="mr-1 h-3 w-3" />
-                  {dragEditing ? '退出调整' : '调整位置'}
+                  {dragEditing ? (pendingDragCount > 0 ? '退出不保存' : '退出调整') : '调整位置/大小'}
                 </Button>
+                {dragEditing && pendingDragCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    className="rounded-full bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
+                    onClick={onSaveDragEdits}
+                    disabled={isGenerating || isSavingDragEdits}
+                  >
+                    {isSavingDragEdits ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="mr-1 h-3 w-3" />
+                    )}
+                    保存调整
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant={inspecting ? 'default' : 'outline'}
@@ -98,9 +131,12 @@ export function PreviewStage({
                   )}
                   onClick={() => {
                     setInspecting(!inspecting)
+                    if (dragEditing && pendingDragCount > 0) {
+                      onCancelDragEdits()
+                    }
                     setDragEditing(false)
                   }}
-                  disabled={isGenerating}
+                  disabled={isGenerating || isSavingDragEdits}
                 >
                   <Crosshair className="mr-1 h-3 w-3" />
                   {inspecting ? '退出检选' : '检选元素'}
@@ -115,11 +151,6 @@ export function PreviewStage({
             {inspecting && (
               <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-2.5 py-1.5 text-[11px] leading-none text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
                 点击页面元素以选中
-              </div>
-            )}
-            {dragEditing && (
-              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eef5e8]/92 px-2.5 py-1.5 text-[11px] leading-none text-[#4f6340] shadow-[0_8px_18px_rgba(93,107,77,0.12)] backdrop-blur-sm">
-                拖拽模块调整位置，松手后自动保存
               </div>
             )}
             {isGenerating && (

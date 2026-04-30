@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type { DragEditorMovePayload } from '../components/preview/drag-editor-script'
@@ -36,6 +36,11 @@ export function SessionDetailPage(): React.JSX.Element {
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
+  const [pendingDragEdits, setPendingDragEdits] = useState<
+    Array<DragEditorMovePayload & { pageId: string; htmlPath: string }>
+  >([])
+  const [isSavingDragEdits, setIsSavingDragEdits] = useState(false)
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
   const {
     success: toastSuccess,
     error: toastError,
@@ -66,6 +71,7 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     resetForPageChange()
+    setPendingDragEdits([])
   }, [resetForPageChange, selectedPage?.pageId])
 
   const isFullyGenerated = useMemo(() => {
@@ -490,26 +496,69 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleElementMoved = async (payload: DragEditorMovePayload): Promise<void> => {
+  const selectedPagePendingDragCount = useMemo(() => {
+    if (!selectedPage?.pageId) return 0
+    return pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId).length
+  }, [pendingDragEdits, selectedPage?.pageId])
+
+  const handleElementMoved = (payload: DragEditorMovePayload): void => {
     if (!id || !selectedPage?.htmlPath || !selectedPage.pageId) return
-    try {
-      const result = await ipc.updateElementLayout({
-        sessionId: id,
-        htmlPath: selectedPage.htmlPath,
-        pageId: selectedPage.pageId,
-        selector: payload.selector,
-        x: payload.x,
-        y: payload.y
-      })
-      if (!result.success) {
-        toastError('位置保存失败')
-        return
-      }
-      useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
-      toastSuccess('位置已保存')
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : '位置保存失败')
+    const nextEdit = {
+      ...payload,
+      pageId: selectedPage.pageId,
+      htmlPath: selectedPage.htmlPath
     }
+    setPendingDragEdits((items) => {
+      const existingIndex = items.findIndex(
+        (item) =>
+          item.pageId === nextEdit.pageId &&
+          item.htmlPath === nextEdit.htmlPath &&
+          item.selector === nextEdit.selector
+      )
+      if (existingIndex < 0) return [...items, nextEdit]
+      return items.map((item, index) => (index === existingIndex ? nextEdit : item))
+    })
+  }
+
+  const handleSavePendingDragEdits = async (): Promise<void> => {
+    if (!id || !selectedPage?.pageId) return
+    const edits = pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId)
+    if (edits.length === 0) return
+    setIsSavingDragEdits(true)
+    try {
+      for (const edit of edits) {
+        const result = await ipc.updateElementLayout({
+          sessionId: id,
+          htmlPath: edit.htmlPath,
+          pageId: edit.pageId,
+          selector: edit.selector,
+          x: edit.x,
+          y: edit.y,
+          width: edit.width,
+          height: edit.height,
+          childUpdates: edit.childUpdates
+        })
+        if (!result.success) {
+          throw new Error('调整保存失败')
+        }
+      }
+      setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+      useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
+      useSessionDetailUiStore.getState().setDragEditing(false)
+      toastSuccess(`已保存 ${edits.length} 处调整`)
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : '调整保存失败')
+    } finally {
+      setIsSavingDragEdits(false)
+    }
+  }
+
+  const handleCancelPendingDragEdits = (): void => {
+    if (!selectedPage?.pageId) return
+    const hadPending = pendingDragEdits.some((item) => item.pageId === selectedPage.pageId)
+    setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+    setPreviewRefreshKey((key) => key + 1)
+    if (hadPending) toastInfo('已放弃未保存调整')
   }
 
   return (
@@ -549,7 +598,12 @@ export function SessionDetailPage(): React.JSX.Element {
             sessionTitle={currentSession?.title}
             isGenerating={isGenerating}
             progressLabel={progress?.label}
-            onElementMoved={(payload) => void handleElementMoved(payload)}
+            previewRefreshKey={previewRefreshKey}
+            pendingDragCount={selectedPagePendingDragCount}
+            isSavingDragEdits={isSavingDragEdits}
+            onElementMoved={handleElementMoved}
+            onSaveDragEdits={() => void handleSavePendingDragEdits()}
+            onCancelDragEdits={handleCancelPendingDragEdits}
           />
 
           {consoleOpen && (

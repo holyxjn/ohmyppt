@@ -202,6 +202,14 @@ export const PreviewIframe = forwardRef<
           y?: number
           deltaX?: number
           deltaY?: number
+          width?: number
+          height?: number
+          scale?: number
+          childUpdates?: Array<{
+            path: number[]
+            width?: number
+            height?: number
+          }>
         }
         if (isInspectorMessage && parsed.type === 'selected' && parsed.selector) {
           onSelectorSelected?.(
@@ -220,7 +228,21 @@ export const PreviewIframe = forwardRef<
             x: Number(parsed.x || 0),
             y: Number(parsed.y || 0),
             deltaX: Number(parsed.deltaX || 0),
-            deltaY: Number(parsed.deltaY || 0)
+            deltaY: Number(parsed.deltaY || 0),
+            width: parsed.width === undefined ? undefined : Number(parsed.width),
+            height: parsed.height === undefined ? undefined : Number(parsed.height),
+            scale: parsed.scale === undefined ? undefined : Number(parsed.scale),
+            childUpdates: Array.isArray(parsed.childUpdates)
+              ? parsed.childUpdates
+                  .map((item) => ({
+                    path: Array.isArray(item.path)
+                      ? item.path.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 0)
+                      : [],
+                    width: item.width === undefined ? undefined : Number(item.width),
+                    height: item.height === undefined ? undefined : Number(item.height)
+                  }))
+                  .filter((item) => item.path.length > 0 && (item.width !== undefined || item.height !== undefined))
+              : undefined
           })
           return
         }
