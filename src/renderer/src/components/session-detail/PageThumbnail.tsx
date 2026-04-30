@@ -3,6 +3,7 @@ import { cn } from '@renderer/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import { PreviewIframe } from '../preview/PreviewIframe'
 import type { SessionPreviewPage } from './types'
+import { useT } from '@renderer/i18n'
 
 export const PageThumbnail = memo(function PageThumbnail({
   page,
@@ -15,6 +16,8 @@ export const PageThumbnail = memo(function PageThumbnail({
   previewVersion: number
   onSelect: (pageNumber: number) => void
 }): React.JSX.Element {
+  const t = useT()
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -60,7 +63,7 @@ export const PageThumbnail = memo(function PageThumbnail({
             </span>
             {isSelected ? (
               <span className="rounded-full bg-[#5d6b4d] px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-[0_3px_8px_rgba(62,74,50,0.18)]">
-                当前
+                {t('sessionDetail.current')}
               </span>
             ) : null}
           </div>
@@ -79,7 +82,7 @@ export const PageThumbnail = memo(function PageThumbnail({
       <TooltipContent side="right" align="start">
         <div className="max-w-[240px]">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
-            Page {page.pageNumber}
+            {t('sessionDetail.pageNumber', { pageNumber: page.pageNumber })}
           </div>
           <div className="mt-0.5 text-sm font-medium text-[#3e4a32]">{page.title}</div>
         </div>

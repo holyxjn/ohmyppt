@@ -1,27 +1,29 @@
 import type { DesignContract, SessionDeckGenerationContext } from "../tools/types";
-import { buildOutlinePageList, formatDesignContract } from "./shared";
+import { CONTENT_LANGUAGE_RULES, buildOutlinePageList, formatDesignContract } from "./shared";
 
 export function buildDeckGenerationPrompt(context: SessionDeckGenerationContext): string {
   const pageList = buildOutlinePageList(context);
   return [
-    "请根据以下用户需求和页面大纲，通过工具将内容写入各个 /page-x.html：",
+    "Use the tools to write the deck content into each /page-x.html according to the user requirements and page outline below:",
     "",
-    `主题：${context.topic}`,
-    `标题：${context.deckTitle}`,
-    "页面大纲：",
+    `Topic: ${context.topic}`,
+    `Deck title: ${context.deckTitle}`,
+    "Page outline:",
     pageList,
     "",
-    "用户补充需求：",
+    "Additional user requirements:",
     context.userMessage,
     "",
-    "你可直接使用已内置能力：anime.js v4 + Tailwind CSS + Chart.js v4.5.0 + KaTeX 公式渲染 + PPT Runtime；不要重复引入本地 runtime script。",
-    "数学公式请直接写 LaTeX 分隔符：行内用 \\( f'(x)>0 \\)，块级用 \\[ \\frac{dy}{dx} \\] 或 $$\\lim_{h\\to0}\\frac{f(x+h)-f(x)}{h}$$；不要使用单 $...$，避免金额被误渲染；不要把公式做成图片。",
-    "禁止使用任何 CDN 外链资源（包括 script/link 的 http/https URL）。",
+    CONTENT_LANGUAGE_RULES,
     "",
-    "请遵守页面语义结构：外层只需要 content 语义入口；标题放在 content 内并标记 data-role=\"title\"，由页面版式决定位置。",
-    "注意：data-role=\"title\" 不是固定顶部标题区。每页根据内容和视觉重心自由决定标题位置与版式；可以复用有效结构，但不要机械重复。",
+    "Built-in capabilities are already available: anime.js v4, Tailwind CSS, Chart.js v4.5.0, KaTeX formula rendering, and PPT Runtime. Do not re-import local runtime scripts.",
+    "Write math directly with LaTeX delimiters: inline \\( f'(x)>0 \\), block \\[ \\frac{dy}{dx} \\] or $$\\lim_{h\\to0}\\frac{f(x+h)-f(x)}{h}$$. Do not use single $...$ delimiters, and do not render formulas as images.",
+    "Do not use any CDN or external http/https script/link resources.",
     "",
-    "请严格按上述页面大纲中的内容要点来填充每一页。",
+    "Follow the page semantic structure: the outer fragment only needs the content semantic entry; put the title inside content and mark it with data-role=\"title\". The layout decides its position.",
+    "data-role=\"title\" is not a fixed top header. Choose title position and layout per slide based on content and visual focus. Reuse effective structures when useful, but avoid mechanical repetition.",
+    "",
+    "Fill each slide strictly according to the content points in the page outline above.",
   ].join("\n");
 }
 
@@ -45,13 +47,13 @@ export function buildSinglePageGenerationPrompt(args: {
   const retryInstructions = args.retryContext
     ? [
         "",
-        "失败重试修正（本次必须优先处理）：",
-        `- 当前是第 ${args.retryContext.attempt}/${args.retryContext.maxRetries} 次重试。`,
-        `- 上次失败原因：${args.retryContext.previousError}`,
-        "- 本次只输出页面片段，必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；不要输出完整文档、页面骨架或运行时脚本。",
-        "- 如果上次是标签闭合问题，请主动精简结构，确保每个 section/div/p/span/li 等标签成对闭合。",
-        "- 如果上次是骨架问题，请不要包含 .ppt-page-root、.ppt-page-content、.ppt-page-fit-scope 或 data-ppt-guard-root。",
-        "- 如果上次是动画/图表 API 问题，请统一使用 PPT.animate / PPT.createTimeline / PPT.stagger / PPT.createChart。",
+        "Retry fixes to prioritize:",
+        `- This is retry ${args.retryContext.attempt}/${args.retryContext.maxRetries}.`,
+        `- Previous failure: ${args.retryContext.previousError}`,
+        "- Output only the page fragment. It must include section[data-page-scaffold] and main[data-block-id=\"content\"][data-role=\"content\"]. Do not output a full document, page shell, or runtime scripts.",
+        "- If the previous issue was unclosed tags, simplify the structure and ensure every section/div/p/span/li tag is paired.",
+        "- If the previous issue was page shell structure, do not include .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.",
+        "- If the previous issue was animation/chart API usage, use PPT.animate, PPT.createTimeline, PPT.stagger, and PPT.createChart.",
       ]
     : [];
   const sourceDocumentInstructions =
@@ -61,47 +63,49 @@ export function buildSinglePageGenerationPrompt(args: {
             "",
             args.referenceDocumentSnippets.trim(),
             "",
-            "源文档要求（必须优先执行）：",
-            "- 本页已有程序侧预检索片段。请优先基于这些片段生成页面内容。",
-            "- 如果片段已经覆盖本页标题和内容要点，不需要重复读取整份源文档。",
-            `- 如果片段不足、互相冲突，或缺少关键事实，必须使用 read_file 读取源文档补充确认：${args.sourceDocumentPaths.join("、")}`,
-            "- 只使用与本页大纲直接相关的源文档事实，不把其他页面的材料提前塞入本页。",
+            "Source document requirements:",
+            "- This slide already has program-side retrieved snippets. Prioritize these snippets when generating slide content.",
+            "- If the snippets cover this slide title and content points, you do not need to reread the entire source document.",
+            `- If snippets are insufficient, conflicting, or missing key facts, use read_file to confirm the source document: ${args.sourceDocumentPaths.join(", ")}`,
+            "- Use only source-document facts directly relevant to this slide outline. Do not move material for other slides into this slide.",
             args.isRetryMode
-              ? "- 当前是失败页重试，只围绕本页标题和内容要点在源文档中匹配补充材料，不重构整套大纲。"
+              ? "- This is a failed-slide retry. Match source material only around this slide title and content points; do not reconstruct the whole deck outline."
               : "",
-            "- 不要只根据大纲扩写；不得编造片段和源文档没有的精确数字、日期、系统名或功能状态。",
+            "- Do not expand only from the outline. Do not invent exact numbers, dates, system names, or status claims not present in the snippets or source document.",
           ].filter(Boolean)
         : [
             "",
-            "源文档要求（必须优先执行）：",
-            `- 本页没有命中预检索片段。生成页面前必须先用 read_file 读取源文档：${args.sourceDocumentPaths.join("、")}`,
-            "- 先从本页标题和内容要点中提取关键词、业务对象、时间节点、系统名和指标，再到源文档中匹配相关段落。",
-            "- 不要无差别搬运全文，只使用与本页大纲直接相关的源文档事实。",
+            "Source document requirements:",
+            `- No retrieved snippets matched this slide. Before generating the slide, use read_file to read the source document: ${args.sourceDocumentPaths.join(", ")}`,
+            "- First extract keywords, business objects, time points, system names, and metrics from this slide title and content points; then match relevant source passages.",
+            "- Do not copy the whole document indiscriminately. Use only source-document facts directly relevant to this slide outline.",
             args.isRetryMode
-              ? "- 当前是失败页重试，只围绕本页标题和内容要点在源文档中匹配补充材料，不重构整套大纲。"
+              ? "- This is a failed-slide retry. Match source material only around this slide title and content points; do not reconstruct the whole deck outline."
               : "",
-            "- 不要只根据大纲扩写；不得编造源文档没有的精确数字、日期、系统名或功能状态。",
+            "- Do not expand only from the outline. Do not invent exact numbers, dates, system names, or status claims not present in the source document.",
           ].filter(Boolean)
       : [];
   return [
-    "请只生成并写入这一页，不要修改其他页面。",
+    "Generate and write only this slide. Do not modify other slides.",
     "",
-    `主题：${args.topic}`,
-    `标题：${args.deckTitle}`,
-    `目标页面：${args.pageId}（第 ${args.pageNumber} 页）`,
-    `页面标题：${args.pageTitle}`,
-    `内容要点：${args.pageOutline || "按主题自行扩展，但保持信息密度适中"}`,
+    `Topic: ${args.topic}`,
+    `Deck title: ${args.deckTitle}`,
+    `Target page: ${args.pageId} (slide ${args.pageNumber})`,
+    `Slide title: ${args.pageTitle}`,
+    `Content points: ${args.pageOutline || "Expand from the topic with moderate information density."}`,
     ...sourceDocumentInstructions,
     "",
-    "整套演示设计契约（必须遵守，保持跨页一致）：",
+    CONTENT_LANGUAGE_RULES,
+    "",
+    "Deck-wide design contract. Follow it to keep pages visually consistent:",
     formatDesignContract(args.designContract),
     ...retryInstructions,
     "",
-    "扩展规则（重要）：",
-    "- 将“内容要点”视为短句种子：你需要把每个种子扩展成可展示的模块（标题/说明/列表/图表/对比/结论）。",
-    "- 若要点为 2-4 条，最终页面应至少覆盖全部要点，不得遗漏；可按主次补充 1-2 个支撑信息块。",
-    "- 扩展时允许补全合理数据口径、示例与结构，但不能偏离该页标题与要点主题。",
-    "- 优先做“信息可视化友好”表达：要点中涉及趋势/对比/占比时，优先使用图表或数据卡片。",
+    "Expansion rules:",
+    "- Treat content points as short seed phrases. Expand each seed into presentable modules such as headings, explanations, lists, charts, comparisons, or conclusions.",
+    "- If there are 2-4 points, the final slide should cover all of them. You may add 1-2 supporting information blocks by priority.",
+    "- You may complete reasonable data framing, examples, and structure, but do not drift away from the slide title and points.",
+    "- Prefer visualization-friendly expression. When points involve trends, comparisons, or proportions, use charts or data cards when appropriate.",
     "",
     "强约束：",
     "- 只允许调用 update_single_page_file(pageId=目标页面, content)，禁止调用 update_page_file",
@@ -151,5 +155,7 @@ export function buildSinglePageGenerationPrompt(args: {
     "- 优先使用 Tailwind utility class 组织布局与间距",
     "- 必须包含语义结构：一个 content 入口(data-block-id=content, data-role=content)；标题放在 content 内并标记 data-role=title，位置由版式决定",
     "- content 内所有主要可视元素都要有稳定唯一标识：可编辑子块必须添加唯一 data-block-id，同时为主要元素添加页面内唯一语义 class（如 ppt-chart-main / ppt-metric-1），便于检选、拖拽和局部编辑",
+    "",
+    CONTENT_LANGUAGE_RULES,
   ].join("\n");
 }

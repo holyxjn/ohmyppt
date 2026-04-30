@@ -4,6 +4,7 @@ import { ipc } from '@renderer/lib/ipc'
 interface Settings {
   provider: string
   theme: string
+  locale: 'zh' | 'en'
   autoSave: boolean
   storagePath: string
   providerConfigs: Record<string, { model: string; apiKey: string; baseUrl: string }>
@@ -25,9 +26,21 @@ interface SettingsStore {
   setBaseUrl: (baseUrl: string) => void
   setVerificationMessage: (message: string | null) => void
   loadProviderConfig: (provider: string) => void
-  verifyApiKey: (provider: string, apiKey: string, model: string, baseUrl: string) => Promise<boolean>
+  verifyApiKey: (
+    provider: string,
+    apiKey: string,
+    model: string,
+    baseUrl: string
+  ) => Promise<boolean>
   chooseStoragePath: () => Promise<string | null>
 }
+
+const readStoredLocale = (): 'zh' | 'en' => {
+  if (typeof window === 'undefined') return 'zh'
+  return window.localStorage.getItem('oh-my-ppt:lang') === 'en' ? 'en' : 'zh'
+}
+
+const fallbackMessage = (zh: string, en: string): string => (readStoredLocale() === 'en' ? en : zh)
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   settings: null,
@@ -42,40 +55,47 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     try {
       const settings = await ipc.getSettings()
       const typedSettings = settings as unknown as Settings
+      const locale = typedSettings.locale === 'en' ? 'en' : 'zh'
       set({
-        settings: typedSettings,
+        settings: { ...typedSettings, locale },
         apiKey: typedSettings.providerConfigs?.[typedSettings.provider]?.apiKey || '',
         model: typedSettings.providerConfigs?.[typedSettings.provider]?.model || '',
         baseUrl: typedSettings.providerConfigs?.[typedSettings.provider]?.baseUrl || '',
         storagePathError: null,
-        verificationMessage: null,
+        verificationMessage: null
       })
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : '读取设置失败。'
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('读取设置失败。', 'Failed to read settings.')
       set({ verificationMessage: message })
     }
   },
 
   saveSettings: async (newSettings) => {
     const settings = get().settings
-    const activeProvider = newSettings.provider || settings?.provider || 'openai'
-    const mergedProviderConfigs = {
-      ...(settings?.providerConfigs || {}),
-      ...(newSettings.providerConfigs || {}),
-      [activeProvider]: {
-        ...(settings?.providerConfigs?.[activeProvider] || {}),
-        ...(newSettings.providerConfigs?.[activeProvider] || {}),
-      },
+    const settingsToSave: Partial<Settings> = { ...newSettings }
+    if (newSettings.providerConfigs) {
+      const activeProvider = newSettings.provider || settings?.provider || 'openai'
+      settingsToSave.providerConfigs = {
+        ...(settings?.providerConfigs || {}),
+        ...newSettings.providerConfigs,
+        [activeProvider]: {
+          ...(settings?.providerConfigs?.[activeProvider] || {}),
+          ...(newSettings.providerConfigs[activeProvider] || {})
+        }
+      }
     }
 
     try {
-      await ipc.saveSettings({
-        ...newSettings,
-        providerConfigs: mergedProviderConfigs,
-      })
+      await ipc.saveSettings(settingsToSave)
       await get().fetchSettings()
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : '保存设置失败。'
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('保存设置失败。', 'Failed to save settings.')
       set({ verificationMessage: message })
     }
   },
@@ -86,12 +106,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setVerificationMessage: (message) => set({ verificationMessage: message }),
 
   loadProviderConfig: (provider) => {
-    const config = get().settings?.providerConfigs?.[provider] || { apiKey: '', model: '', baseUrl: '' }
+    const config = get().settings?.providerConfigs?.[provider] || {
+      apiKey: '',
+      model: '',
+      baseUrl: ''
+    }
     set({
       apiKey: config.apiKey || '',
       model: config.model || '',
       baseUrl: config.baseUrl || '',
-      verificationMessage: null,
+      verificationMessage: null
     })
   },
 
@@ -101,7 +125,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ verificationMessage: message || null })
       return valid
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : '验证请求发送失败。'
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('发送验证请求失败。', 'Failed to send verification request.')
       set({ verificationMessage: message })
       return false
     }
@@ -114,9 +141,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ storagePathError: error || null })
       return path
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : '选择目录失败。'
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('选择文件夹失败。', 'Failed to choose folder.')
       set({ storagePathError: message })
       return null
     }
-  },
+  }
 }))

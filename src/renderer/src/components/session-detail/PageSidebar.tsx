@@ -6,6 +6,7 @@ import { ScrollArea } from '../ui/ScrollArea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import { PageThumbnail } from './PageThumbnail'
 import type { SessionPreviewPage } from './types'
+import { useT } from '@renderer/i18n'
 
 export const PageSidebar = memo(function PageSidebar({
   pages
@@ -13,6 +14,7 @@ export const PageSidebar = memo(function PageSidebar({
   pages: SessionPreviewPage[]
 }): React.JSX.Element {
   const navigate = useNavigate()
+  const t = useT()
   const selectedPageNumber = useSessionDetailUiStore((state) => state.selectedPageNumber)
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const thumbnailVersions = useSessionDetailUiStore((state) => state.thumbnailVersions)
@@ -28,21 +30,21 @@ export const PageSidebar = memo(function PageSidebar({
               type="button"
               onClick={() => navigate('/sessions')}
               className="relative inline-flex h-8 w-8 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#f5f1e8]/72 text-[#5d6b4d] shadow-[0_4px_10px_rgba(93,107,77,0.08)] transition-colors hover:bg-[#d4e4c1]/78 hover:text-[#3e4a32] cursor-pointer"
-              aria-label="返回会话页"
+              aria-label={t('sessionDetail.backToSessions')}
             >
               <Home className="h-4 w-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">返回会话页</TooltipContent>
+          <TooltipContent side="right">{t('sessionDetail.backToSessions')}</TooltipContent>
         </Tooltip>
         <div className="relative rounded-full bg-[#d4e4c1]/74 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#3e4a32] shadow-[0_3px_8px_rgba(93,107,77,0.08)]">
-          Pages · {pages.length}
+          {t('sessionDetail.pagesCount', { count: pages.length })}
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2">
         {pages.length === 0 ? (
           <div className="flex min-h-[96px] items-center justify-center rounded-[1.25rem] bg-[#e8e0d0]/54 text-xs text-[#8a9a7b]">
-            暂无页面
+            {t('sessionDetail.pagesEmpty')}
           </div>
         ) : (
           <div className="space-y-2.5">

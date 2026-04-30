@@ -28,6 +28,13 @@ export function buildDragEditorInjectScript(): string {
   const ACTIVE_CLASS = "ppt-drag-editor-active";
   const HANDLE_CLASS = "ppt-drag-editor-resize-handle";
   const LOG_PREFIX = "${DRAG_EDITOR_CONSOLE_PREFIX}";
+  const uiMessage = (zh, en) => {
+    try {
+      return window.localStorage.getItem("oh-my-ppt:lang") === "en" ? en : zh;
+    } catch (_error) {
+      return zh;
+    }
+  };
   const SCAFFOLD_BLOCK_IDS = new Set(["content"]);
 
   const existing = window[STATE_KEY];
@@ -634,7 +641,7 @@ export function buildDragEditorInjectScript(): string {
     if (!selector) {
       console.log(LOG_PREFIX + JSON.stringify({
         type: "invalid",
-        message: "请拖拽页面内可见元素",
+        message: uiMessage("请拖拽页面内可见元素", "Drag a visible element inside the page"),
       }));
       return;
     }

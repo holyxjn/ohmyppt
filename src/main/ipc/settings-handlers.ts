@@ -29,6 +29,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     return {
       provider: settings.provider || 'openai',
       theme: settings.theme || 'light',
+      locale: settings.locale === 'en' ? 'en' : 'zh',
       autoSave: settings.auto_save ?? true,
       storagePath,
       providerConfigs
@@ -44,6 +45,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     })
     if (settings.provider !== undefined) await db.setSetting('provider', settings.provider)
     if (settings.theme !== undefined) await db.setSetting('theme', settings.theme)
+    if (settings.locale === 'zh' || settings.locale === 'en') await db.setSetting('locale', settings.locale)
     if (settings.autoSave !== undefined) await db.setSetting('auto_save', settings.autoSave)
     if (typeof settings.storagePath === 'string' && settings.storagePath.trim().length > 0) {
       await db.setStoragePath(settings.storagePath)

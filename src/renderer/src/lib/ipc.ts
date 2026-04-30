@@ -17,7 +17,7 @@ function getIpc(): IpcRendererLike {
   const ipc = window.electron?.ipcRenderer
   if (!ipc) {
     const electronKeys = window.electron ? Object.keys(window.electron).join(', ') : 'none'
-    throw new Error(`Electron preload IPC 不可用。window.electron keys: ${electronKeys}`)
+    throw new Error(`Electron preload IPC is unavailable. window.electron keys: ${electronKeys}`)
   }
   return ipc
 }

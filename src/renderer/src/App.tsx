@@ -10,6 +10,7 @@ import { StylesPage } from './pages/styles'
 import { StyleEditorPage } from './pages/style-editor'
 import { AppToaster } from './components/AppToaster'
 import { ScrollArea } from './components/ui/ScrollArea'
+import { useT } from './i18n'
 import { ipc } from './lib/ipc'
 import { useToastStore } from './store'
 
@@ -17,14 +18,15 @@ function App(): React.JSX.Element {
   const location = useLocation()
   const isSessionDetailRoute = Boolean(matchPath('/sessions/:id/*', location.pathname))
   const { info } = useToastStore()
+  const t = useT()
 
   useEffect(() => {
     const unsubscribe = ipc.onUpdateAvailable((update) => {
-      info(`发现新版本 ${update.latestVersion}`, {
-        description: `当前版本 ${update.currentVersion}，点击前往下载。`,
+      info(t('app.updateAvailable', { version: update.latestVersion }), {
+        description: t('app.updateAvailableDescription', { currentVersion: update.currentVersion }),
         duration: 12000,
         action: {
-          label: '打开',
+          label: t('app.open'),
           onClick: () => {
             window.open(update.releaseUrl, '_blank', 'noopener,noreferrer')
           }
@@ -34,7 +36,7 @@ function App(): React.JSX.Element {
     return () => {
       unsubscribe?.()
     }
-  }, [info])
+  }, [info, t])
 
   if (isSessionDetailRoute) {
     return (

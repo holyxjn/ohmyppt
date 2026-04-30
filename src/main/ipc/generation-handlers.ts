@@ -135,8 +135,12 @@ export function registerGenerationHandlers(
           ? retryPayload.userMessage.trim()
           : ''
       const retryUserMessage = retrySupplement
-        ? `请继续生成当前会话中未完成页面。\n用户补充说明：${retrySupplement}`
-        : '请继续生成当前会话中未完成页面。'
+        ? [
+            'Continue generating the unfinished slides in this session.',
+            'Determine the content language from the existing topic, outline, source materials, and the user supplement; do not infer it from this instruction language.',
+            `User supplement:\n${retrySupplement}`
+          ].join('\n')
+        : 'Continue generating the unfinished slides in this session. Determine the content language from the existing topic, outline, and source materials; do not infer it from this instruction language.'
       context = await resolveGenerationContext(
         event,
         {

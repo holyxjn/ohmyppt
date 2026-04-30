@@ -28,8 +28,8 @@ export const PAGE_SEMANTIC_STRUCTURE = [
   "<section data-page-scaffold=\"1\" class=\"h-full min-h-0 overflow-hidden\">",
   "  <main data-block-id=\"content\" data-role=\"content\" class=\"flex h-full min-h-0 flex-col gap-6 overflow-hidden\">",
   "    <section data-block-id=\"page-title\" data-role=\"title\" class=\"ppt-page-title shrink-0 space-y-2\">",
-  "      <h1 class=\"text-5xl font-bold\">页面标题</h1>",
-  "      <p data-role=\"subtitle\" class=\"text-xl text-slate-500\">副标题</p>",
+  "      <h1 class=\"text-5xl font-bold\">Slide title</h1>",
+  "      <p data-role=\"subtitle\" class=\"text-xl text-slate-500\">Subtitle</p>",
   "    </section>",
   "    <section data-block-id=\"main-visual\" class=\"ppt-main-visual min-h-0 flex-1\">...</section>",
   "    <section data-block-id=\"key-points\" class=\"ppt-key-points shrink-0\">...</section>",
@@ -37,6 +37,17 @@ export const PAGE_SEMANTIC_STRUCTURE = [
   "</section>",
   "",
   "布局可以自由选择上下、左右、居中、角标、卡片、不对称、图表旁标题等形式；不要机械套用示例。竖排只承载纯中文短标签，不能承载完整长标题、英文标题、年份标题或中英混排标题。",
+].join("\n");
+
+export const CONTENT_LANGUAGE_RULES = [
+  "## Content language",
+  "- The language of these instructions is not the output language. Do not imitate the prompt language.",
+  "- If the user explicitly requests a language, use that language.",
+  "- Otherwise, use the dominant language of the user's latest request and provided source materials.",
+  "- If source materials are primarily English, write slide titles, body text, outlines, and user-facing summaries in English. Do not translate them into Chinese.",
+  "- If source materials are primarily Chinese, write slide titles, body text, outlines, and user-facing summaries in Chinese.",
+  "- For mixed-language materials, prefer the latest user instruction language.",
+  "- Preserve proper nouns, brand names, technical terms, quoted source text, and metrics when appropriate.",
 ].join("\n");
 
 export function resolveStylePrompt(
@@ -52,19 +63,19 @@ export function resolveStylePrompt(
 
 export function buildOutlinePageList(context: SessionDeckGenerationContext): string {
   return context.outlineItems
-    .map((item, i) => `${i + 1}. ${item.title}\n   内容要点：${item.contentOutline}`)
+    .map((item, i) => `${i + 1}. ${item.title}\n   Content points: ${item.contentOutline}`)
     .join("\n");
 }
 
 export function formatDesignContract(contract?: DesignContract): string {
-  if (!contract) return "未提供，按风格规则保持统一。";
+  if (!contract) return "Not provided. Keep pages visually consistent according to the style rules.";
   return [
-    `- 主题气质：${contract.theme}`,
-    `- 画布背景：${contract.background}`,
-    `- 色板：${contract.palette.join(", ")}`,
-    `- 标题样式：${contract.titleStyle}`,
-    `- 布局母题：${contract.layoutMotif}`,
-    `- 图表风格：${contract.chartStyle}`,
-    `- 形状语言：${contract.shapeLanguage}`,
+    `- Visual theme: ${contract.theme}`,
+    `- Canvas background: ${contract.background}`,
+    `- Palette: ${contract.palette.join(", ")}`,
+    `- Title style: ${contract.titleStyle}`,
+    `- Layout motif: ${contract.layoutMotif}`,
+    `- Chart style: ${contract.chartStyle}`,
+    `- Shape language: ${contract.shapeLanguage}`,
   ].join("\n");
 }

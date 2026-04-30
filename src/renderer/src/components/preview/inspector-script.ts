@@ -7,6 +7,13 @@ export function buildInspectorInjectScript(): string {
   const STYLE_ID = "ppt-inspector-style";
   const HIGHLIGHT_CLASS = "ppt-inspector-highlight";
   const LOG_PREFIX = "${INSPECTOR_CONSOLE_PREFIX}";
+  const uiMessage = (zh, en) => {
+    try {
+      return window.localStorage.getItem("oh-my-ppt:lang") === "en" ? en : zh;
+    } catch (_error) {
+      return zh;
+    }
+  };
 
   const state = window[STATE_KEY];
   if (state && state.active) return;
@@ -240,7 +247,7 @@ export function buildInspectorInjectScript(): string {
     if (!selector) {
       console.log(LOG_PREFIX + JSON.stringify({
         type: "invalid",
-        message: "无法为该元素生成稳定选择器，请点击 content 内的可见元素",
+        message: uiMessage("无法为该元素生成稳定选择器，请点击 content 内的可见元素", "Could not build a stable selector for this element. Click a visible element inside content."),
       }));
       event.preventDefault();
       event.stopPropagation();
@@ -248,7 +255,7 @@ export function buildInspectorInjectScript(): string {
     }
 
     const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
-    const rawText = (target.textContent || "").replace(/\s+/g, " ").trim();
+    const rawText = (target.textContent || "").replace(/\\s+/g, " ").trim();
     const elementText = rawText.length > 80 ? rawText.slice(0, 80) + "…" : rawText;
 
     console.log(LOG_PREFIX + JSON.stringify({

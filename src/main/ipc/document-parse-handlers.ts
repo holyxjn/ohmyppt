@@ -22,6 +22,8 @@ const MAX_PAGE_COUNT = 40
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx'])
 const NULL_CHAR_PATTERN = new RegExp(String.fromCharCode(0), 'g')
+const CJK_PATTERN = /[\u3400-\u9fff]/
+const LATIN_WORD_PATTERN = /\b[A-Za-z][A-Za-z'-]{2,}\b/g
 
 const require = createRequire(import.meta.url)
 const mammoth = require('mammoth') as typeof import('mammoth')
@@ -41,6 +43,36 @@ const compactText = (value: string): string =>
     .join('\n')
     .replace(/\n{4,}/g, '\n\n\n')
     .trim()
+
+const countCjkChars = (value: string): number =>
+  Array.from(value).filter((char) => CJK_PATTERN.test(char)).length
+
+const countLatinWords = (value: string): number => value.match(LATIN_WORD_PATTERN)?.length ?? 0
+
+const isMostlyEnglishText = (value: string): boolean => {
+  const sample = value.slice(0, 30_000)
+  const latinWords = countLatinWords(sample)
+  const cjkChars = countCjkChars(sample)
+  return latinWords >= 30 && cjkChars <= Math.max(10, latinWords * 0.08)
+}
+
+const assertPlanLanguageMatchesSource = async (args: {
+  file: PreparedSourceFile
+  plan: Pick<ParsedDocumentPlanResult, 'topic' | 'briefText'>
+  userText: string
+}): Promise<void> => {
+  if (countCjkChars(args.userText) >= 6) return
+
+  const sourceText = await fs.promises.readFile(args.file.workspacePath, 'utf-8').catch(() => '')
+  if (!isMostlyEnglishText(sourceText)) return
+
+  const outputText = `${args.plan.topic}\n${args.plan.briefText}`
+  if (countCjkChars(outputText) >= 12) {
+    throw new Error(
+      'The source document is primarily English, but topic/briefText were returned in Chinese. Return topic and briefText in English; do not translate the outline into Chinese.'
+    )
+  }
+}
 
 const stripInlineImagesFromHtml = (html: string): string =>
   html.replace(/<img\b[^>]*>/gi, (tag) => {
@@ -252,7 +284,7 @@ const logDocumentPlanToolEvents = (
   seenToolEvents: Set<string>,
   source: 'updates' | 'messages'
 ): void => {
-  const visitMessage = (message: unknown) => {
+  const visitMessage = (message: unknown): void => {
     const record = getObject(message)
     if (!record) return
     const toolCallsSources = [
@@ -299,7 +331,7 @@ const logDocumentPlanToolEvents = (
     }
   }
 
-  const visit = (value: unknown) => {
+  const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
       value.forEach(visit)
       return
@@ -327,7 +359,7 @@ const extractAssistantTextsFromState = (data: unknown): string[] => {
   const texts: string[] = []
   const seenObjects = new Set<object>()
 
-  const visitMessage = (message: unknown) => {
+  const visitMessage = (message: unknown): void => {
     const record = getObject(message)
     if (!record) return
     const role = String(readMessageField(record, 'role') ?? '').toLowerCase()
@@ -354,7 +386,7 @@ const extractAssistantTextsFromState = (data: unknown): string[] => {
     if (text) texts.push(text)
   }
 
-  const visit = (value: unknown) => {
+  const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
       const looksLikeMessages = value.some((item) => {
         const record = getObject(item)
@@ -586,44 +618,51 @@ const buildDocumentPlanPrompt = (args: {
   retryHint?: string
 }): string =>
   [
-    '请使用文件系统工具读取用户上传的文档，并生成 PPT 创建页需要的固定结构。',
+    'Use the filesystem tool to read the uploaded document and produce the fixed structure needed by the PPT creation form.',
     '',
-    '只返回 JSON 对象，不要输出 Markdown、解释或额外字段。',
-    '必须严格使用字段：topic、pageCount、briefText。',
+    'Return only a JSON object. Do not return Markdown, explanations, or extra fields.',
+    'Use exactly these fields: topic, pageCount, briefText.',
     '',
-    '字段规则：',
-    '- topic：适合作为创建页「主题」输入框的短标题，12-36 个中文字符左右。',
-    `- pageCount：适合作为创建页「页数」的整数，范围 1-${MAX_PAGE_COUNT}。`,
-    '- briefText：适合作为创建页「详细描述」输入框的中文内容。',
-    '- briefText 用于创建会话前填充「详细描述」，应是简明但有结构的大纲，不需要展开全部原文细节。',
-    '- briefText 建议 500-1200 中文字，包含：演示目标、受众/场景、核心观点、建议大纲、每页要点、必须保留的事实/数字/术语、风格或表达注意事项。',
-    '- “建议大纲”和“每页要点”必须尽量对齐源文档章节结构，输出接近 pageCount 的页级标题和要点，减少后续规划阶段自由发挥。',
-    '- 每页要点不要只写“背景/目标/价值”这类空泛词，应写出该页对应的源文档主题、功能、流程、时间节点或结论。',
-    '- 输出前必须主动自查一致性：pageCount 必须等于“建议大纲”条目数，也必须等于“每页要点”里的页数范围。',
-    '- 如果自查发现 pageCount、建议大纲、每页要点不一致，必须先修正三者，再输出最终 JSON；不要把自查过程写出来。',
-    '- 如果用户传入的页数与文档自然结构冲突，应优先保持页级大纲完整一致，而不是机械保留错误页数。',
-    '- 后续真正生成 PPT 时会优先读取源文档，所以 briefText 只负责建立生成方向和页结构。',
-    '- 如果文档中有功能清单、上线时间、优先级、流程、角色、系统名、指标、风险、结论，请在 briefText 中点名保留。',
-    '- 可以压缩原文，但不要大段粘贴原文。',
-    '- 保留文档中的关键事实、数字、专有名词、结论和结构。',
-    '- 不要编造文档里没有的精确数据。',
+    'Output language rules:',
+    '- First determine the dominant language of the source document and the latest user-provided topic/brief.',
+    '- If the user explicitly asks for a language, use that language.',
+    '- Otherwise, topic and briefText must use the dominant language of the source document.',
+    '- If the source document is primarily English, topic and briefText must be written in English. Do not translate the outline into Chinese.',
+    '- If the source document is primarily Chinese, topic and briefText should be written in Chinese.',
+    '- Keep proper nouns, product names, technical terms, quoted text, and metrics in their original form when appropriate.',
+    '',
+    'Field rules:',
+    '- topic: a concise title suitable for the creation form topic input, in the selected output language.',
+    `- pageCount: an integer suitable for the creation form page-count input, from 1 to ${MAX_PAGE_COUNT}.`,
+    '- briefText: a concise but structured outline suitable for the creation form detailed-brief input, in the selected output language.',
+    '- briefText should establish generation direction and page structure; it does not need to expand every source detail.',
+    '- briefText should include: presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and style/expression notes when useful.',
+    '- The recommended outline and per-page points should align with the source document structure and be close to pageCount.',
+    '- Per-page points must be specific to the source content; avoid vague placeholders such as background/goals/value.',
+    '- Before returning, silently check consistency: pageCount must match the number of recommended outline items and per-page point entries.',
+    '- If pageCount, recommended outline, and per-page points are inconsistent, fix them before returning the final JSON. Do not include the self-check.',
+    '- If the user-provided page count conflicts with the document structure, prefer a complete and internally consistent page-level outline.',
+    '- Later PPT generation will read the source document again, so briefText should focus on clear direction and structure.',
+    '- Preserve key facts, numbers, proper nouns, conclusions, product names, systems, timelines, roles, risks, and terminology from the document.',
+    '- Compress the source; do not paste long passages verbatim.',
+    '- Do not invent exact data that is not present in the document.',
     args.pageCount
-      ? `- 如果文档没有强烈反对，pageCount 优先使用 ${args.pageCount}。`
-      : '- 根据文档结构自行判断 pageCount。',
+      ? `- Prefer pageCount=${args.pageCount} unless the document structure strongly suggests otherwise.`
+      : '- Infer pageCount from the document structure.',
     '',
-    '读取要求：',
-    `- 文档路径：${args.file.virtualPath}`,
-    '- 必须调用 read_file 读取文档内容后再生成结果。',
-    '- 如果文件较长，请多次调用 read_file 分段阅读并逐步归纳，不要只读开头。',
-    '- 如果文档是 Word 文件，它已经被转换成 Markdown 文本供你读取。',
+    'Reading requirements:',
+    `- Document path: ${args.file.virtualPath}`,
+    '- You must call read_file to read the document before producing the result.',
+    '- If the file is long, call read_file multiple times in sections and summarize progressively. Do not only read the beginning.',
+    '- If the document is a Word file, it has already been converted to Markdown for reading.',
     args.retryHint
-      ? `\n重试要求：上一次输出未通过校验，原因是：${args.retryHint}。这次必须修正该问题，尤其确保 briefText 非空、pageCount 与页级大纲一致。`
+      ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
       : '',
-    args.topic ? `\n用户填写的主题：${args.topic}` : '\n用户未填写明确主题，请从文档中推断。',
-    args.existingBrief ? `\n用户已有描述：\n${args.existingBrief}` : '',
+    args.topic ? `\nUser-provided topic: ${args.topic}` : '\nThe user did not provide a topic; infer it from the document.',
+    args.existingBrief ? `\nExisting user brief:\n${args.existingBrief}` : '',
     '',
-    '返回格式示例：',
-    '{"topic":"某某项目路演方案","pageCount":8,"briefText":"演示目标：...\\n受众/场景：...\\n核心观点：...\\n建议大纲：\\n1. ...\\n2. ...\\n每页要点：\\n第1页：...\\n第2页：...\\n必须保留的事实/数字/术语：...\\n风格或表达注意事项：..."}'
+    'Return format example:',
+    '{"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\n2. ...\\nPer-page points:\\nPage 1: ...\\nPage 2: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
   ].join('\n')
 
 const runDocumentPlanAgent = async (args: {
@@ -657,7 +696,7 @@ const runDocumentPlanAgent = async (args: {
       virtualMode: true
     }),
     systemPrompt:
-      '你是文档到 PPT 创建表单的解析 agent。你必须使用 read_file 读取用户提供的文件，必要时分段阅读，提取主题、页数建议和结构化大纲。输出前必须主动审查 pageCount、建议大纲条目数、每页要点页数是否一致；不一致时先修正，再只输出严格 JSON：topic、pageCount、briefText。后续生成 PPT 会继续读取源文档，所以 briefText 保持清晰大纲即可。'
+      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
   })
   const stream = await agent.stream(
     {
@@ -785,6 +824,11 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
       })
       try {
         plan = normalizeGeneratedPlan(responseText, fallbackPlan)
+        await assertPlanLanguageMatchesSource({
+          file: sourceFile,
+          plan,
+          userText: `${topic}\n${existingBrief}`
+        })
         break
       } catch (error) {
         lastError = error

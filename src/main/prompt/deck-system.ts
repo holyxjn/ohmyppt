@@ -1,5 +1,5 @@
 import type { SessionDeckGenerationContext } from "../tools/types";
-import { PAGE_SEMANTIC_STRUCTURE, buildOutlinePageList, formatDesignContract, resolveStylePrompt } from "./shared";
+import { CONTENT_LANGUAGE_RULES, PAGE_SEMANTIC_STRUCTURE, buildOutlinePageList, formatDesignContract, resolveStylePrompt } from "./shared";
 
 export function buildDeckAgentSystemPrompt(
   styleId: string | null | undefined,
@@ -8,10 +8,11 @@ export function buildDeckAgentSystemPrompt(
   const { presetLabel, presetId, stylePrompt: resolvedStylePrompt } = resolveStylePrompt(styleId);
   const stylePrompt = context.styleSkillPrompt?.trim() || resolvedStylePrompt;
   const pageList = buildOutlinePageList(context);
+  const statusLanguage = context.appLocale === "en" ? "English" : "Simplified Chinese";
 
   const targetInfo = context.selectedPageId
-    ? `本轮仅允许修改：${context.selectedPageId}`
-    : "本轮可修改全部页面";
+    ? `This run may only modify: ${context.selectedPageId}`
+    : "This run may modify all pages.";
   const targetPagePath =
     context.selectedPageId && context.pageFileMap[context.selectedPageId]
       ? context.pageFileMap[context.selectedPageId]
@@ -21,34 +22,36 @@ export function buildDeckAgentSystemPrompt(
     (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length === 1) ||
     context.outlineTitles.length === 1;
   const step3Instruction = isSinglePageTask
-    ? "3. 调用 update_single_page_file(pageId=目标页, content) — 单页任务只允许这个工具，不要调用 update_page_file"
-    : "3. 逐页 update_page_file(content) — 多页生成时按页写入目标 page 文件（可选传 pageId 覆盖自动定位）";
+    ? "3. Call update_single_page_file(pageId=target page, content). Single-page tasks may only use this tool; do not call update_page_file."
+    : "3. Call update_page_file(content) page by page. For multi-page generation, write each target page file in order. You may pass pageId to override automatic targeting.";
   const sourceDocumentPaths = (context.sourceDocumentPaths || []).filter(Boolean);
   const isRetryMode = context.mode === "retry";
   const sourceDocumentInstructions =
     sourceDocumentPaths.length > 0
       ? [
           "",
-          "## 源文档（最高优先级内容依据）",
-          "本次会话来自用户上传文档。生成内容时必须优先依据源文档，不要只根据摘要或页面大纲发挥。",
-          "单页 prompt 可能包含程序侧预检索片段；若片段已覆盖本页要点，优先使用片段，不需要重复读取整份源文档。",
-          "如果没有预检索片段，或片段不足、冲突、缺关键事实，必须使用 read_file 读取以下源文档补充确认：",
+          "## Source documents (highest-priority content evidence)",
+          "This session comes from user-uploaded documents. Generated content must prioritize source-document facts; do not rely only on the summary or page outline.",
+          "Single-page prompts may include program-side retrieved snippets. If snippets cover the current slide points, prioritize them and avoid rereading the whole document.",
+          "If there are no retrieved snippets, or snippets are insufficient, conflicting, or missing key facts, use read_file to confirm these source documents:",
           ...sourceDocumentPaths.map((docPath) => `- ${docPath}`),
-          "读文档策略：",
-          "1. 先根据当前页标题、contentOutline、用户补充需求提取关键词、业务对象、时间节点、系统名和指标。",
-          "2. 再到源文档中定位与这些关键词最相关的段落、表格或列表；文档较长时分段读取。",
-          "3. 每页只使用与该页大纲匹配的事实和表达，不把其他页面的材料提前塞入当前页。",
+          "Reading strategy:",
+          "1. Extract keywords, business objects, time points, system names, and metrics from the current slide title, contentOutline, and additional user requirements.",
+          "2. Locate the most relevant source paragraphs, tables, or lists. For long documents, read in sections.",
+          "3. For each slide, use only facts and wording that match that slide outline. Do not move material for other slides into the current slide.",
           isRetryMode
-            ? "4. 当前是失败页重试，只围绕失败页标题和大纲重新匹配源文档材料，不重构整套大纲。"
-            : "4. 当前是首次页面生成，按既定页面大纲逐页取材，不要提前塞入其他页面内容。",
-          "若源文档与用户补充需求冲突，以用户补充需求为准；若页面大纲与源文档细节不一致，以源文档事实为准。",
-          "不得编造源文档没有的精确数字、日期、系统名或功能状态。",
+            ? "4. This is a failed-slide retry. Match source material only around the failed slide title and outline; do not reconstruct the whole deck outline."
+            : "4. This is initial page generation. Follow the established page outline slide by slide; do not prematurely insert other slides' material.",
+          "If the source document conflicts with additional user requirements, follow the user requirements. If the page outline conflicts with source details, follow source-document facts.",
+          "Do not invent exact numbers, dates, system names, or status claims not present in the source document.",
         ]
       : [];
 
   return [
-    "你是PPT生成专家，负责将已规划好的页面大纲落地为页面 HTML 内容。",
-    "你运行在 DeepAgents 文件系统会话中，必须将每一页通过工具写入独立的 /page-x.html 文件。",
+    "You are a PPT generation expert responsible for turning a planned page outline into slide HTML content.",
+    "You run inside a DeepAgents filesystem session and must write each slide into its own /page-x.html file through tools.",
+    "",
+    CONTENT_LANGUAGE_RULES,
     "",
     "## 风格与视觉",
     `风格预设：${presetLabel} (${presetId})`,
@@ -113,7 +116,7 @@ export function buildDeckAgentSystemPrompt(
     "- 禁止无限循环、高频闪烁；保证无动画也能完整阅读",
     "",
     "## 内容写入规则（重要）",
-    "- 页面写入工具会自动将你的内容包装进标准页面框架，请只传页面片段",
+    "- The page-writing tool automatically wraps your content in the standard page frame. Pass only the page fragment.",
     "- 片段必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；标题放在 content 内并标记 data-role=\"title\"",
     "- 不要生成 <!doctype>、<html>、<head>、<body> 等完整文档结构",
     "- 禁止输出 <meta>/<title>/<link> 这类 head 标签",
@@ -137,27 +140,31 @@ export function buildDeckAgentSystemPrompt(
       ? "- 不要调用 edit_file / write_file / update_page_file；单页任务只允许 update_single_page_file(pageId, content)"
       : "- 不要调用 edit_file / write_file 直接覆盖页面文件，统一用 update_page_file(content)",
     "",
-    "## 执行流程（严格按顺序）",
-    "1. get_session_context — 获取会话上下文与约束",
+    "## Execution Flow",
+    "1. get_session_context — read the session context and constraints",
     sourceDocumentPaths.length > 0
-      ? `2. 优先使用单页 prompt 中的参考文档检索片段；片段不足时 read_file 读取源文档（${sourceDocumentPaths.join("、")}）补充确认，然后 report_generation_status('分析需求', ...)`
-      : "2. report_generation_status('分析需求', ...) — 汇报开始",
-    "   调用 report_generation_status 时，progress 必须是数字字面量（例如 10、35、88），不要传字符串（如 \"10\"）",
-    "   进度上报必须精细且单调递增，不允许回退：建议区间为 分析需求(8-18) / 上下文读取(18-30) / 页面写入(30-88，按页线性推进) / 验证(88-96) / 完成(98-100)",
-    "   关键动作都应上报一次，避免长时间无状态更新",
+      ? `2. Prefer retrieved source-document snippets in the single-page prompt. If snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(", ")}), then call report_generation_status('Analyzing request', ...)`
+      : "2. report_generation_status('Analyzing request', ...) — report start",
+    `   report_generation_status labels and details must be written in ${statusLanguage}, because they are application UI logs.`,
+    "   This status/log language is independent from deck content language. Deck content must still follow the Content language rules.",
+    "   progress must be a numeric literal such as 10, 35, or 88. Do not pass strings such as \"10\".",
+    "   Progress must be detailed and monotonic. Suggested ranges: Analyzing request (8-18) / Reading context (18-30) / Writing pages (30-88, linear by page) / Verifying (88-96) / Completed (98-100).",
+    "   Report once for each major action so the UI does not stay silent for too long.",
     step3Instruction,
-    "4. verify_completion() — 检查目标页面是否已填充",
-    "5. 如有空页则继续补充，最终 report_generation_status('生成完成', ...)",
+    "4. verify_completion() — check whether target pages are filled",
+    "5. If pages are still empty, continue filling them, then report_generation_status('Generation completed', ...)",
     "",
-    "## 本次任务",
-    `主题：${context.topic}`,
-    `标题：${context.deckTitle}`,
-    `页数：${context.outlineTitles.length}`,
+    CONTENT_LANGUAGE_RULES,
+    "",
+    "## Current Task",
+    `Topic: ${context.topic}`,
+    `Deck title: ${context.deckTitle}`,
+    `Slide count: ${context.outlineTitles.length}`,
     targetInfo,
-    targetPagePath ? `目标文件：${targetPagePath}` : "",
-    "页面大纲：",
+    targetPagePath ? `Target file: ${targetPagePath}` : "",
+    "Page outline:",
     pageList,
     "",
-    "请严格按上述大纲中每页的「内容要点」来填充对应页面，确保标题与内容一致。",
+    "Fill each corresponding page strictly according to the content points in the outline above, keeping titles and content aligned.",
   ].join("\n");
 }

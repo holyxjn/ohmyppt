@@ -3,6 +3,7 @@ import { Image as ImageIcon } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { Message } from '@renderer/store/sessionStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
+import { useT } from '@renderer/i18n'
 
 export function MessageBubble({
   message,
@@ -11,6 +12,7 @@ export function MessageBubble({
   message: Message
   cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
+  const t = useT()
   const isUser = message.role === 'user'
   const selectorText =
     typeof message.selector === 'string' && message.selector.trim().length > 0
@@ -37,7 +39,7 @@ export function MessageBubble({
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex w-full min-w-0 items-center overflow-hidden rounded-full bg-[#d4e4c1]/64 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#657552]">
-                  <span className="mr-1 shrink-0">SELECTOR</span>
+                  <span className="mr-1 shrink-0">{t('sessionDetail.selectorBadge')}</span>
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal tracking-normal">
                     {selectorText}
                   </span>

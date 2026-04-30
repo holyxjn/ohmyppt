@@ -26,6 +26,9 @@ import type { IpcContext } from './context'
 type GenerateMode = 'generate' | 'edit' | 'retry'
 type GenerateChatType = 'main' | 'page'
 
+const uiText = (locale: 'zh' | 'en', zh: string, en: string): string =>
+  locale === 'en' ? en : zh
+
 export type GenerationContext = {
   sessionId: string
   userMessage: string
@@ -56,6 +59,7 @@ export type GenerationContext = {
   sourceDocumentPaths: string[]
   topic: string
   deckTitle: string
+  appLocale: 'zh' | 'en'
 }
 
 type FinalizeGenerationArgs = {
@@ -268,6 +272,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     })()
 
     const settings = await db.getAllSettings()
+    const appLocale = settings.locale === 'en' ? 'en' : 'zh'
     const provider = String(settings.provider || '').trim()
     if (!provider) {
       throw new Error('请先前往系统设置选择 provider。')
@@ -372,7 +377,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       imagePaths,
       sourceDocumentPaths,
       topic,
-      deckTitle
+      deckTitle,
+      appLocale
     }
   }
 
@@ -634,7 +640,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       payload: {
         runId: context.runId,
         stage: 'editing',
-        label: '正在理解你的修改意图',
+        label: uiText(context.appLocale, '正在理解你的修改意图', 'Understanding your edit request'),
         progress: 10,
         totalPages: outlineTitles.length
       }
@@ -643,8 +649,8 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     await emitAssistantMessage(
       context,
       isMainScopeEdit
-        ? `我准备开始调整「${context.topic}」了。目标：主会话总览壳（index.html），我只会修改切换演示动画与交互层动画。`
-        : `我准备开始调整「${context.topic}」了。目标：${resolvedSelectedPageId ? `第 ${resolvedSelectedPageNumber ?? '?'} 页` : '按你的指令智能定位'}${selectedSelector ? `（选择器：${selectedSelector}）` : ''}。`
+        ? uiText(context.appLocale, `我准备开始调整「${context.topic}」了。目标：主会话总览壳（index.html），我只会修改切换演示动画与交互层动画。`, `I am ready to adjust "${context.topic}". Target: the main overview shell (index.html). I will only modify transition and interaction-layer animations.`)
+        : uiText(context.appLocale, `我准备开始调整「${context.topic}」了。目标：${resolvedSelectedPageId ? `第 ${resolvedSelectedPageNumber ?? '?'} 页` : '按你的指令智能定位'}${selectedSelector ? `（选择器：${selectedSelector}）` : ''}。`, `I am ready to adjust "${context.topic}". Target: ${resolvedSelectedPageId ? `page ${resolvedSelectedPageNumber ?? '?'}` : 'infer from your instruction'}${selectedSelector ? ` (selector: ${selectedSelector})` : ''}.`)
     )
     const editTemperature = selectedSelector
       ? PAGE_EDIT_WITH_SELECTOR_TEMPERATURE
@@ -663,6 +669,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       temperature: editTemperature,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
+      appLocale: context.appLocale,
       topic: context.topic,
       deckTitle: context.deckTitle,
       userMessage: context.userMessage,
@@ -823,13 +830,20 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       })
     )
 
-    const changedPages = changedPageDescriptors.map((p) => `第${p.pageNumber}页`).join('、')
+    const changedPages = changedPageDescriptors
+      .map((p) => uiText(context.appLocale, `第${p.pageNumber}页`, `page ${p.pageNumber}`))
+      .join(uiText(context.appLocale, '、', ', '))
     const editSummary =
       changedPageDescriptors.length > 0
-        ? `修改完成：${changedPages}${selectedSelector ? `（目标选择器：${selectedSelector}）` : ''}。`
+        ? uiText(
+            context.appLocale,
+            `修改完成：${changedPages}${selectedSelector ? `（目标选择器：${selectedSelector}）` : ''}。`,
+            `Edit completed: ${changedPages}${selectedSelector ? ` (target selector: ${selectedSelector})` : ''}.`
+          )
         : indexChanged
-          ? '修改完成：已更新 index.html 总览壳交互。'
-          : editSummaryFromEngine.trim() || '我已经检查过了，这次没有检测到需要落盘的页面变化。'
+          ? uiText(context.appLocale, '修改完成：已更新 index.html 总览壳交互。', 'Edit completed: updated index.html overview-shell interactions.')
+          : editSummaryFromEngine.trim() ||
+            uiText(context.appLocale, '我已经检查过了，这次没有检测到需要落盘的页面变化。', 'I checked the session and did not detect page changes that needed to be written this time.')
     await emitAssistantMessage(context, editSummary)
 
     await db.updateSessionMetadata(context.sessionId, {
@@ -887,14 +901,14 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       payload: {
         runId: context.runId,
         stage: 'preflight',
-        label: '正在理解你的创意目标',
+        label: uiText(context.appLocale, '正在理解你的创意目标', 'Understanding your creative goal'),
         progress: 2,
         totalPages: context.totalPages
       }
     })
     await db.addMessage(context.sessionId, {
       role: 'system',
-      content: '正在梳理需求并准备生成画布。',
+      content: uiText(context.appLocale, '正在梳理需求并准备生成画布。', 'Organizing requirements and preparing the canvas.'),
       type: 'stream_chunk',
       chat_scope: context.messageScope,
       page_id: context.messagePageId
@@ -905,7 +919,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       const pageNumber = index + 1
       const pageId = `page-${pageNumber}`
       const htmlPath = path.join(context.entry.projectDir, `${pageId}.html`)
-      const fallbackTitle = context.userProvidedOutlineTitles[index] || `第 ${pageNumber} 页`
+      const fallbackTitle = context.userProvidedOutlineTitles[index] || `Slide ${pageNumber}`
       return { pageNumber, title: fallbackTitle, pageId, htmlPath }
     })
     const pageFileMap = Object.fromEntries(pageRefs.map((page) => [page.pageId, page.htmlPath]))
@@ -928,7 +942,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       payload: {
         runId: context.runId,
         stage: 'planning',
-        label: '正在梳理演示结构',
+        label: uiText(context.appLocale, '正在梳理演示结构', 'Organizing presentation structure'),
         progress: 6,
         totalPages: context.totalPages
       }
@@ -943,10 +957,10 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         payload: {
           runId: context.runId,
           stage: 'preflight',
-          label: '本地画布已就绪',
+          label: uiText(context.appLocale, '本地画布已就绪', 'Local canvas is ready'),
           progress: 4,
           totalPages: pageRefs.length,
-          detail: `已创建 index.html 与 ${pageRefs.length} 个页面骨架`
+          detail: uiText(context.appLocale, `已创建 index.html 与 ${pageRefs.length} 个页面骨架`, `Created index.html and ${pageRefs.length} page shells`)
         }
       })
     })
@@ -959,6 +973,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       temperature: PLANNER_TEMPERATURE,
       styleId: context.styleId,
       totalPages: pageRefs.length,
+      appLocale: context.appLocale,
       topic: context.topic,
       userMessage: context.userMessage,
       emit: (chunk) => emitDeckChunk(chunk),
@@ -974,6 +989,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         temperature: DESIGN_CONTRACT_TEMPERATURE,
         styleId: context.styleId,
         styleSkillPrompt: context.styleSkill.prompt,
+        appLocale: context.appLocale,
         totalPages: context.totalPages,
         emit: (chunk) => emitDeckChunk(chunk),
         runId: context.runId,
@@ -1028,16 +1044,16 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       payload: {
         runId: context.runId,
         stage: 'preflight',
-        label: '结构规划完成，开始填充内容',
+        label: uiText(context.appLocale, '结构规划完成，开始填充内容', 'Structure planned. Filling content'),
         progress: 10,
         totalPages: pageRefs.length,
-        detail: `已完成规划并更新目录标题，设计契约：${designContract.theme}`
+        detail: uiText(context.appLocale, `已完成规划并更新目录标题，设计契约：${designContract.theme}`, `Planning completed and index titles updated. Design contract: ${designContract.theme}`)
       }
     })
 
     await emitAssistantMessage(
       context,
-      `已为「${context.topic}」规划 ${outlineItems.length} 页内容，风格为「${context.styleSkill.preset.label}」。接下来我会逐页完善并实时同步进度。`
+      uiText(context.appLocale, `已为「${context.topic}」规划 ${outlineItems.length} 页内容，风格为「${context.styleSkill.preset.label}」。接下来我会逐页完善并实时同步进度。`, `Planned ${outlineItems.length} slides for "${context.topic}" in the "${context.styleSkill.preset.label}" style. I will refine each page and stream progress in real time.`)
     )
     await sleep(120, context.entry.abortController.signal)
 
@@ -1156,6 +1172,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       temperature: PAGE_GENERATION_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
+      appLocale: context.appLocale,
       topic: context.topic,
       deckTitle: context.deckTitle,
       userMessage: context.userMessage,
@@ -1482,6 +1499,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         temperature: DESIGN_CONTRACT_TEMPERATURE,
         styleId: context.styleId,
         styleSkillPrompt: context.styleSkill.prompt,
+        appLocale: context.appLocale,
         totalPages: context.totalPages,
         emit: (chunk) => emitGenerateChunk(context.sessionId, chunk),
         runId: context.runId,
@@ -1645,9 +1663,12 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       temperature: PAGE_GENERATION_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
+      appLocale: context.appLocale,
       topic: context.topic,
       deckTitle: context.deckTitle,
-      userMessage: context.userMessage || '请继续生成当前会话尚未完成的页面。',
+      userMessage:
+        context.userMessage ||
+        'Continue generating the unfinished slides in this session. Determine the content language from the existing topic, outline, and source materials; do not infer it from this instruction.',
       outlineTitles: retryPages.map((page) => page.title),
       outlineItems: retryPages.map((page) => ({
         title: page.title,

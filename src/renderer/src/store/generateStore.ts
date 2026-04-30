@@ -74,7 +74,7 @@ export const useGenerateStore = create<GenerateStore>((set) => ({
   })),
 
   finishGeneration: () => set({ status: 'completed', isGenerating: false, progress: null, cancelReason: null }),
-  cancelGeneration: (reason = '用户取消生成') =>
+  cancelGeneration: (reason = 'User cancelled generation') =>
     set({ status: 'cancelled', isGenerating: false, progress: null, cancelReason: reason }),
   setError: (error) => set({ status: 'failed', error, isGenerating: false }),
   reset: () => set({
