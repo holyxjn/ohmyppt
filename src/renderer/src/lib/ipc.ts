@@ -172,7 +172,13 @@ export const ipc = {
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   saveSettings: (settings: Record<string, unknown>) =>
     getIpc().invoke('settings:save', settings) as Promise<{ success: boolean }>,
-  verifyApiKey: (payload: { provider: string; apiKey: string; model: string; baseUrl: string }) =>
+  verifyApiKey: (payload: {
+    provider: string
+    apiKey: string
+    model: string
+    baseUrl: string
+    timeoutMs: number
+  }) =>
     getIpc().invoke('settings:verifyApiKey', payload) as Promise<{
       valid: boolean
       message?: string

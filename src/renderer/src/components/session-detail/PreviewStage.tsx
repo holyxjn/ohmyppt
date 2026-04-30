@@ -65,7 +65,7 @@ export function PreviewStage({
           <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_14px_32px_rgba(93,107,77,0.14)]">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="absolute left-5 top-5 z-20 w-[300px] max-w-[calc(100%-9rem)] truncate rounded-full bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
+                <div className="absolute left-5 top-5 z-20 w-[clamp(250px,38%,500px)] truncate rounded-[8px] bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
                   {displayTitle}
                 </div>
               </TooltipTrigger>
@@ -96,7 +96,7 @@ export function PreviewStage({
                   variant={dragEditing ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    'rounded-full px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
                     dragEditing
                       ? 'bg-[#5d6b4d] text-white'
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
@@ -122,7 +122,7 @@ export function PreviewStage({
                     type="button"
                     variant="default"
                     size="sm"
-                    className="rounded-full bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
+                    className="rounded-[8px] bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
                     onClick={onSaveDragEdits}
                     disabled={isGenerating || isSavingDragEdits}
                   >
@@ -139,7 +139,7 @@ export function PreviewStage({
                   variant={inspecting ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    'rounded-full px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
                     inspecting
                       ? 'bg-[#5d6b4d] text-white'
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'

@@ -13,6 +13,7 @@ import {
 } from '../prompt'
 import type { GenerateChunkEvent } from '@shared/generation'
 import { normalizeLayoutIntent } from '@shared/layout-intent'
+import { resolveModelTimeoutMs, type ModelTimeoutProfile } from '@shared/model-timeout'
 import { progressLabel, progressText } from '@shared/progress'
 import type { DesignContract, OutlineItem } from '../tools/types'
 import { extractModelText, extractJsonBlock, sleep } from './utils'
@@ -25,6 +26,15 @@ type AppLocale = 'zh' | 'en'
 
 const uiText = (locale: AppLocale | undefined, zh: string, en: string): string =>
   locale === 'en' ? en : zh
+
+const modelCallSignal = (
+  timeoutMs: unknown,
+  profile: ModelTimeoutProfile,
+  upstreamSignal?: AbortSignal
+): AbortSignal => {
+  const timeoutSignal = AbortSignal.timeout(resolveModelTimeoutMs(timeoutMs, profile))
+  return upstreamSignal ? AbortSignal.any([timeoutSignal, upstreamSignal]) : timeoutSignal
+}
 
 // ── Shared agent stream processor ───────────────────────────────────────
 
@@ -272,6 +282,7 @@ export const planDeckWithLLM = async (args: {
   styleId: string | null | undefined
   totalPages: number
   appLocale?: AppLocale
+  modelTimeoutMs?: number
   topic: string
   userMessage: string
   emit?: (chunk: GenerateChunkEvent) => void
@@ -317,8 +328,7 @@ export const planDeckWithLLM = async (args: {
     totalPages: args.totalPages,
     topic: args.topic
   })
-  const timeoutSignal = AbortSignal.timeout(60_000)
-  const combinedSignal = args.signal ? AbortSignal.any([timeoutSignal, args.signal]) : timeoutSignal
+  const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'planning', args.signal)
   const response = await client.invoke(
     [
       { role: 'system' as const, content: systemPrompt },
@@ -425,6 +435,7 @@ export const buildDesignContractWithLLM = async (args: {
   styleId: string | null | undefined
   styleSkillPrompt: string
   appLocale?: AppLocale
+  modelTimeoutMs?: number
   totalPages: number
   emit?: (chunk: GenerateChunkEvent) => void
   runId?: string
@@ -452,10 +463,7 @@ export const buildDesignContractWithLLM = async (args: {
     }
   })
   try {
-    const timeoutSignal = AbortSignal.timeout(45_000)
-    const combinedSignal = args.signal
-      ? AbortSignal.any([timeoutSignal, args.signal])
-      : timeoutSignal
+    const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'design', args.signal)
     const response = await client.invoke(
       [
         {
@@ -517,6 +525,7 @@ export const runDeepAgentDeckGeneration = async (args: {
   styleId: string | null | undefined
   styleSkillPrompt: string
   appLocale?: AppLocale
+  modelTimeoutMs?: number
   topic: string
   deckTitle: string
   userMessage: string
@@ -786,10 +795,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     args.agentManager.setPageAgent(args.sessionId, page.pageId, deepAgent)
 
     try {
-      const timeoutSignal = AbortSignal.timeout(5 * 60_000)
-      const combinedSignal = args.signal
-        ? AbortSignal.any([timeoutSignal, args.signal])
-        : timeoutSignal
+      const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'agent', args.signal)
       const stream = await deepAgent.stream(
         {
           messages: [
@@ -1086,6 +1092,7 @@ export const runDeepAgentEdit = async (args: {
   styleId: string | null | undefined
   styleSkillPrompt: string
   appLocale?: AppLocale
+  modelTimeoutMs?: number
   topic: string
   deckTitle: string
   userMessage: string
@@ -1205,10 +1212,7 @@ export const runDeepAgentEdit = async (args: {
   }
 
   try {
-    const editTimeoutSignal = AbortSignal.timeout(5 * 60_000)
-    const editCombinedSignal = args.signal
-      ? AbortSignal.any([editTimeoutSignal, args.signal])
-      : editTimeoutSignal
+    const editCombinedSignal = modelCallSignal(args.modelTimeoutMs, 'agent', args.signal)
     const stream = await editAgent.stream(
       {
         messages: [

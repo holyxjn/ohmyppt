@@ -2,6 +2,31 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import log from 'electron-log/main.js'
 import { resolveModel } from '../agent'
 import type { IpcContext } from './context'
+import {
+  CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
+  type ConfigurableModelTimeoutProfile,
+  MODEL_TIMEOUT_PROFILES,
+  normalizeModelTimeoutMs,
+  resolveModelTimeoutMs,
+  type ModelTimeoutProfile
+} from '@shared/model-timeout'
+
+const readProviderTimeouts = (
+  settings: Record<string, unknown>,
+  provider: string
+): Record<ModelTimeoutProfile, number> =>
+  Object.fromEntries(
+    MODEL_TIMEOUT_PROFILES.map((profile) => [
+      profile,
+      resolveModelTimeoutMs(
+        settings[`timeout_ms_${provider}_${profile}`] ??
+          ((profile === 'agent' || profile === 'document')
+            ? settings[`timeout_ms_${provider}`]
+            : undefined),
+        profile
+      )
+    ])
+  ) as Record<ModelTimeoutProfile, number>
 
 export function registerSettingsHandlers(ctx: IpcContext): void {
   const { mainWindow, db, encryptApiKey, decryptApiKey } = ctx
@@ -17,12 +42,16 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       anthropic: {
         model: typeof settings.model_anthropic === 'string' ? settings.model_anthropic : '',
         apiKey: decryptApiKey(settings.api_key_anthropic),
-        baseUrl: typeof settings.base_url_anthropic === 'string' ? settings.base_url_anthropic : ''
+        baseUrl: typeof settings.base_url_anthropic === 'string' ? settings.base_url_anthropic : '',
+        timeoutMs: normalizeModelTimeoutMs(settings.timeout_ms_anthropic),
+        timeouts: readProviderTimeouts(settings, 'anthropic')
       },
       openai: {
         model: typeof settings.model_openai === 'string' ? settings.model_openai : '',
         apiKey: decryptApiKey(settings.api_key_openai),
-        baseUrl: typeof settings.base_url_openai === 'string' ? settings.base_url_openai : ''
+        baseUrl: typeof settings.base_url_openai === 'string' ? settings.base_url_openai : '',
+        timeoutMs: normalizeModelTimeoutMs(settings.timeout_ms_openai),
+        timeouts: readProviderTimeouts(settings, 'openai')
       }
     }
 
@@ -53,7 +82,13 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     if (settings.providerConfigs && typeof settings.providerConfigs === 'object') {
       const providerConfigs = settings.providerConfigs as Record<
         string,
-        { model?: unknown; apiKey?: unknown; baseUrl?: unknown }
+        {
+          model?: unknown
+          apiKey?: unknown
+          baseUrl?: unknown
+          timeoutMs?: unknown
+          timeouts?: Partial<Record<ConfigurableModelTimeoutProfile, unknown>>
+        }
       >
       for (const [provider, config] of Object.entries(providerConfigs)) {
         if (typeof config.model === 'string') await db.setSetting(`model_${provider}`, config.model)
@@ -62,17 +97,33 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
         }
         if (typeof config.baseUrl === 'string')
           await db.setSetting(`base_url_${provider}`, config.baseUrl)
+        if (config.timeoutMs !== undefined) {
+          await db.setSetting(`timeout_ms_${provider}`, normalizeModelTimeoutMs(config.timeoutMs))
+        }
+        if (config.timeouts && typeof config.timeouts === 'object') {
+          for (const profile of CONFIGURABLE_MODEL_TIMEOUT_PROFILES) {
+            const value = config.timeouts[profile]
+            if (value !== undefined) {
+              await db.setSetting(
+                `timeout_ms_${provider}_${profile}`,
+                resolveModelTimeoutMs(value, profile)
+              )
+            }
+          }
+        }
       }
     }
     return { success: true }
   })
 
-  ipcMain.handle('settings:verifyApiKey', async (_event, { provider, apiKey, model, baseUrl }) => {
+  ipcMain.handle('settings:verifyApiKey', async (_event, { provider, apiKey, model, baseUrl, timeoutMs }) => {
+    const resolvedTimeoutMs = resolveModelTimeoutMs(timeoutMs, 'verify')
     log.info('[settings:verifyApiKey] received', {
       provider,
       model,
       hasApiKey: typeof apiKey === 'string' && apiKey.trim().length > 0,
-      baseUrl: typeof baseUrl === 'string' ? baseUrl : ''
+      baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
+      timeoutMs: resolvedTimeoutMs
     })
 
     if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
@@ -89,7 +140,9 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
         model.trim(),
         typeof baseUrl === 'string' ? baseUrl.trim() : ''
       )
-      await client.invoke('Reply with OK.')
+      await client.invoke('Reply with OK.', {
+        signal: AbortSignal.timeout(resolvedTimeoutMs)
+      })
       log.info('[settings:verifyApiKey] success', { provider, model })
       return { valid: true, message: '连接验证成功。' }
     } catch (error) {

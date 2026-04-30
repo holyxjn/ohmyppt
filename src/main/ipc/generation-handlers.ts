@@ -21,6 +21,7 @@ export function registerGenerationHandlers(
     executeGeneration,
     executeRetryFailedPages
   } = generationService
+  const startingSessionIds = new Set<string>()
 
   ipcMain.handle('generate:state', async (_event, rawSessionId: unknown) => {
     pruneFinishedSessionRunStates()
@@ -82,6 +83,13 @@ export function registerGenerationHandlers(
         })
         return { success: true, runId: runningState.runId, alreadyRunning: true }
       }
+      if (startingSessionIds.has(requestedSessionId)) {
+        log.info('[generate:start] attach to starting run', {
+          sessionId: requestedSessionId
+        })
+        return { success: true, alreadyRunning: true }
+      }
+      startingSessionIds.add(requestedSessionId)
     }
 
     let context: GenerationContext | null = null
@@ -101,6 +109,9 @@ export function registerGenerationHandlers(
       }
       throw error
     } finally {
+      if (requestedSessionId) {
+        startingSessionIds.delete(requestedSessionId)
+      }
       if (context) {
         agentManager.removeSession(context.sessionId)
       }

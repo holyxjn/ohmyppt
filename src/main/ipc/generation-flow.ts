@@ -3,6 +3,11 @@ import type { PPTDatabase } from '../db/database'
 import type { AgentManager } from '../agent'
 import type { GenerateStartPayload, GeneratedPagePayload } from '@shared/generation'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
+import {
+  MODEL_TIMEOUT_PROFILES,
+  resolveModelTimeoutMs,
+  type ModelTimeoutProfile
+} from '@shared/model-timeout'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
@@ -52,6 +57,7 @@ export type GenerationContext = {
   provider: string
   apiKey: string
   model: string
+  modelTimeouts: Record<ModelTimeoutProfile, number>
   providerBaseUrl: string
   projectId: string
   messageScope: GenerateChatType
@@ -114,7 +120,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     content: string
   ): Promise<void> => {
     if (!content.trim()) return
-    await db.addMessage(context.sessionId, {
+    const messageId = await db.addMessage(context.sessionId, {
       role: 'assistant',
       content: content.trim(),
       type: 'text',
@@ -124,6 +130,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     emitGenerateChunk(context.sessionId, {
       type: 'assistant_message',
       payload: {
+        id: messageId,
         runId: context.runId,
         content: content.trim(),
         chatType: context.messageScope,
@@ -284,6 +291,18 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     const settingsModel = String(settings[`model_${provider}`] || '').trim()
     const model = settingsModel
     const providerBaseUrl = String(settings[`base_url_${provider}`] || '').trim()
+    const modelTimeouts = Object.fromEntries(
+      MODEL_TIMEOUT_PROFILES.map((profile) => [
+        profile,
+        resolveModelTimeoutMs(
+          settings[`timeout_ms_${provider}_${profile}`] ??
+            ((profile === 'agent' || profile === 'document')
+              ? settings[`timeout_ms_${provider}`]
+              : undefined),
+          profile
+        )
+      ])
+    ) as Record<ModelTimeoutProfile, number>
     if (!model) {
       throw new Error('请先前往系统设置填写 model。')
     }
@@ -374,6 +393,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       provider,
       apiKey,
       model,
+      modelTimeouts,
       providerBaseUrl,
       projectId,
       messageScope: normalizedChatType,
@@ -686,6 +706,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      modelTimeoutMs: context.modelTimeouts.agent,
       temperature: editTemperature,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
@@ -1006,6 +1027,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      modelTimeoutMs: context.modelTimeouts.planning,
       temperature: PLANNER_TEMPERATURE,
       styleId: context.styleId,
       totalPages: pageRefs.length,
@@ -1022,6 +1044,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         apiKey: context.apiKey,
         model: context.model,
         baseUrl: context.providerBaseUrl,
+        modelTimeoutMs: context.modelTimeouts.design,
         temperature: DESIGN_CONTRACT_TEMPERATURE,
         styleId: context.styleId,
         styleSkillPrompt: context.styleSkill.prompt,
@@ -1219,6 +1242,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      modelTimeoutMs: context.modelTimeouts.agent,
       temperature: PAGE_GENERATION_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
@@ -1572,6 +1596,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         apiKey: context.apiKey,
         model: context.model,
         baseUrl: context.providerBaseUrl,
+        modelTimeoutMs: context.modelTimeouts.design,
         temperature: DESIGN_CONTRACT_TEMPERATURE,
         styleId: context.styleId,
         styleSkillPrompt: context.styleSkill.prompt,
@@ -1750,6 +1775,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      modelTimeoutMs: context.modelTimeouts.agent,
       temperature: PAGE_GENERATION_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,

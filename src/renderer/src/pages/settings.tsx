@@ -14,6 +14,11 @@ import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
 import { ShieldCheck, FolderSearch } from 'lucide-react'
 import { useLang } from '../i18n'
+import {
+  CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
+  type ConfigurableModelTimeoutProfile,
+  resolveModelTimeoutMs,
+} from '@shared/model-timeout.js'
 
 export function SettingsPage(): React.JSX.Element {
   const {
@@ -22,9 +27,11 @@ export function SettingsPage(): React.JSX.Element {
     apiKey,
     model,
     baseUrl,
+    timeoutSeconds,
     setApiKey,
     setModel,
     setBaseUrl,
+    setTimeoutSeconds,
     setVerificationMessage,
     loadProviderConfig,
     verifyApiKey,
@@ -60,6 +67,37 @@ export function SettingsPage(): React.JSX.Element {
   }, [provider, loadProviderConfig, setVerificationMessage])
 
   const providerLabel = provider === 'openai' ? 'OpenAI' : 'Claude'
+  const timeoutFields: Array<{
+    profile: ConfigurableModelTimeoutProfile
+    label: string
+    hint: string
+    min: number
+  }> = [
+    {
+      profile: 'planning',
+      label: t('settings.timeoutPlanning'),
+      hint: t('settings.timeoutPlanningHint'),
+      min: 120
+    },
+    {
+      profile: 'design',
+      label: t('settings.timeoutDesign'),
+      hint: t('settings.timeoutDesignHint'),
+      min: 120
+    },
+    {
+      profile: 'agent',
+      label: t('settings.timeoutAgent'),
+      hint: t('settings.timeoutAgentHint'),
+      min: 300
+    },
+    {
+      profile: 'document',
+      label: t('settings.timeoutDocument'),
+      hint: t('settings.timeoutDocumentHint'),
+      min: 300
+    }
+  ]
 
   const handleSaveModel = async (): Promise<void> => {
     setSavingModel(true)
@@ -71,7 +109,13 @@ export function SettingsPage(): React.JSX.Element {
           [provider]: {
             model: model.trim(),
             apiKey: apiKey.trim(),
-            baseUrl: baseUrl.trim()
+            baseUrl: baseUrl.trim(),
+            timeouts: Object.fromEntries(
+              CONFIGURABLE_MODEL_TIMEOUT_PROFILES.map((profile) => [
+                profile,
+                resolveModelTimeoutMs(timeoutSeconds[profile] * 1000, profile)
+              ])
+            ) as Record<ConfigurableModelTimeoutProfile, number>
           }
         }
       })
@@ -103,7 +147,13 @@ export function SettingsPage(): React.JSX.Element {
     setVerifying(true)
     setVerificationMessage(null)
     try {
-      const valid = await verifyApiKey(provider, apiKey, model, baseUrl)
+      const valid = await verifyApiKey(
+        provider,
+        apiKey,
+        model,
+        baseUrl,
+        resolveModelTimeoutMs(undefined, 'verify')
+      )
       const verifyMessage = useSettingsStore.getState().verificationMessage
       if (valid) {
         success(t('settings.verifyPassed'), {
@@ -141,7 +191,7 @@ export function SettingsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <div className="mb-6">
+      <div className="mb-5">
         <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
           {t('settings.eyebrow')}
         </p>
@@ -154,18 +204,19 @@ export function SettingsPage(): React.JSX.Element {
         <TabsList>
           <TabsTrigger value="general">{t('settings.generalTab')}</TabsTrigger>
           <TabsTrigger value="model">{t('settings.modelTab')}</TabsTrigger>
+          <TabsTrigger value="advanced">{t('settings.advancedTab')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="general" className="space-y-6">
+        <TabsContent value="general" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.interface')}</CardTitle>
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-base">{t('settings.interface')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-5 pt-0">
               <div>
-                <label className="block text-sm font-medium mb-2">{t('settings.language')}</label>
+                <label className="mb-1.5 block text-sm font-medium">{t('settings.language')}</label>
                 <Select value={lang} onValueChange={(v) => setLang(v === 'en' ? 'en' : 'zh')}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10">
                     <SelectValue placeholder={t('settings.languagePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -178,12 +229,12 @@ export function SettingsPage(): React.JSX.Element {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.storage')}</CardTitle>
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-base">{t('settings.storage')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-5 pt-0">
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="mb-1.5 block text-sm font-medium">
                   {t('settings.storagePath')}
                 </label>
                 <div className="flex gap-2">
@@ -191,12 +242,12 @@ export function SettingsPage(): React.JSX.Element {
                     value={storagePath}
                     readOnly
                     placeholder={t('settings.storagePlaceholder')}
-                    className="min-w-0 flex-1"
+                    className="h-10 min-w-0 flex-1"
                   />
                   <Button
                     variant="secondary"
                     onClick={handleChoosePath}
-                    className="h-11 min-w-[104px] shrink-0 rounded-lg border border-[#7ea06f]/45"
+                    className="h-10 min-w-[96px] shrink-0 rounded-lg border border-[#7ea06f]/45 px-4"
                   >
                     <FolderSearch className="mr-1.5 h-4 w-4" />
                     {t('settings.choose')}
@@ -209,20 +260,20 @@ export function SettingsPage(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="model">
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>{t('settings.modelAccess')}</CardTitle>
+          <Card className="mb-4">
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-base">{t('settings.modelAccess')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-5 pt-0">
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="mb-1.5 block text-sm font-medium">
                   {t('settings.providerPreset')}
                 </label>
                 <Select
                   value={provider}
                   onValueChange={(v) => setProvider(v === 'openai' ? 'openai' : 'anthropic')}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10">
                     <SelectValue placeholder={t('settings.providerPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -233,40 +284,42 @@ export function SettingsPage(): React.JSX.Element {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">model</label>
+                <label className="mb-1.5 block text-sm font-medium">model</label>
                 <Input
                   placeholder={t('settings.modelPlaceholder')}
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
+                  className="h-10"
                 />
                 <p className="mt-2 text-xs text-muted-foreground">{t('settings.modelHint')}</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">base_url</label>
+                <label className="mb-1.5 block text-sm font-medium">base_url</label>
                 <Input
                   placeholder={t('settings.baseUrlPlaceholder')}
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
+                  className="h-10"
                 />
                 <p className="mt-2 text-xs text-muted-foreground">{t('settings.baseUrlHint')}</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">api_key</label>
+                <label className="mb-1.5 block text-sm font-medium">api_key</label>
                 <div className="flex gap-2">
                   <Input
                     type="password"
                     placeholder={t('settings.apiKeyPlaceholder', { provider: providerLabel })}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    className="min-w-0 flex-1"
+                    className="h-10 min-w-0 flex-1"
                   />
                   <Button
                     variant="secondary"
                     onClick={handleVerify}
                     disabled={verifying}
-                    className="h-11 min-w-[104px] shrink-0 rounded-lg border border-[#7ea06f]/45"
+                    className="h-10 min-w-[96px] shrink-0 rounded-lg border border-[#7ea06f]/45 px-4"
                   >
                     <ShieldCheck className="mr-1.5 h-4 w-4" />
                     {verifying ? t('settings.verifying') : t('settings.verify')}
@@ -274,12 +327,54 @@ export function SettingsPage(): React.JSX.Element {
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">{t('settings.verifyHint')}</p>
               </div>
+
             </CardContent>
           </Card>
 
-          <Button onClick={handleSaveModel} className="w-full" disabled={savingModel}>
-            {savingModel ? t('common.saving') : t('settings.saveModel')}
-          </Button>
+          <div className="flex justify-end">
+            <Button onClick={handleSaveModel} disabled={savingModel}>
+              {savingModel ? t('common.saving') : t('settings.saveModel')}
+            </Button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="advanced">
+          <Card className="mb-4">
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-base">{t('settings.timeoutSection')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 p-5 pt-0">
+              <p className="text-xs text-muted-foreground">{t('settings.timeoutHint')}</p>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                {timeoutFields.map((field) => (
+                  <div key={field.profile}>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      {field.label}
+                    </label>
+                    <Input
+                      type="number"
+                      min={field.min}
+                      max={3600}
+                      step={30}
+                      placeholder={t('settings.timeoutPlaceholder')}
+                      value={timeoutSeconds[field.profile]}
+                      onChange={(e) => setTimeoutSeconds(field.profile, Number(e.target.value))}
+                      className="h-10"
+                    />
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                      {field.hint}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end">
+            <Button onClick={handleSaveModel} disabled={savingModel}>
+              {savingModel ? t('common.saving') : t('settings.saveModel')}
+            </Button>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

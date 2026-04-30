@@ -13,7 +13,7 @@ import { Button } from '../ui/Button'
 import { useT } from '@renderer/i18n'
 
 const toolbarButtonClass =
-  'h-7 rounded-full border-transparent bg-[#e8e0d0]/72 px-2.5 text-[11px] text-[#3e4a32] shadow-[0_4px_10px_rgba(86,72,53,0.08)] hover:bg-[#d4e4c1]/78'
+  'h-7 rounded-[8px] border-transparent bg-[#e8e0d0]/72 px-2.5 text-[11px] text-[#3e4a32] shadow-[0_4px_10px_rgba(86,72,53,0.08)] hover:bg-[#d4e4c1]/78'
 const toolbarIconClass = 'mr-1.5 h-3.5 w-3.5'
 
 export function SessionToolbar({
@@ -123,7 +123,7 @@ export function SessionToolbar({
         type="button"
         onClick={() => setConsoleOpen((open) => !open)}
         className={cn(
-          'inline-flex h-7 w-7 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] cursor-pointer transition-colors',
+          'inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] transition-colors',
           consoleOpen
             ? 'bg-[#d4e4c1]/86 text-[#486034] shadow-[0_5px_12px_rgba(93,107,77,0.12)]'
             : 'text-[#5d6b4d] hover:bg-[#e8e0d0]/72 hover:text-[#3e4a32]'

@@ -9,6 +9,7 @@ import { FilesystemBackend, createDeepAgent } from 'deepagents'
 import { extractJsonBlock, extractModelText } from './utils'
 import type { IpcContext } from './context'
 import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
+import { resolveModelTimeoutMs } from '@shared/model-timeout'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string
@@ -695,6 +696,7 @@ const runDocumentPlanAgent = async (args: {
   apiKey: string
   model: string
   baseUrl: string
+  modelTimeoutMs: number
   workspaceDir: string
   file: PreparedSourceFile
   topic: string
@@ -735,7 +737,7 @@ const runDocumentPlanAgent = async (args: {
     {
       streamMode: ['updates', 'messages'],
       subgraphs: true,
-      signal: AbortSignal.timeout(5 * 60_000)
+      signal: AbortSignal.timeout(resolveModelTimeoutMs(args.modelTimeoutMs, 'document'))
     }
   )
 
@@ -799,6 +801,10 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
     if (!provider) throw new Error('请先前往系统设置选择 provider。')
     const model = String(settings[`model_${provider}`] || '').trim()
     const baseUrl = String(settings[`base_url_${provider}`] || '').trim()
+    const modelTimeoutMs = resolveModelTimeoutMs(
+      settings[`timeout_ms_${provider}_document`] ?? settings[`timeout_ms_${provider}`],
+      'document'
+    )
     const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim()
     if (!model) throw new Error('请先前往系统设置填写 model。')
     if (!apiKey) throw new Error('请先前往系统设置填写 api_key。')
@@ -826,6 +832,7 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
           apiKey,
           model,
           baseUrl,
+          modelTimeoutMs,
           workspaceDir: docsDir,
           file: sourceFile,
           topic,

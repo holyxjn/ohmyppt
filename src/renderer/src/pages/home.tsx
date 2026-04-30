@@ -431,8 +431,8 @@ export function HomePage(): ReactElement {
           </div>
         )}
 
-        <Card className="mb-6">
-          <CardContent className="space-y-5 py-7">
+        <Card className="mb-4">
+          <CardContent className="space-y-4 py-5">
             <div>
               <label className="mb-2 block text-sm font-medium">{t('home.topic')}</label>
               <Input
@@ -496,11 +496,11 @@ export function HomePage(): ReactElement {
               <label className="mb-2 block text-sm font-medium">{t('home.brief')}</label>
               <Textarea
                 placeholder={t('home.briefPlaceholder')}
-                rows={8}
+                rows={5}
                 value={brief}
                 required
                 onChange={(e) => setBrief(e.target.value)}
-                className="resize-y"
+                className="min-h-[132px] resize-y"
               />
             </div>
           </CardContent>

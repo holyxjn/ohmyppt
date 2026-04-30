@@ -147,7 +147,7 @@ body {
   background: linear-gradient(165deg, rgba(255, 252, 247, 0.93), rgba(244, 238, 225, 0.88));
   box-shadow: 0 14px 34px rgba(88, 75, 56, 0.12), 0 2px 8px rgba(79, 66, 49, 0.08);
   border: 1px solid rgba(173, 154, 123, 0.35);
-  border-radius: 14px;
+  border-radius: 10px;
 }
 
 .soft-card-hover {
@@ -217,11 +217,49 @@ body {
 }
 
 .organic-shape {
-  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  border-radius: 12px;
 }
 
 .leaf-shape {
-  border-radius: 5% 95% 10% 90% / 85% 15% 85% 15%;
+  border-radius: 12px;
+}
+
+/* App-wide radius scale: keep the UI soft, but avoid overly pill-like controls. */
+.rounded-sm {
+  border-radius: 3px !important;
+}
+
+.rounded,
+.rounded-md {
+  border-radius: 5px !important;
+}
+
+.rounded-lg {
+  border-radius: 8px !important;
+}
+
+.rounded-xl {
+  border-radius: 10px !important;
+}
+
+.rounded-2xl,
+.rounded-3xl,
+[class*="rounded-[1rem]"],
+[class*="rounded-[1.15rem]"],
+[class*="rounded-[1.25rem]"],
+[class*="rounded-[1.35rem]"],
+[class*="rounded-[1.4rem]"],
+[class*="rounded-[1.5rem]"],
+[class*="rounded-[1.55rem]"],
+[class*="rounded-[2rem]"] {
+  border-radius: 12px !important;
+}
+
+.rounded-full,
+[class*="rounded-[30%"],
+[class*="rounded-[38%"],
+[class*="rounded-[5%"] {
+  border-radius: 10px !important;
 }
 
 @keyframes shell-enter {

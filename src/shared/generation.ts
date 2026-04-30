@@ -108,6 +108,7 @@ export type GenerateChunkEvent =
   | {
       type: 'assistant_message'
       payload: {
+        id?: string
         runId: string
         sessionId?: string
         content: string

@@ -43,6 +43,7 @@ export function SessionDetailPage(): React.JSX.Element {
   >([])
   const [isSavingDragEdits, setIsSavingDragEdits] = useState(false)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
+  const sendingMessageRef = useRef(false)
   const {
     success: toastSuccess,
     error: toastError,
@@ -172,7 +173,7 @@ export function SessionDetailPage(): React.JSX.Element {
         type === 'llm_status'
       ) {
         // 不清空 currentPages，保持预览可见
-        useGenerateStore.setState({ isGenerating: true, error: null })
+        useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
         updateProgress({
           stage: payload.stage,
           label: payload.label,
@@ -200,16 +201,17 @@ export function SessionDetailPage(): React.JSX.Element {
           useSessionDetailUiStore.getState().bumpPreviewKey()
         }
       } else if (type === 'page_updated') {
-        useGenerateStore
-          .getState()
-          .updatePage(payload.pageId || `page-${payload.pageNumber}`, payload.html, {
-            pageNumber: payload.pageNumber,
-            title: payload.title,
-            htmlPath: payload.htmlPath,
-            sourceUrl: payload.sourceUrl,
-            status: 'completed',
-            error: null
-          })
+        useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+        useGenerateStore.getState().addPage({
+          pageNumber: payload.pageNumber,
+          title: payload.title,
+          html: payload.html,
+          htmlPath: payload.htmlPath,
+          pageId: payload.pageId || `page-${payload.pageNumber}`,
+          sourceUrl: payload.sourceUrl,
+          status: 'completed',
+          error: null
+        })
         useSessionDetailUiStore.getState().setSelectedPageNumber(payload.pageNumber)
         useSessionDetailUiStore.getState().bumpPreviewKey()
       } else if (type === 'assistant_message') {
@@ -220,8 +222,11 @@ export function SessionDetailPage(): React.JSX.Element {
           incomingType === active.chatType &&
           (incomingType !== 'page' || incomingPageId === active.pageId)
         if (!matchesCurrentChat) return
+        const createdAt = payload.timestamp
+          ? Math.floor(new Date(payload.timestamp).getTime() / 1000)
+          : Math.floor(Date.now() / 1000)
         addMessage({
-          id: crypto.randomUUID(),
+          id: payload.id || crypto.randomUUID(),
           session_id: id,
           chat_scope: incomingType,
           page_id: incomingPageId || null,
@@ -231,7 +236,7 @@ export function SessionDetailPage(): React.JSX.Element {
           tool_name: null,
           tool_call_id: null,
           token_count: null,
-          created_at: Math.floor(Date.now() / 1000)
+          created_at: Number.isFinite(createdAt) ? createdAt : Math.floor(Date.now() / 1000)
         })
       } else if (type === 'run_completed') {
         useGenerateStore.getState().finishGeneration()
@@ -301,6 +306,7 @@ export function SessionDetailPage(): React.JSX.Element {
 
   const handleSend = async (): Promise<void> => {
     if (!id) return
+    if (sendingMessageRef.current || isGenerating) return
     const detailState = useSessionDetailUiStore.getState()
     if (detailState.chatType === 'main') {
       toastInfo(t('sessionDetail.switchToPageFirst'))
@@ -325,38 +331,48 @@ export function SessionDetailPage(): React.JSX.Element {
     if (hasSelector && detailState.chatType !== 'page') {
       detailState.setChatType('page')
     }
-    addMessage({
-      id: crypto.randomUUID(),
-      session_id: id,
-      chat_scope: effectiveChatType,
-      page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
-      selector: effectiveChatType === 'page' ? selectorForMessage : null,
-      image_paths: assetsForMessage.map((asset) => asset.relativePath),
-      role: 'user',
-      content,
-      type: 'text',
-      tool_name: null,
-      tool_call_id: null,
-      token_count: null,
-      created_at: Math.floor(Date.now() / 1000)
-    })
-    detailState.setInput('')
-    detailState.clearPendingAssets()
-    detailState.clearSelectedElement()
-    const hasExistingPages = normalizedOrderedPages.length > 0
-    await ipc.startGenerate({
-      sessionId: id,
-      userMessage: content,
-      type: hasExistingPages ? 'page' : 'deck',
-      chatType: effectiveChatType,
-      chatPageId: effectiveChatType === 'page' ? targetPageId : undefined,
-      selectedPageId: hasExistingPages && effectiveChatType === 'page' ? targetPageId : undefined,
-      htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
-      selector: selectorForMessage || undefined,
-      elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
-      elementText: hasSelector ? detailState.elementText || undefined : undefined,
-      imagePaths: assetsForMessage.map((asset) => asset.relativePath)
-    })
+    sendingMessageRef.current = true
+    try {
+      useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+      addMessage({
+        id: crypto.randomUUID(),
+        session_id: id,
+        chat_scope: effectiveChatType,
+        page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
+        selector: effectiveChatType === 'page' ? selectorForMessage : null,
+        image_paths: assetsForMessage.map((asset) => asset.relativePath),
+        role: 'user',
+        content,
+        type: 'text',
+        tool_name: null,
+        tool_call_id: null,
+        token_count: null,
+        created_at: Math.floor(Date.now() / 1000)
+      })
+      detailState.setInput('')
+      detailState.clearPendingAssets()
+      detailState.clearSelectedElement()
+      const hasExistingPages = normalizedOrderedPages.length > 0
+      await ipc.startGenerate({
+        sessionId: id,
+        userMessage: content,
+        type: hasExistingPages ? 'page' : 'deck',
+        chatType: effectiveChatType,
+        chatPageId: effectiveChatType === 'page' ? targetPageId : undefined,
+        selectedPageId: hasExistingPages && effectiveChatType === 'page' ? targetPageId : undefined,
+        htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
+        selector: selectorForMessage || undefined,
+        elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
+        elementText: hasSelector ? detailState.elementText || undefined : undefined,
+        imagePaths: assetsForMessage.map((asset) => asset.relativePath)
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('generating.failed')
+      useGenerateStore.getState().setError(message)
+      toastError(message)
+    } finally {
+      sendingMessageRef.current = false
+    }
   }
 
   const handleCancel = async (): Promise<void> => {

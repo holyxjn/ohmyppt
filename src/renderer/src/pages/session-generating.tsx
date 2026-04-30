@@ -288,8 +288,14 @@ export function SessionGeneratingPage(): React.JSX.Element {
           setTotalPages(Math.floor(snapshot.page_count))
         }
 
+        const hasManualStartIntent = Boolean(
+          state?.retry ||
+          explicitRerun ||
+          (state?.initialPrompt && state.initialPrompt.trim().length > 0)
+        )
+
         if (runState) {
-          const shouldHydrateFromSnapshot = !state?.retry || runState.hasActiveRun
+          const shouldHydrateFromSnapshot = !hasManualStartIntent || runState.hasActiveRun
 
           if (runState.hasActiveRun && runState.runId) {
             activeRunIdRef.current = runState.runId
@@ -341,11 +347,6 @@ export function SessionGeneratingPage(): React.JSX.Element {
           }
         }
 
-        const hasManualStartIntent = Boolean(
-          state?.retry ||
-          explicitRerun ||
-          (state?.initialPrompt && state.initialPrompt.trim().length > 0)
-        )
         const fullyGenerated = isSessionFullyGenerated(snapshotGate)
 
         if (fullyGenerated && !state?.retry && !explicitRerun) {
