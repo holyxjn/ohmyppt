@@ -2,10 +2,16 @@
 
 ## 2026-04-30
 
-- 优化页面调整体验：万物皆可拖拽和调整大小，可直接拖拽和缩放更多页面元素，包括文字、图片、公式、列表项、数据标签和图表容器。
-- 调整改为手动确认：拖拽或缩放后不会立即保存，可继续调整多个元素，最后统一保存或退出不保存。
-- 优化 AI 生成版式：标题和页面更加自由创意。
-- 优化图表显示：减少小数标签出现过长浮点数的问题，让坐标轴、tooltip 和标签更清爽。
+- 优化页面调整体验：一切皆可拖拽，现在可以直接拖拽和缩放，调整文字、图片、公式、列表、数据标签和图表更顺手。
+- 优化调整保存流程：页面调整不会立即保存，可连续微调多个元素后统一确认，也可以退出并放弃本次调整。
+- 优化 AI 生成版式：页面标题和内容布局更灵活，生成结果不再局限于固定的顶部标题模板。
+- 优化图表展示效果：坐标轴、提示信息和数据标签更清爽，减少过长数字和图表显示异常。
+- 新增中英文界面语言：应用界面可切换中文或英文，生成内容仍会根据用户输入和资料自行判断语言。
+- 优化生成进度展示：进度日志更简洁统一，减少重复、混杂或过度解释的状态信息。
+- 优化页面版式延续性：生成、编辑和重试时会更好地延续每页原本的内容结构和视觉方向。
+- 优化模型设置体验：常用模型配置更清晰，高级超时参数独立收纳，适合本地模型或响应较慢的模型按需调整。
+- 优化会话详情页体验：顶部工具、预览标题、右侧消息面板和整体圆角更克制，界面层次更清爽。
+- 优化图表生成稳定性：减少图表高度异常、被压缩或显示不完整的问题。
 
 ## 2026-04-29
 
@@ -64,11 +70,17 @@
 
 ## 2026-04-30
 
-- Improved slide adjustment: more visible elements can now be dragged and resized, including text, images, formulas, list items, data labels, and chart containers.
-- Changed adjustments to manual confirmation: drag or resize multiple elements first, then save all changes together or exit without saving.
-- Improved preview refresh behavior: exiting without saving now reloads only the current slide instead of refreshing every thumbnail.
-- Improved AI layout variety: titles are no longer treated as fixed top headers, allowing side titles, corner titles, title cards, and chart-adjacent titles.
-- Improved chart readability: reduced overly long floating-point labels in axes, tooltips, and chart labels.
+- Improved slide adjustment: more slide content can now be moved and resized directly, making text, images, formulas, lists, data labels, and charts easier to refine.
+- Improved the adjustment flow: layout edits are no longer saved immediately, so users can make several changes and then confirm or discard them together.
+- Improved AI-generated layouts: titles and content placement are more flexible, moving beyond a fixed top-title template.
+- Improved chart presentation: axes, tooltips, and data labels are cleaner, with fewer overly long numbers and fewer visual glitches.
+- Added Chinese and English interface languages: the app UI can switch languages while generated content still follows the user's prompt and source materials.
+- Improved generation progress: progress logs are cleaner and more consistent, with less repetition and fewer overly verbose status messages.
+- Improved slide layout continuity: generation, editing, and retries now better preserve each slide's content structure and visual direction.
+- Improved model settings: common model fields are easier to scan, while advanced timeout controls are tucked away for slower or local models.
+- Improved the session detail experience: toolbar buttons, preview titles, the message panel, and overall corner radii now feel more restrained and easier to read.
+- Fixed duplicate messages during single-slide editing: current-slide edits now show a cleaner, more stable conversation flow.
+- Improved chart stability: reduced cases where charts appear compressed, clipped, or lose their intended height.
 
 ## 2026-04-29
 

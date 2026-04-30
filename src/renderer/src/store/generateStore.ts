@@ -63,9 +63,20 @@ export const useGenerateStore = create<GenerateStore>((set) => ({
 
   setPages: (pages) => set({ currentPages: pages }),
 
-  addPage: (page) => set((state) => ({
-    currentPages: [...state.currentPages, page]
-  })),
+  addPage: (page) =>
+    set((state) => {
+      const existingIndex = state.currentPages.findIndex((item) =>
+        page.pageId && item.pageId ? item.pageId === page.pageId : item.pageNumber === page.pageNumber
+      )
+      if (existingIndex < 0) {
+        return { currentPages: [...state.currentPages, page] }
+      }
+      return {
+        currentPages: state.currentPages.map((item, index) =>
+          index === existingIndex ? { ...item, ...page } : item
+        )
+      }
+    }),
 
   updatePage: (pageId, html, patch) => set((state) => ({
     currentPages: state.currentPages.map((page) =>
@@ -74,7 +85,7 @@ export const useGenerateStore = create<GenerateStore>((set) => ({
   })),
 
   finishGeneration: () => set({ status: 'completed', isGenerating: false, progress: null, cancelReason: null }),
-  cancelGeneration: (reason = '用户取消生成') =>
+  cancelGeneration: (reason = 'User cancelled generation') =>
     set({ status: 'cancelled', isGenerating: false, progress: null, cancelReason: reason }),
   setError: (error) => set({ status: 'failed', error, isGenerating: false }),
   reset: () => set({

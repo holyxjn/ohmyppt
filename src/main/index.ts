@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, screen } from 'electron'
+import { app, shell, BrowserWindow, screen, type Size } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -16,16 +16,22 @@ let isShuttingDown = false
 
 const APP_NAME = 'OhMyPPT'
 const DEFAULT_WINDOW_WIDTH = 1100
-const DEFAULT_WINDOW_HEIGHT = 800
-const BASE_MIN_WIDTH = 980
-const BASE_MIN_HEIGHT = 620
+const DEFAULT_WINDOW_HEIGHT = 760
+const BASE_MIN_WIDTH = 860
+const BASE_MIN_HEIGHT = 680
 const TITLEBAR_HEIGHT = 48
 const TITLEBAR_BACKGROUND = '#f4eddf'
 const TITLEBAR_SYMBOL_COLOR = '#5d6b4d'
 const GITHUB_LATEST_RELEASE_API = 'https://api.github.com/repos/arcsin1/oh-my-ppt/releases/latest'
 const GITHUB_RELEASES_URL = 'https://github.com/arcsin1/oh-my-ppt/releases'
 
-function resolveWindowBounds() {
+function resolveWindowBounds(): {
+  width: number
+  height: number
+  minWidth: number
+  minHeight: number
+  workArea: Size
+} {
   const workArea = screen.getPrimaryDisplay().workAreaSize
   const maxInitialWidth = Math.max(900, workArea.width - 72)
   const maxInitialHeight = Math.max(620, workArea.height - 88)

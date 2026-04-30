@@ -1,12 +1,13 @@
 import log from "electron-log/main.js";
+import type { LayoutIntent } from "@shared/layout-intent";
 
 // ── Marker constants ──
 
 export const SHARED_PAGE_STYLES_START = "/* SHARED_PAGE_STYLES_START */";
 export const SHARED_PAGE_STYLES_END = "/* SHARED_PAGE_STYLES_END */";
 
-export const pageContentStartMarker = (pageId: string) => `<!-- PAGE_CONTENT_START:${pageId} -->`;
-export const pageContentEndMarker = (pageId: string) => `<!-- PAGE_CONTENT_END:${pageId} -->`;
+export const pageContentStartMarker = (pageId: string): string => `<!-- PAGE_CONTENT_START:${pageId} -->`;
+export const pageContentEndMarker = (pageId: string): string => `<!-- PAGE_CONTENT_END:${pageId} -->`;
 
 // ── Types ──
 
@@ -17,6 +18,7 @@ export type ToolStreamConfig = {
 export interface OutlineItem {
   title: string;
   contentOutline: string;
+  layoutIntent?: LayoutIntent;
 }
 
 export interface DesignContract {
@@ -42,6 +44,7 @@ export interface SessionDeckGenerationContext {
   styleId: string | null | undefined;
   /** Snapshot of the database styleSkill markdown for this run. */
   styleSkillPrompt?: string;
+  appLocale?: "zh" | "en";
   userMessage: string;
   outlineTitles: string[];
   outlineItems: OutlineItem[];
@@ -69,7 +72,7 @@ export interface DeckToolStatusPayload {
 export const emitToolStatus = (
   config: ToolStreamConfig | undefined,
   payload: DeckToolStatusPayload
-) => {
+): void => {
   try {
     config?.writer?.({
       type: "deck_tool_status",

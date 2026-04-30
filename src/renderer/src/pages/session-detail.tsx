@@ -13,10 +13,12 @@ import { useSessionDetailUiStore } from '../store/sessionDetailStore'
 import type { GenerateChunkEvent } from '@shared/generation.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
+import { useT } from '../i18n'
 
 export function SessionDetailPage(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const t = useT()
   const isMac = window.electron?.process?.platform === 'darwin'
   const {
     currentSession,
@@ -41,6 +43,7 @@ export function SessionDetailPage(): React.JSX.Element {
   >([])
   const [isSavingDragEdits, setIsSavingDragEdits] = useState(false)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
+  const sendingMessageRef = useRef(false)
   const {
     success: toastSuccess,
     error: toastError,
@@ -71,7 +74,9 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     resetForPageChange()
-    setPendingDragEdits([])
+    window.setTimeout(() => {
+      setPendingDragEdits([])
+    }, 0)
   }, [resetForPageChange, selectedPage?.pageId])
 
   const isFullyGenerated = useMemo(() => {
@@ -168,7 +173,7 @@ export function SessionDetailPage(): React.JSX.Element {
         type === 'llm_status'
       ) {
         // 不清空 currentPages，保持预览可见
-        useGenerateStore.setState({ isGenerating: true, error: null })
+        useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
         updateProgress({
           stage: payload.stage,
           label: payload.label,
@@ -196,16 +201,17 @@ export function SessionDetailPage(): React.JSX.Element {
           useSessionDetailUiStore.getState().bumpPreviewKey()
         }
       } else if (type === 'page_updated') {
-        useGenerateStore
-          .getState()
-          .updatePage(payload.pageId || `page-${payload.pageNumber}`, payload.html, {
-            pageNumber: payload.pageNumber,
-            title: payload.title,
-            htmlPath: payload.htmlPath,
-            sourceUrl: payload.sourceUrl,
-            status: 'completed',
-            error: null
-          })
+        useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+        useGenerateStore.getState().addPage({
+          pageNumber: payload.pageNumber,
+          title: payload.title,
+          html: payload.html,
+          htmlPath: payload.htmlPath,
+          pageId: payload.pageId || `page-${payload.pageNumber}`,
+          sourceUrl: payload.sourceUrl,
+          status: 'completed',
+          error: null
+        })
         useSessionDetailUiStore.getState().setSelectedPageNumber(payload.pageNumber)
         useSessionDetailUiStore.getState().bumpPreviewKey()
       } else if (type === 'assistant_message') {
@@ -216,8 +222,11 @@ export function SessionDetailPage(): React.JSX.Element {
           incomingType === active.chatType &&
           (incomingType !== 'page' || incomingPageId === active.pageId)
         if (!matchesCurrentChat) return
+        const createdAt = payload.timestamp
+          ? Math.floor(new Date(payload.timestamp).getTime() / 1000)
+          : Math.floor(Date.now() / 1000)
         addMessage({
-          id: crypto.randomUUID(),
+          id: payload.id || crypto.randomUUID(),
           session_id: id,
           chat_scope: incomingType,
           page_id: incomingPageId || null,
@@ -227,7 +236,7 @@ export function SessionDetailPage(): React.JSX.Element {
           tool_name: null,
           tool_call_id: null,
           token_count: null,
-          created_at: Math.floor(Date.now() / 1000)
+          created_at: Number.isFinite(createdAt) ? createdAt : Math.floor(Date.now() / 1000)
         })
       } else if (type === 'run_completed') {
         useGenerateStore.getState().finishGeneration()
@@ -250,7 +259,7 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!id || files.length === 0) return
     const imageFiles = files.filter(isSupportedImageFile).slice(0, 10)
     if (imageFiles.length === 0) {
-      toastWarning('暂只支持图片素材')
+      toastWarning(t('sessionDetail.imageOnly'))
       return
     }
     const payloadFiles = imageFiles
@@ -260,7 +269,7 @@ export function SessionDetailPage(): React.JSX.Element {
       }))
       .filter((file) => file.path)
     if (payloadFiles.length === 0) {
-      toastError('无法读取图片路径')
+      toastError(t('sessionDetail.imagePathFailed'))
       return
     }
     useSessionDetailUiStore.getState().setIsUploadingAssets(true)
@@ -268,10 +277,10 @@ export function SessionDetailPage(): React.JSX.Element {
       const result = await ipc.uploadAssets({ sessionId: id, files: payloadFiles })
       if (result.assets.length > 0) {
         useSessionDetailUiStore.getState().addPendingAssets(result.assets)
-        toastSuccess(`已添加 ${result.assets.length} 个素材`)
+        toastSuccess(t('sessionDetail.assetsAdded', { count: result.assets.length }))
       }
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '素材上传失败')
+      toastError(error instanceof Error ? error.message : t('sessionDetail.assetUploadFailed'))
     } finally {
       useSessionDetailUiStore.getState().setIsUploadingAssets(false)
       useSessionDetailUiStore.getState().setAssetDragActive(false)
@@ -286,10 +295,10 @@ export function SessionDetailPage(): React.JSX.Element {
       if (result.cancelled) return
       if (result.assets.length > 0) {
         useSessionDetailUiStore.getState().addPendingAssets(result.assets)
-        toastSuccess(`已添加 ${result.assets.length} 个素材`)
+        toastSuccess(t('sessionDetail.assetsAdded', { count: result.assets.length }))
       }
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '素材上传失败')
+      toastError(error instanceof Error ? error.message : t('sessionDetail.assetUploadFailed'))
     } finally {
       useSessionDetailUiStore.getState().setIsUploadingAssets(false)
     }
@@ -297,13 +306,14 @@ export function SessionDetailPage(): React.JSX.Element {
 
   const handleSend = async (): Promise<void> => {
     if (!id) return
+    if (sendingMessageRef.current || isGenerating) return
     const detailState = useSessionDetailUiStore.getState()
     if (detailState.chatType === 'main') {
-      toastInfo('主会话已禁用发送，请先切换到“当前页”上下文。')
+      toastInfo(t('sessionDetail.switchToPageFirst'))
       return
     }
     if (!detailState.input.trim() && detailState.pendingAssets.length === 0) return
-    const content = detailState.input.trim() || '使用已上传素材'
+    const content = detailState.input.trim() || t('sessionDetail.useUploadedAssets')
     const assetsForMessage = detailState.pendingAssets
     const hasSelector = Boolean(detailState.selectedSelector?.trim())
     const selectorForMessage = hasSelector ? detailState.selectedSelector!.trim() : null
@@ -315,44 +325,54 @@ export function SessionDetailPage(): React.JSX.Element {
         ? effectivePage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
         : undefined
     if (effectiveChatType === 'page' && !targetPageId) {
-      toastError('请先选择页面后再发送')
+      toastError(t('sessionDetail.selectPageFirst'))
       return
     }
     if (hasSelector && detailState.chatType !== 'page') {
       detailState.setChatType('page')
     }
-    addMessage({
-      id: crypto.randomUUID(),
-      session_id: id,
-      chat_scope: effectiveChatType,
-      page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
-      selector: effectiveChatType === 'page' ? selectorForMessage : null,
-      image_paths: assetsForMessage.map((asset) => asset.relativePath),
-      role: 'user',
-      content,
-      type: 'text',
-      tool_name: null,
-      tool_call_id: null,
-      token_count: null,
-      created_at: Math.floor(Date.now() / 1000)
-    })
-    detailState.setInput('')
-    detailState.clearPendingAssets()
-    detailState.clearSelectedElement()
-    const hasExistingPages = normalizedOrderedPages.length > 0
-    await ipc.startGenerate({
-      sessionId: id,
-      userMessage: content,
-      type: hasExistingPages ? 'page' : 'deck',
-      chatType: effectiveChatType,
-      chatPageId: effectiveChatType === 'page' ? targetPageId : undefined,
-      selectedPageId: hasExistingPages && effectiveChatType === 'page' ? targetPageId : undefined,
-      htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
-      selector: selectorForMessage || undefined,
-      elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
-      elementText: hasSelector ? detailState.elementText || undefined : undefined,
-      imagePaths: assetsForMessage.map((asset) => asset.relativePath)
-    })
+    sendingMessageRef.current = true
+    try {
+      useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+      addMessage({
+        id: crypto.randomUUID(),
+        session_id: id,
+        chat_scope: effectiveChatType,
+        page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
+        selector: effectiveChatType === 'page' ? selectorForMessage : null,
+        image_paths: assetsForMessage.map((asset) => asset.relativePath),
+        role: 'user',
+        content,
+        type: 'text',
+        tool_name: null,
+        tool_call_id: null,
+        token_count: null,
+        created_at: Math.floor(Date.now() / 1000)
+      })
+      detailState.setInput('')
+      detailState.clearPendingAssets()
+      detailState.clearSelectedElement()
+      const hasExistingPages = normalizedOrderedPages.length > 0
+      await ipc.startGenerate({
+        sessionId: id,
+        userMessage: content,
+        type: hasExistingPages ? 'page' : 'deck',
+        chatType: effectiveChatType,
+        chatPageId: effectiveChatType === 'page' ? targetPageId : undefined,
+        selectedPageId: hasExistingPages && effectiveChatType === 'page' ? targetPageId : undefined,
+        htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
+        selector: selectorForMessage || undefined,
+        elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
+        elementText: hasSelector ? detailState.elementText || undefined : undefined,
+        imagePaths: assetsForMessage.map((asset) => asset.relativePath)
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('generating.failed')
+      useGenerateStore.getState().setError(message)
+      toastError(message)
+    } finally {
+      sendingMessageRef.current = false
+    }
   }
 
   const handleCancel = async (): Promise<void> => {
@@ -361,7 +381,7 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const cleanMessageContent = (content: string): string =>
-    content.replace(/[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g, '（已定位选中元素）')
+    content.replace(/[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g, t('sessionDetail.selectorLocated'))
 
   const getPptxExportNotice = (warnings?: string[]): string | null => {
     const items = (warnings || []).filter(Boolean)
@@ -369,12 +389,12 @@ export function SessionDetailPage(): React.JSX.Element {
 
     const hasPageLoadDelay = items.some((item) => item.includes('未收到打印就绪信号'))
     if (hasPageLoadDelay) {
-      return '部分页面加载时间较长，已按当前画面完成导出。建议打开 PPTX 快速检查一下。'
+      return t('sessionDetail.pageLoadNotice')
     }
 
     const hasNoEditableText = items.some((item) => item.includes('未提取到可编辑文本'))
     if (hasNoEditableText) {
-      return '部分页面已优先保留完整画面，可能需要在 PowerPoint 中手动微调文字。'
+      return t('sessionDetail.noEditableTextNotice')
     }
 
     const hasOnlyCapabilityNote = items.every(
@@ -386,7 +406,7 @@ export function SessionDetailPage(): React.JSX.Element {
     )
     if (hasOnlyCapabilityNote) return null
 
-    return '文件已导出，建议打开 PPTX 快速检查版式细节。'
+    return t('sessionDetail.exportCheckNotice')
   }
 
   const openProjectPreview = async (): Promise<void> => {
@@ -401,29 +421,29 @@ export function SessionDetailPage(): React.JSX.Element {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPdf) return
     detailState.setIsExportingPdf(true)
-    toastInfo('正在导出 PDF，请稍等', {
-      description: '页面较多或图表较复杂时可能会比较慢，请保持窗口打开，完成后会自动提示结果。',
+    toastInfo(t('sessionDetail.exportPdfStart'), {
+      description: t('sessionDetail.exportPdfDescription'),
       duration: 8000
     })
     try {
       const result = await ipc.exportPdf(id)
       if (result.cancelled) {
-        toastInfo('已取消导出')
+        toastInfo(t('sessionDetail.exportCancelled'))
         return
       }
       if (!result.success || !result.path) {
-        toastError('导出失败')
+        toastError(t('sessionDetail.exportFailed'))
         return
       }
       if (Array.isArray(result.warnings) && result.warnings.length > 0) {
-        toastWarning(`导出完成（${result.pageCount || 0} 页）`, {
+        toastWarning(t('sessionDetail.exportDonePages', { count: result.pageCount || 0 }), {
           description: result.warnings[0]
         })
         return
       }
-      toastSuccess(`导出成功（${result.pageCount || 0} 页）`)
+      toastSuccess(t('sessionDetail.exportSuccessPages', { count: result.pageCount || 0 }))
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '导出失败')
+      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
     } finally {
       useSessionDetailUiStore.getState().setIsExportingPdf(false)
     }
@@ -433,29 +453,29 @@ export function SessionDetailPage(): React.JSX.Element {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPng) return
     detailState.setIsExportingPng(true)
-    toastInfo('正在导出 PNG 图片', {
-      description: '会将所有页面按顺序保存为高清图片，适合发文档、Notion 或社媒。',
+    toastInfo(t('sessionDetail.exportPngStart'), {
+      description: t('sessionDetail.exportPngDescription'),
       duration: 8000
     })
     try {
       const result = await ipc.exportPng(id)
       if (result.cancelled) {
-        toastInfo('已取消导出')
+        toastInfo(t('sessionDetail.exportCancelled'))
         return
       }
       if (!result.success || !result.path) {
-        toastError('导出失败')
+        toastError(t('sessionDetail.exportFailed'))
         return
       }
       if (Array.isArray(result.warnings) && result.warnings.length > 0) {
-        toastWarning(`PNG 已导出（${result.pageCount || 0} 张）`, {
-          description: '部分页面加载时间较长，已按当前画面完成导出。'
+        toastWarning(t('sessionDetail.pngExported', { count: result.pageCount || 0 }), {
+          description: t('sessionDetail.pageLoadNotice')
         })
         return
       }
-      toastSuccess(`PNG 已导出（${result.pageCount || 0} 张）`)
+      toastSuccess(t('sessionDetail.pngExported', { count: result.pageCount || 0 }))
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '导出失败')
+      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
     } finally {
       useSessionDetailUiStore.getState().setIsExportingPng(false)
     }
@@ -465,32 +485,32 @@ export function SessionDetailPage(): React.JSX.Element {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPptx) return
     detailState.setIsExportingPptx(true)
-    toastInfo('正在准备可编辑 PPTX', {
-      description: '会尽量保留版式、颜色和图片效果，同时让主要文字可继续编辑。',
+    toastInfo(t('sessionDetail.pptxPreparing'), {
+      description: t('sessionDetail.pptxPreparingDescription'),
       duration: 8000
     })
     try {
       const result = await ipc.exportPptx(id)
       if (result.cancelled) {
-        toastInfo('已取消导出')
+        toastInfo(t('sessionDetail.exportCancelled'))
         return
       }
       if (!result.success || !result.path) {
-        toastError('导出失败')
+        toastError(t('sessionDetail.exportFailed'))
         return
       }
       const exportNotice = getPptxExportNotice(result.warnings)
       if (exportNotice) {
-        toastWarning(`PPTX 已导出（${result.pageCount || 0} 页）`, {
+        toastWarning(t('sessionDetail.pptxExported', { count: result.pageCount || 0 }), {
           description: exportNotice
         })
         return
       }
-      toastSuccess(`PPTX 已导出（${result.pageCount || 0} 页）`, {
-        description: '已尽量保留版式与可编辑文字。'
+      toastSuccess(t('sessionDetail.pptxExported', { count: result.pageCount || 0 }), {
+        description: t('sessionDetail.pptxEditableDescription')
       })
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '导出失败')
+      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
     } finally {
       useSessionDetailUiStore.getState().setIsExportingPptx(false)
     }
@@ -499,7 +519,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const selectedPagePendingDragCount = useMemo(() => {
     if (!selectedPage?.pageId) return 0
     return pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId).length
-  }, [pendingDragEdits, selectedPage?.pageId])
+  }, [pendingDragEdits, selectedPage])
 
   const handleElementMoved = (payload: DragEditorMovePayload): void => {
     if (!id || !selectedPage?.htmlPath || !selectedPage.pageId) return
@@ -539,15 +559,15 @@ export function SessionDetailPage(): React.JSX.Element {
           childUpdates: edit.childUpdates
         })
         if (!result.success) {
-          throw new Error('调整保存失败')
+          throw new Error(t('sessionDetail.layoutSaveFailed'))
         }
       }
       setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       useSessionDetailUiStore.getState().setDragEditing(false)
-      toastSuccess(`已保存 ${edits.length} 处调整`)
+      toastSuccess(t('sessionDetail.adjustmentsSaved', { count: edits.length }))
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '调整保存失败')
+      toastError(error instanceof Error ? error.message : t('sessionDetail.layoutSaveFailed'))
     } finally {
       setIsSavingDragEdits(false)
     }
@@ -558,7 +578,7 @@ export function SessionDetailPage(): React.JSX.Element {
     const hadPending = pendingDragEdits.some((item) => item.pageId === selectedPage.pageId)
     setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
     setPreviewRefreshKey((key) => key + 1)
-    if (hadPending) toastInfo('已放弃未保存调整')
+    if (hadPending) toastInfo(t('sessionDetail.discardedAdjustments'))
   }
 
   return (

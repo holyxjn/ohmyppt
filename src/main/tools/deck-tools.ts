@@ -7,6 +7,10 @@ import type { SessionDeckGenerationContext, ToolStreamConfig } from "./types";
 import { emitToolStatus } from "./types";
 import { validateHtmlContent } from "./html-utils";
 import { buildSessionAssetHeadTags } from "../ipc/page-assets";
+import { progressLabel } from "@shared/progress";
+
+const uiText = (locale: "zh" | "en" | undefined, zh: string, en: string): string => (locale === "en" ? en : zh);
+
 export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
   :root {
     --ppt-page-bg: #ffffff;
@@ -64,8 +68,19 @@ export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
   }
   .ppt-page-content canvas {
     display: block;
+    width: 100%;
+    height: 100%;
     max-width: 100% !important;
     max-height: 100% !important;
+  }
+  .ppt-page-content .ppt-chart-frame {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .ppt-page-content .ppt-chart-frame > canvas {
+    width: 100% !important;
+    height: 100% !important;
   }
   .ppt-page-content [data-block-id*="chart"],
   .ppt-page-content [data-block-id*="graph"],
@@ -102,12 +117,7 @@ function extractBackgroundStyle(styleAttr: string): string {
 
 function isBackgroundUtilityClass(cls: string): boolean {
   const base = cls.split(":").pop() || cls;
-  return (
-    base.startsWith("bg-") ||
-    base.startsWith("from-") ||
-    base.startsWith("via-") ||
-    base.startsWith("to-")
-  );
+  return base.startsWith("bg-") || base.startsWith("from-") || base.startsWith("via-") || base.startsWith("to-");
 }
 
 function syncRootBackgroundFromScaffold(html: string): string {
@@ -185,7 +195,10 @@ function stripUnsafeHiddenStates(html: string): string {
             const idx = decl.indexOf(":");
             if (idx < 0) return true;
             const key = decl.slice(0, idx).trim().toLowerCase();
-            const value = decl.slice(idx + 1).trim().toLowerCase();
+            const value = decl
+              .slice(idx + 1)
+              .trim()
+              .toLowerCase();
             if (key === "opacity" && /^0(?:\.0+)?$/.test(value)) return false;
             if (key === "visibility" && value === "hidden") return false;
             return true;
@@ -401,14 +414,12 @@ const CANVAS_LOCK_CLASS_PATTERNS = [
   /^(w|h|min-w|min-h|max-w|max-h)-\[(1600px|900px|100vw|100vh|100dvw|100dvh)\]$/i,
   /^(w|h|min-w|min-h|max-w|max-h)-screen$/i,
   /^aspect-\[(16\/9|1600\/900)\]$/i,
-  /^size-\[(1600px|900px)\]$/i,
+  /^size-\[(1600px|900px)\]$/i
 ];
 
 function stripCanvasLockClasses(classAttr: string): string {
   const classes = classAttr.split(/\s+/).filter(Boolean);
-  const kept = classes.filter(
-    (cls) => !CANVAS_LOCK_CLASS_PATTERNS.some((pattern) => pattern.test(cls))
-  );
+  const kept = classes.filter((cls) => !CANVAS_LOCK_CLASS_PATTERNS.some((pattern) => pattern.test(cls)));
   return kept.join(" ");
 }
 
@@ -469,37 +480,92 @@ function extractRemoteRuntimeResources(content: string): string[] {
   return hits;
 }
 
+const CHART_FRAME_CLASS = "ppt-chart-frame";
+const CHART_FRAME_DEFAULT_HEIGHT_CLASS = "h-[240px]";
+
+function splitClassNames(classRaw: string): string[] {
+  return classRaw.split(/\s+/).map((cls) => cls.trim()).filter(Boolean);
+}
+
+function classBaseName(cls: string): string {
+  return cls.split(":").pop() || cls;
+}
+
+function isChartCanvasLayoutClass(cls: string): boolean {
+  const base = classBaseName(cls);
+  return (
+    base === "flex-1" ||
+    /^h-/.test(base) ||
+    /^min-h-/.test(base) ||
+    /^max-h-/.test(base)
+  );
+}
+
+function isMarginUtilityClass(cls: string): boolean {
+  return /^-?m[trblxy]?-[^\s]+$/.test(classBaseName(cls));
+}
+
+function hasConcreteChartHeightClass(classes: Iterable<string>): boolean {
+  return Array.from(classes).some((cls) => {
+    const base = classBaseName(cls);
+    if (/^(?:h|min-h)-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false;
+    return /^(?:h|min-h)-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base);
+  });
+}
+
+function hasConcreteChartHeightStyle(styleRaw: string): boolean {
+  return /(?:^|;)\s*(?:height|min-height)\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
+    styleRaw
+  );
+}
+
 function stabilizeChartCanvases(html: string): string {
   try {
     const $ = cheerio.load(html, { scriptingEnabled: false });
     $("canvas").each((_, node) => {
       const canvas = $(node);
-      const classRaw = (canvas.attr("class") || "").trim();
-      if (classRaw) {
-        const classSet = new Set(
-          classRaw
-            .split(/\s+/)
-            .filter(Boolean)
-            .filter((cls) => cls !== "flex-1" && cls !== "h-full" && cls !== "min-h-full")
-        );
-        if (classSet.size > 0) canvas.attr("class", Array.from(classSet).join(" "));
-        else canvas.removeAttr("class");
-      }
+      const originalCanvasClasses = splitClassNames(canvas.attr("class") || "");
+      const wrapperClasses = originalCanvasClasses.filter(isMarginUtilityClass);
+      const canvasClassSet = new Set(
+        originalCanvasClasses.filter((cls) => !isChartCanvasLayoutClass(cls) && !isMarginUtilityClass(cls))
+      );
+      canvasClassSet.add("h-full");
+      canvasClassSet.add("w-full");
+      canvas.attr("class", Array.from(canvasClassSet).join(" "));
 
       const parent = canvas.parent();
       if (!parent.length) return;
 
       const parentClassRaw = (parent.attr("class") || "").trim();
       const parentClassSet = new Set(parentClassRaw.split(/\s+/).filter(Boolean));
-      const hasHeightClass = Array.from(parentClassSet).some(
-        (cls) => /^h-/.test(cls) || /^min-h-/.test(cls) || /^max-h-/.test(cls)
-      );
-      const parentStyle = (parent.attr("style") || "").toLowerCase();
-      const hasHeightStyle = /(?:^|;)\s*(?:height|min-height|max-height)\s*:/.test(parentStyle);
-      if (!hasHeightClass && !hasHeightStyle) {
-        parentClassSet.add("min-h-[240px]");
+      const parentStyle = parent.attr("style") || "";
+      const hasHeightClass = hasConcreteChartHeightClass(parentClassSet);
+      const hasHeightStyle = hasConcreteChartHeightStyle(parentStyle);
+      const parentElementChildren = parent.children();
+      const parentIsDedicatedFrame = parentElementChildren.length === 1 && parentElementChildren.get(0) === canvas.get(0);
+
+      if (parentIsDedicatedFrame && (hasHeightClass || hasHeightStyle)) {
+        parentClassSet.add(CHART_FRAME_CLASS);
+        parentClassSet.add("relative");
+        parentClassSet.add("min-w-0");
+        parentClassSet.add("overflow-hidden");
         parent.attr("class", Array.from(parentClassSet).join(" "));
+        return;
       }
+
+      const frame = $('<div></div>');
+      const frameClassSet = new Set([
+        CHART_FRAME_CLASS,
+        "relative",
+        CHART_FRAME_DEFAULT_HEIGHT_CLASS,
+        "w-full",
+        "min-w-0",
+        "overflow-hidden",
+        ...wrapperClasses
+      ]);
+      frame.attr("class", Array.from(frameClassSet).join(" "));
+      canvas.before(frame);
+      frame.append(canvas);
     });
     return $.html();
   } catch {
@@ -520,25 +586,19 @@ function hasCustomPageAnimation(html: string): boolean {
 const ensureGlobalRuntime = (html: string, pageId: string): string => {
   // Strict new-structure mode:
   // input must be page fragment only, then we always scaffold into one canonical document.
-  const fragment = stripUnsafeHiddenStates(
-    stabilizeChartCanvases(stripCanvasLockStyles(html.trim()))
-  );
+  const fragment = stripUnsafeHiddenStates(stabilizeChartCanvases(stripCanvasLockStyles(html.trim())));
   const skipDefaultMotion = hasCustomPageAnimation(html);
   const output = buildScaffoldDocument({
     pageId,
     innerContent: fragment,
-    includeDefaultMotion: !skipDefaultMotion,
+    includeDefaultMotion: !skipDefaultMotion
   });
   return syncRootBackgroundFromScaffold(output);
 };
 
 // Build the complete scaffold document from a content fragment.
 // This is the ONLY place we construct persisted page documents.
-function buildScaffoldDocument(args: {
-  pageId: string;
-  innerContent: string;
-  includeDefaultMotion: boolean;
-}): string {
+function buildScaffoldDocument(args: { pageId: string; innerContent: string; includeDefaultMotion: boolean }): string {
   const { pageId, innerContent, includeDefaultMotion } = args;
   const motionScript = includeDefaultMotion ? `\n    ${DEFAULT_MOTION_SCRIPT}` : "";
   return `<!doctype html>
@@ -563,8 +623,7 @@ function buildScaffoldDocument(args: {
 </html>`;
 }
 
-const normalizeAndInjectPageRuntime = (content: string, pageId: string): string =>
-  ensureGlobalRuntime(content, pageId);
+const normalizeAndInjectPageRuntime = (content: string, pageId: string): string => ensureGlobalRuntime(content, pageId);
 
 function validateIndexShellHtml(content: string): string[] {
   const errors: string[] = [];
@@ -583,9 +642,7 @@ function validateIndexShellHtml(content: string): string[] {
     errors.push("存在未闭合的 <script> 标签");
   }
 
-  const pagesDataMatch = content.match(
-    /<script\b[^>]*id=["']pages-data["'][^>]*>([\s\S]*?)<\/script>/i
-  );
+  const pagesDataMatch = content.match(/<script\b[^>]*id=["']pages-data["'][^>]*>([\s\S]*?)<\/script>/i);
   if (!pagesDataMatch) {
     errors.push("pages-data 脚本缺失或未闭合");
   } else {
@@ -600,9 +657,7 @@ function validateIndexShellHtml(content: string): string[] {
   }
 
   const inlineScriptMatches = Array.from(
-    content.matchAll(
-      /<script\b(?![^>]*\bsrc=)(?![^>]*type=["']application\/json["'])[^>]*>([\s\S]*?)<\/script>/gi
-    )
+    content.matchAll(/<script\b(?![^>]*\bsrc=)(?![^>]*type=["']application\/json["'])[^>]*>([\s\S]*?)<\/script>/gi)
   );
   if (inlineScriptMatches.length === 0) {
     errors.push("缺少主逻辑内联脚本");
@@ -621,9 +676,7 @@ function validateIndexShellHtml(content: string): string[] {
         errors.push(`第 ${index + 1} 个内联脚本语法错误: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    const mergedInlineScripts = inlineScriptMatches
-      .map((match) => String(match[1] || ""))
-      .join("\n");
+    const mergedInlineScripts = inlineScriptMatches.map((match) => String(match[1] || "")).join("\n");
     if (!/hashchange/i.test(mergedInlineScripts)) errors.push("缺少 hashchange 路由监听逻辑");
     if (!/applyPage/i.test(mergedInlineScripts)) errors.push("缺少 applyPage 页面切换逻辑");
     if (!/framePool/i.test(mergedInlineScripts)) errors.push("缺少 framePool iframe 池逻辑");
@@ -668,7 +721,7 @@ function patchIndexTransitionStyle(
   return withoutOldStyle.replace(/<\/head>/i, `${style}\n  </head>`);
 }
 
-export function createSessionBoundDeckTools(context: SessionDeckGenerationContext) {
+export function createSessionBoundDeckTools(context: SessionDeckGenerationContext): unknown[] {
   const scopedPageIdsForWrite = (
     Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
       ? context.allowedPageIds.filter((pid) => Boolean(context.pageFileMap[pid]))
@@ -691,6 +744,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
   const isEditMode = context.mode === "edit";
   const isMainScopeEdit = isEditMode && context.editScope === "main";
   const hasSelector = Boolean(context.selectedSelector?.trim());
+  const statusLanguage = context.appLocale === "en" ? "English" : "Simplified Chinese";
 
   const parsePageNumber = (pageId?: string): number | null => {
     if (!pageId) return null;
@@ -700,17 +754,13 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     return Number.isFinite(num) && num > 0 ? num : null;
   };
 
-  const inferProgressFromStatus = (args: {
-    label: string;
-    pageId?: string;
-    detail?: string;
-  }): number | undefined => {
+  const inferProgressFromStatus = (args: { label: string; pageId?: string; detail?: string }): number | undefined => {
     const { label, pageId } = args;
-    if (/读取会话上下文/.test(label)) return 34;
-    if (/验证完成状态/.test(label)) return 88;
-    if (/所有页面已填充|当前页面已填充/.test(label)) return 95;
-    if (/生成完成|修改完成/.test(label)) return 98;
-    const updateMatch = label.match(/更新\s*(page-\d+)/i);
+    if (/读取会话上下文|Reading session context/i.test(label)) return 34;
+    if (/验证完成状态|Verifying completion/i.test(label)) return 88;
+    if (/所有页面已填充|当前页面已填充|All pages filled|Current page filled/i.test(label)) return 95;
+    if (/生成完成|修改完成|Generation completed|Edit completed/i.test(label)) return 98;
+    const updateMatch = label.match(/(?:更新|Updating)\s*(page-\d+)/i);
     const resolvedPageId = pageId || updateMatch?.[1];
     const pageNumber = parsePageNumber(resolvedPageId);
     if (pageNumber) {
@@ -751,7 +801,8 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
   ): void => {
     emitToolStatus(config as ToolStreamConfig, {
       ...status,
-      progress: normalizeStatusProgress(status),
+      label: progressLabel(context.appLocale, status.label),
+      progress: normalizeStatusProgress(status)
     });
   };
 
@@ -803,9 +854,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     const agentName = getAgentNameFromToolConfig(config);
     if (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0) {
       if (!context.allowedPageIds.includes(resolvedPageId)) {
-        throw new Error(
-          `当前任务仅允许修改: ${context.allowedPageIds.join(", ")}；收到: ${resolvedPageId}`
-        );
+        throw new Error(`当前任务仅允许修改: ${context.allowedPageIds.join(", ")}；收到: ${resolvedPageId}`);
       }
     }
     const remoteResources = extractRemoteRuntimeResources(content);
@@ -815,14 +864,16 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         label: `外链资源校验失败 ${resolvedPageId}`,
         detail,
         progress: 60,
-        pageId: resolvedPageId,
+        pageId: resolvedPageId
       });
-      throw new Error([
-        `检测到禁止的 CDN/远程资源引用 (${resolvedPageId})，已拒绝写入。`,
-        "请移除所有 script/link 的 http(s) 或 // 外链，仅使用系统预注入的本地 ./assets/* 资源。",
-        "示例命中：",
-        ...remoteResources.map((item) => `- ${item}`),
-      ].join("\n"));
+      throw new Error(
+        [
+          `检测到禁止的 CDN/远程资源引用 (${resolvedPageId})，已拒绝写入。`,
+          "请移除所有 script/link 的 http(s) 或 // 外链，仅使用系统预注入的本地 ./assets/* 资源。",
+          "示例命中：",
+          ...remoteResources.map((item) => `- ${item}`)
+        ].join("\n")
+      );
     }
     const validation = validateHtmlContent(content);
     if (!validation.valid) {
@@ -830,7 +881,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         label: `验证失败 ${resolvedPageId}`,
         detail: validation.errors.join("; "),
         progress: 60,
-        pageId: resolvedPageId,
+        pageId: resolvedPageId
       });
       throw new Error(`HTML 验证失败 (${resolvedPageId}): ${validation.errors.join("; ")}。请修正后重试。`);
     }
@@ -839,10 +890,10 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       throw new Error(`未知页面 ${resolvedPageId}，可用页面: ${Object.keys(context.pageFileMap).join(", ")}`);
     }
     emitNormalizedToolStatus(config, {
-      label: statusLabel || `更新 ${resolvedPageId}`,
-      detail: "正在写入对应 page 文件",
+      label: statusLabel || uiText(context.appLocale, `更新 ${resolvedPageId}`, `Updating ${resolvedPageId}`),
+      detail: uiText(context.appLocale, "正在写入对应 page 文件", "Writing the target page file"),
       pageId: resolvedPageId,
-      agentName,
+      agentName
     });
     const result = await serializedWrite(context.projectDir, async () => {
       const normalized = normalizeAndInjectPageRuntime(content, resolvedPageId);
@@ -858,7 +909,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       pageId: resolvedPageId,
       targetPath,
       agentName: agentName || "unknown",
-      allowedPageIds: context.allowedPageIds || null,
+      allowedPageIds: context.allowedPageIds || null
     });
     return result;
   };
@@ -870,9 +921,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         const scopedPageFileMap =
           Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
             ? Object.fromEntries(
-                Object.entries(context.pageFileMap).filter(([pageId]) =>
-                  context.allowedPageIds!.includes(pageId)
-                )
+                Object.entries(context.pageFileMap).filter(([pageId]) => context.allowedPageIds!.includes(pageId))
               )
             : context.pageFileMap;
         const scopedPageIds = Object.keys(scopedPageFileMap);
@@ -883,7 +932,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         const pageFiles = scopedPageIds.map((pageId) => ({
           pageId,
           hostPath: scopedPageFileMap[pageId],
-          agentPath: `/${pageId}.html`,
+          agentPath: `/${pageId}.html`
         }));
         const scopedExistingPageIds =
           Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
@@ -891,43 +940,55 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
             : context.existingPageIds;
 
         emitNormalizedToolStatus(config, {
-          label: "读取会话上下文",
+          label: uiText(context.appLocale, "读取会话上下文", "Reading session context"),
           detail: isMainScopeEdit
-            ? `已提供 index 总览壳: ${context.indexPath}`
+            ? uiText(
+                context.appLocale,
+                `已提供 index 总览壳: ${context.indexPath}`,
+                `Provided index overview shell: ${context.indexPath}`
+              )
             : selectedPagePath
-              ? `已提供目标页文件: ${selectedPagePath}`
-              : "已提供页面文件映射与会话上下文",
-          progress: 34,
+              ? uiText(
+                  context.appLocale,
+                  `已提供目标页文件: ${selectedPagePath}`,
+                  `Provided target page file: ${selectedPagePath}`
+                )
+              : uiText(
+                  context.appLocale,
+                  "已提供页面文件映射与会话上下文",
+                  "Provided page-file map and session context"
+                ),
+          progress: 34
         });
         const constraints = isMainScopeEdit
-            ? [
+          ? [
               "当前为主会话编辑（main）：只允许修改 index.html 总览壳",
               "只允许使用 set_index_transition(type, durationMs)，禁止调用 update_index_file / update_page_file / update_single_page_file",
               "禁止修改任何 page-x.html 文件",
               "必须保留 hash 导航、frameViewport、pages-data、controls、全屏/演示模式逻辑",
-              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许本地资源",
+              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许本地资源"
             ]
           : hasSelector
             ? [
-              "index.html 只是总览壳，主要内容在 page-x.html",
-              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源",
-              "Selector 编辑模式：先用 read_file 读取目标页面，再用 grep 搜索选择器/文本定位，最后用 edit_file(old_string, new_string) 精准替换",
-              "不要调用 write_file / update_page_file / update_single_page_file，edit_file 直接修改即可",
-              "仅修改 selector 命中节点，禁止整页重写、禁止改动无关区域",
-              "尽量不要修改 index.html 的导航与控制逻辑",
-            ]
+                "index.html 只是总览壳，主要内容在 page-x.html",
+                "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源",
+                "Selector 编辑模式：先用 read_file 读取目标页面，再用 grep 搜索选择器/文本定位，最后用 edit_file(old_string, new_string) 精准替换",
+                "不要调用 write_file / update_page_file / update_single_page_file，edit_file 直接修改即可",
+                "仅修改 selector 命中节点，禁止整页重写、禁止改动无关区域",
+                "尽量不要修改 index.html 的导航与控制逻辑"
+              ]
             : [
-              "index.html 只是总览壳，主要内容写入 page-x.html",
-              "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源",
-              "单页任务只允许使用 update_single_page_file(pageId, content)，禁止调用 update_page_file",
-              "单页任务必须写入 selectedPagePath 对应的 page 文件，不需要改 index.html",
-              isEditMode
-                ? "多页/全局编辑使用 update_page_file(pageId, content)，必须显式传 pageId"
-                : "多页生成优先使用 update_page_file(content)（可选传 pageId 覆盖自动定位）",
-              "每页写入后会自动注入动画运行时与防溢出保护",
-              "不要在最终答案里返回大块 HTML，必须把变更落盘",
-              "尽量不要修改 index.html 的导航与控制逻辑",
-            ];
+                "index.html 只是总览壳，主要内容写入 page-x.html",
+                "禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源",
+                "单页任务只允许使用 update_single_page_file(pageId, content)，禁止调用 update_page_file",
+                "单页任务必须写入 selectedPagePath 对应的 page 文件，不需要改 index.html",
+                isEditMode
+                  ? "多页/全局编辑使用 update_page_file(pageId, content)，必须显式传 pageId"
+                  : "多页生成优先使用 update_page_file(content)（可选传 pageId 覆盖自动定位）",
+                "每页写入后会自动注入动画运行时与防溢出保护",
+                "不要在最终答案里返回大块 HTML，必须把变更落盘",
+                "尽量不要修改 index.html 的导航与控制逻辑"
+              ];
         return JSON.stringify(
           {
             mode: context.mode || "generate",
@@ -955,7 +1016,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
             elementTag: context.elementTag ?? undefined,
             elementText: context.elementText ?? undefined,
             existingPageIds: scopedExistingPageIds ?? undefined,
-            constraints,
+            constraints
           },
           null,
           2
@@ -963,8 +1024,9 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       },
       {
         name: "get_session_context",
-        description: "获取当前会话的生成上下文、目录路径、index.html 地址、页面标题与约束条件。",
-        schema: z.object({}),
+        description:
+          "Get the current session generation context, directory paths, index.html path, page titles, and constraints.",
+        schema: z.object({})
       }
     ),
 
@@ -974,16 +1036,16 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         emitNormalizedToolStatus(config, {
           label,
           detail: detail ?? undefined,
-          progress: progress ?? undefined,
+          progress: progress ?? undefined
         });
         return `Status recorded: ${label}`;
       },
       {
         name: "report_generation_status",
-        description: "向宿主应用汇报当前生成阶段与细节，便于前端实时展示状态。progress 必须使用数字字面量（如 10），不要传字符串（如 \"10\"）。",
+        description: `Report the current generation/editing stage to the host UI. The label and detail must be written in ${statusLanguage}, regardless of the deck content language. progress must be a numeric literal such as 10, not a string such as "10".`,
         schema: z.object({
-          label: z.string().describe("当前阶段标签"),
-          detail: z.string().nullable().describe("补充说明"),
+          label: z.string().describe(`Current stage label in ${statusLanguage}`),
+          detail: z.string().nullable().describe(`Optional extra detail in ${statusLanguage}`),
           progress: z
             .preprocess((value) => {
               if (value === null || value === undefined || value === "") return null;
@@ -995,8 +1057,8 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
               }
               return value;
             }, z.number().min(0).max(100).nullable())
-            .describe("建议进度"),
-        }),
+            .describe("Suggested progress")
+        })
       }
     ),
 
@@ -1013,21 +1075,31 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         const current = await fs.promises.readFile(context.indexPath, "utf-8");
         const next = patchIndexTransitionStyle(current, {
           type: transitionType,
-          durationMs: Number(durationMs),
+          durationMs: Number(durationMs)
         });
         const indexErrors = validateIndexShellHtml(next);
         if (indexErrors.length > 0) {
           emitNormalizedToolStatus(config, {
-            label: "切换动画配置失败",
+            label: uiText(context.appLocale, "切换动画配置失败", "Transition configuration failed"),
             detail: indexErrors.join("; "),
-            progress: 60,
+            progress: 60
           });
           throw new Error(`index.html 验证失败: ${indexErrors.join("; ")}`);
         }
         emitNormalizedToolStatus(config, {
-          label: transitionType === "none" ? "关闭切换动画" : "更新切换动画",
-          detail: transitionType === "none" ? "已恢复无过渡切换" : `已设置淡入淡出 ${clampTransitionDuration(Number(durationMs))}ms`,
-          progress: 72,
+          label:
+            transitionType === "none"
+              ? uiText(context.appLocale, "关闭切换动画", "Transition disabled")
+              : uiText(context.appLocale, "更新切换动画", "Transition updated"),
+          detail:
+            transitionType === "none"
+              ? uiText(context.appLocale, "已恢复无过渡切换", "Restored instant page switching")
+              : uiText(
+                  context.appLocale,
+                  `已设置淡入淡出 ${clampTransitionDuration(Number(durationMs))}ms`,
+                  `Set fade transition to ${clampTransitionDuration(Number(durationMs))}ms`
+                ),
+          progress: 72
         });
         const result = await serializedWrite(context.projectDir, async () => {
           await fs.promises.writeFile(context.indexPath, next, "utf-8");
@@ -1038,18 +1110,18 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           indexPath: context.indexPath,
           type: transitionType,
           durationMs: transitionType === "none" ? null : clampTransitionDuration(Number(durationMs)),
-          agentName: getAgentNameFromToolConfig(config) || "unknown",
+          agentName: getAgentNameFromToolConfig(config) || "unknown"
         });
         return result;
       },
       {
         name: "set_index_transition",
         description:
-          "主会话（main）专用受控工具：配置 index.html 页面切换动画。不会重写 index 壳，只 patch 已知过渡样式。",
+          "Controlled tool for the main session: configure index.html page transition animation without rewriting the index shell.",
         schema: z.object({
-          type: z.enum(["fade", "none"]).describe("切换动画类型：fade 淡入淡出，none 关闭过渡"),
-          durationMs: z.number().optional().describe("动画时长，范围 120-1200ms，默认 420ms"),
-        }),
+          type: z.enum(["fade", "none"]).describe("Transition type: fade for cross-fade, none to disable transitions"),
+          durationMs: z.number().optional().describe("Animation duration, 120-1200ms, default 420ms")
+        })
       }
     ),
 
@@ -1057,7 +1129,9 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     tool(
       async ({ pageId, content }, config) => {
         if (isMainScopeEdit) {
-          throw new Error("当前为主会话编辑（main），禁止调用 update_single_page_file；请改用 set_index_transition(type, durationMs)。");
+          throw new Error(
+            "当前为主会话编辑（main），禁止调用 update_single_page_file；请改用 set_index_transition(type, durationMs)。"
+          );
         }
         const targetPageId = resolveSingleTargetPageId();
         if (!targetPageId) {
@@ -1074,17 +1148,21 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           pageId,
           content,
           config,
-          statusLabel: `更新单页 ${pageId}`,
+          statusLabel: uiText(context.appLocale, `更新单页 ${pageId}`, `Updating ${pageId}`)
         });
       },
       {
         name: "update_single_page_file",
         description:
-          "单页编辑专用工具。必须显式传入 pageId 和 content；工具会校验 pageId 是否与当前单页上下文一致，避免误改其他页面。",
+          "Single-page edit tool. Pass pageId and content explicitly; the tool validates pageId against the current single-page context to avoid modifying other pages.",
         schema: z.object({
-          pageId: z.string().describe("目标 pageId，例如 page-5（必须与当前单页上下文一致）"),
-          content: z.string().describe("页面 HTML 片段：必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；不要传 <!doctype>/<html>/<body> 标签"),
-        }),
+          pageId: z.string().describe("Target pageId, such as page-5. It must match the current single-page context."),
+          content: z
+            .string()
+            .describe(
+              'Page HTML fragment. It must include section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. Do not pass <!doctype>, <html>, or <body> tags.'
+            )
+        })
       }
     ),
 
@@ -1092,7 +1170,9 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     tool(
       async ({ pageId, content }, config) => {
         if (isMainScopeEdit) {
-          throw new Error("当前为主会话编辑（main），禁止调用 update_page_file；请改用 set_index_transition(type, durationMs)。");
+          throw new Error(
+            "当前为主会话编辑（main），禁止调用 update_page_file；请改用 set_index_transition(type, durationMs)。"
+          );
         }
         if (isEditMode && (!pageId || pageId.trim().length === 0)) {
           throw new Error("编辑模式调用 update_page_file 时必须显式传 pageId，避免自动游标误写到其它页面。");
@@ -1106,17 +1186,26 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         return writePageFile({
           pageId,
           content,
-          config,
+          config
         });
       },
       {
         name: "update_page_file",
         description:
-          "多页生成/全局编辑工具（单页上下文禁用）。生成模式可不传 pageId 自动按顺序定位；编辑模式必须显式传 pageId，避免误写其它页面。content 必须是页面 HTML 片段，包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；工具会自动包装为完整 HTML 文档并注入运行时。禁止传完整 HTML 文档。写入前会自动验证 HTML。",
+          'Multi-page generation/global edit tool. Disabled in single-page context. In generation mode pageId may be omitted to resolve pages by order; in edit mode pageId is required. content must be a page HTML fragment containing section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. The tool wraps it as a complete HTML document and injects runtime assets. Do not pass a full HTML document. HTML is validated before writing.',
         schema: z.object({
-          pageId: z.string().optional().describe("可选：目标 section id，例如 page-1。不传则自动按上下文/顺序定位。"),
-          content: z.string().describe("页面 HTML 片段：必须包含 section[data-page-scaffold] 和 main[data-block-id=\"content\"][data-role=\"content\"]；不要传 <!doctype>/<html>/<body> 标签"),
-        }),
+          pageId: z
+            .string()
+            .optional()
+            .describe(
+              "Optional target section id, such as page-1. If omitted, the tool resolves the page from context/order."
+            ),
+          content: z
+            .string()
+            .describe(
+              'Page HTML fragment. It must include section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. Do not pass <!doctype>, <html>, or <body> tags.'
+            )
+        })
       }
     ),
 
@@ -1125,9 +1214,13 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       async (_input, config) => {
         if (isMainScopeEdit) {
           emitNormalizedToolStatus(config, {
-            label: "验证完成状态",
-            detail: "正在检查 index.html 总览壳结构",
-            progress: 88,
+            label: uiText(context.appLocale, "验证完成状态", "Verifying completion"),
+            detail: uiText(
+              context.appLocale,
+              "正在检查 index.html 总览壳结构",
+              "Checking the index.html overview shell structure"
+            ),
+            progress: 88
           });
           if (!fs.existsSync(context.indexPath)) {
             return `验证失败：index.html 缺失（${context.indexPath}）。请检查会话文件是否完整。`;
@@ -1138,22 +1231,32 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
             return `验证失败：index.html 结构不完整：${indexErrors.join("; ")}`;
           }
           emitNormalizedToolStatus(config, {
-            label: "index 壳验证通过",
-            detail: "index.html 关键结构完整",
-            progress: 95,
+            label: uiText(context.appLocale, "index 壳验证通过", "Index shell verified"),
+            detail: uiText(context.appLocale, "index.html 关键结构完整", "Key index.html structure is complete"),
+            progress: 95
           });
           return "验证通过：index.html 已更新且结构完整。";
         }
         emitNormalizedToolStatus(config, {
-          label: "验证完成状态",
-          detail: "正在检查所有 page 文件是否已填充",
-          progress: 88,
+          label: uiText(context.appLocale, "验证完成状态", "Verifying completion"),
+          detail: uiText(
+            context.appLocale,
+            "正在检查所有 page 文件是否已填充",
+            "Checking whether all page files are filled"
+          ),
+          progress: 88
         });
         const pageIds = Object.keys(context.pageFileMap);
-        const targetPageIds = Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
-          ? pageIds.filter((pid) => context.allowedPageIds!.includes(pid))
-          : pageIds;
-        const results: Array<{ pageId: string; filled: boolean; hasContent: boolean; hasRemoteRuntime: boolean }> = [];
+        const targetPageIds =
+          Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+            ? pageIds.filter((pid) => context.allowedPageIds!.includes(pid))
+            : pageIds;
+        const results: Array<{
+          pageId: string;
+          filled: boolean;
+          hasContent: boolean;
+          hasRemoteRuntime: boolean;
+        }> = [];
         for (const pid of targetPageIds) {
           const pagePath = context.pageFileMap[pid];
           const exists = fs.existsSync(pagePath);
@@ -1178,9 +1281,17 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         }
         const isSinglePageCheck = targetPageIds.length === 1;
         emitNormalizedToolStatus(config, {
-          label: isSinglePageCheck ? "当前页面已填充" : "所有页面已填充",
-          detail: isSinglePageCheck ? `${targetPageIds[0]} 已完成` : `${filledCount}/${targetPageIds.length} 页已完成`,
-          progress: 95,
+          label: isSinglePageCheck
+            ? uiText(context.appLocale, "当前页面已填充", "Current page filled")
+            : uiText(context.appLocale, "所有页面已填充", "All pages filled"),
+          detail: isSinglePageCheck
+            ? uiText(context.appLocale, `${targetPageIds[0]} 已完成`, `${targetPageIds[0]} completed`)
+            : uiText(
+                context.appLocale,
+                `${filledCount}/${targetPageIds.length} 页已完成`,
+                `${filledCount}/${targetPageIds.length} pages completed`
+              ),
+          progress: 95
         });
         return isSinglePageCheck
           ? `验证通过：${targetPageIds[0]} 已成功填充。${JSON.stringify(results, null, 2)}`
@@ -1188,9 +1299,10 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       },
       {
         name: "verify_completion",
-        description: "验证所有 page 文件是否已正确填充内容。建议在 update_single_page_file / update_page_file 调用完成后使用。",
-        schema: z.object({}),
+        description:
+          "Verify that all page files have been filled correctly. Use after update_single_page_file or update_page_file.",
+        schema: z.object({})
       }
-    ),
+    )
   ];
 }

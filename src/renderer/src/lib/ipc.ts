@@ -17,7 +17,7 @@ function getIpc(): IpcRendererLike {
   const ipc = window.electron?.ipcRenderer
   if (!ipc) {
     const electronKeys = window.electron ? Object.keys(window.electron).join(', ') : 'none'
-    throw new Error(`Electron preload IPC 不可用。window.electron keys: ${electronKeys}`)
+    throw new Error(`Electron preload IPC is unavailable. window.electron keys: ${electronKeys}`)
   }
   return ipc
 }
@@ -172,7 +172,13 @@ export const ipc = {
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   saveSettings: (settings: Record<string, unknown>) =>
     getIpc().invoke('settings:save', settings) as Promise<{ success: boolean }>,
-  verifyApiKey: (payload: { provider: string; apiKey: string; model: string; baseUrl: string }) =>
+  verifyApiKey: (payload: {
+    provider: string
+    apiKey: string
+    model: string
+    baseUrl: string
+    timeoutMs: number
+  }) =>
     getIpc().invoke('settings:verifyApiKey', payload) as Promise<{
       valid: boolean
       message?: string

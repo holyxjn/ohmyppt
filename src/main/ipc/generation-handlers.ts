@@ -21,6 +21,7 @@ export function registerGenerationHandlers(
     executeGeneration,
     executeRetryFailedPages
   } = generationService
+  const startingSessionIds = new Set<string>()
 
   ipcMain.handle('generate:state', async (_event, rawSessionId: unknown) => {
     pruneFinishedSessionRunStates()
@@ -82,6 +83,13 @@ export function registerGenerationHandlers(
         })
         return { success: true, runId: runningState.runId, alreadyRunning: true }
       }
+      if (startingSessionIds.has(requestedSessionId)) {
+        log.info('[generate:start] attach to starting run', {
+          sessionId: requestedSessionId
+        })
+        return { success: true, alreadyRunning: true }
+      }
+      startingSessionIds.add(requestedSessionId)
     }
 
     let context: GenerationContext | null = null
@@ -101,6 +109,9 @@ export function registerGenerationHandlers(
       }
       throw error
     } finally {
+      if (requestedSessionId) {
+        startingSessionIds.delete(requestedSessionId)
+      }
       if (context) {
         agentManager.removeSession(context.sessionId)
       }
@@ -135,8 +146,12 @@ export function registerGenerationHandlers(
           ? retryPayload.userMessage.trim()
           : ''
       const retryUserMessage = retrySupplement
-        ? `请继续生成当前会话中未完成页面。\n用户补充说明：${retrySupplement}`
-        : '请继续生成当前会话中未完成页面。'
+        ? [
+            'Continue generating the unfinished slides in this session.',
+            'Determine the content language from the existing topic, outline, source materials, and the user supplement; do not infer it from this instruction language.',
+            `User supplement:\n${retrySupplement}`
+          ].join('\n')
+        : 'Continue generating the unfinished slides in this session. Determine the content language from the existing topic, outline, and source materials; do not infer it from this instruction language.'
       context = await resolveGenerationContext(
         event,
         {

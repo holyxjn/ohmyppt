@@ -70,6 +70,38 @@ interface SessionStore {
   setError: (error: string | null) => void
 }
 
+const isSameRecentMessage = (left: Message, right: Message): boolean =>
+  left.role === right.role &&
+  left.chat_scope === right.chat_scope &&
+  left.page_id === right.page_id &&
+  left.content === right.content &&
+  Math.abs(left.created_at - right.created_at) <= 1
+
+const dedupeMessages = (messages: Message[]): Message[] => {
+  const result: Message[] = []
+  const seenIds = new Set<string>()
+  for (const message of messages) {
+    if (seenIds.has(message.id)) continue
+    if (result.some((item) => isSameRecentMessage(item, message))) continue
+    seenIds.add(message.id)
+    result.push(message)
+  }
+  return result
+}
+
+const sortMessages = (messages: Message[]): Message[] =>
+  [...messages].sort((left, right) => left.created_at - right.created_at)
+
+const messageMatchesContext = (
+  message: Message,
+  sessionId: string,
+  chatType: 'main' | 'page',
+  pageId?: string
+): boolean =>
+  message.session_id === sessionId &&
+  message.chat_scope === chatType &&
+  (chatType === 'main' || message.page_id === pageId)
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   currentSession: null,
@@ -82,7 +114,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     try {
       const sessions = await ipc.listSessions()
       set({ sessions: sessions as unknown as Session[] })
-    } catch (e) {
+    } catch {
       set({ error: 'Failed to fetch sessions' })
     }
   },
@@ -104,7 +136,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         currentGeneratedPages: generatedPages,
         loading: false,
       })
-    } catch (e) {
+    } catch {
       set({ error: 'Failed to load session', loading: false })
     }
   },
@@ -112,8 +144,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   loadMessages: async ({ sessionId, chatType, pageId }) => {
     try {
       const messages = await ipc.getSessionMessages({ sessionId, chatType, pageId })
-      set({ currentMessages: messages as unknown as Message[] })
-    } catch (e) {
+      const loadedMessages = messages as unknown as Message[]
+      set((state) => {
+        const pendingMessages = state.currentMessages.filter((message) =>
+          messageMatchesContext(message, sessionId, chatType, pageId)
+        )
+        return {
+          currentMessages: sortMessages(dedupeMessages([...loadedMessages, ...pendingMessages]))
+        }
+      })
+    } catch {
       set({ error: 'Failed to load messages' })
     }
   },
@@ -136,8 +176,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setCurrentSession: (session) => set({ currentSession: session }),
-  setMessages: (messages) => set({ currentMessages: messages }),
-  addMessage: (message) => set((state) => ({ currentMessages: [...state.currentMessages, message] })),
+  setMessages: (messages) => set({ currentMessages: sortMessages(dedupeMessages(messages)) }),
+  addMessage: (message) =>
+    set((state) => {
+      const hasSameId = state.currentMessages.some((item) => item.id === message.id)
+      if (hasSameId) return state
+
+      const hasSameRecentMessage = state.currentMessages.some((item) =>
+        isSameRecentMessage(item, message)
+      )
+      if (hasSameRecentMessage) return state
+
+      return { currentMessages: sortMessages([...state.currentMessages, message]) }
+    }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
 }))

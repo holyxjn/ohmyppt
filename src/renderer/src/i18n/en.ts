@@ -1,0 +1,377 @@
+import type { DeepStringShape } from './index'
+import { zh } from './zh'
+
+export const en = {
+  common: {
+    cancel: 'Cancel',
+    delete: 'Delete',
+    edit: 'Edit',
+    preview: 'Preview',
+    save: 'Save',
+    saving: 'Saving...',
+    retryLater: 'Please try again later'
+  },
+  app: {
+    updateAvailable: 'New version {version} available',
+    updateAvailableDescription: 'Current version: {currentVersion}. Click to download.',
+    open: 'Open'
+  },
+  nav: {
+    home: 'Home',
+    sessions: 'Sessions',
+    styles: 'Styles',
+    settings: 'Settings',
+    backToSessions: 'Back to sessions',
+    newPresentation: 'New presentation',
+    tagline: 'AI presentation workbench'
+  },
+  home: {
+    eyebrow: 'Unleash your creativity',
+    title: 'Start a new presentation task',
+    description:
+      'Built-in 30+ styles, custom style support, Chart.js charts, anime.js animation, and a progressive workflow from task brief to session refinement.',
+    uploadDocument: 'Upload document',
+    parsingDocument: 'Parsing...',
+    uploadDocumentTooltip:
+      'Supports txt, md, csv, and docx up to {maxSize}MB. Parsing fills in the topic, page count, and detailed brief; generation will still reference the original document content.',
+    importPptx: 'Import PPTX for AI editing',
+    importingPptx: 'Importing...',
+    importPptxTooltip: 'Import a .pptx file up to {maxSize}MB and convert it into editable pages.',
+    parsed: 'Parsed',
+    localOnly: 'All documents stay local and are only parsed into AI-readable context.',
+    topic: 'Topic',
+    topicPlaceholder: 'Example: 2026 AI Agent product roadmap',
+    style: 'Style',
+    stylePlaceholder: 'Select style',
+    pageCount: 'Pages',
+    brief: 'Detailed brief',
+    briefPlaceholder:
+      'Describe the goal, key conclusions, data points to keep, and desired narrative rhythm',
+    creating: 'Creating...',
+    createAndStart: 'Create session and start',
+    unnamedTopic: 'Untitled topic',
+    defaultPrompt: 'Create a {pageCount}-page presentation about "{topic}" in the {style} style.',
+    settingsRequired: 'Please complete model and storage configuration in Settings first.',
+    settingsRequiredTitle: 'Settings incomplete',
+    goToSettings: 'Go to settings',
+    completeInfoTitle: 'Complete the form',
+    validationTopic: 'Please enter a topic.',
+    validationStylesLoading: 'Styles are still loading. Please try again shortly.',
+    validationStyle: 'Please select a style.',
+    validationStyleMissing: 'The selected style no longer exists. Please choose again.',
+    validationPageCount: 'Please enter page count ({min}-{max}).',
+    validationPageCountNumber: 'Page count must be a number.',
+    validationPageCountRange: 'Page count must be between {min} and {max}.',
+    validationBrief: 'Please enter a detailed brief.',
+    styleLoadFailed: 'Failed to load styles',
+    sessionCreated: 'Session created',
+    generationStarted: 'Generation started',
+    sessionCreateFailed: 'Failed to create session',
+    documentSingleOnly: 'Upload one document at a time.',
+    documentCountExceeded: 'Too many documents',
+    documentTooLargeTitle: 'Document too large',
+    documentTooLarge: 'A single document must be under {maxSize}MB. Please compress or split it.',
+    documentPathFailedTitle: 'Cannot read document path',
+    documentPathFailed: 'Cannot read the document path. Please choose a local document again.',
+    documentParsed: 'Document parsed',
+    documentParsedDescription:
+      'Processed {count} document(s) and filled the topic, page count, and brief',
+    documentParseFailed: 'Failed to parse document',
+    pptxSingleOnlyTitle: 'Too many PPTX files',
+    pptxSingleOnly: 'Import one PPTX file at a time.',
+    unsupportedFileTitle: 'Unsupported file type',
+    unsupportedPptx: 'Please upload a .pptx file.',
+    pptxTooLargeTitle: 'PPTX file too large',
+    pptxTooLarge: 'A single PPTX must be under {maxSize}MB.',
+    pptxPathFailedTitle: 'Cannot read PPTX path',
+    pptxPathFailed: 'Please choose a local PPTX file again.',
+    pptxPreparing: 'Preparing PPTX import...',
+    pptxImportDone: 'PPTX imported',
+    pptxImportedWithWarnings: 'Imported {pageCount} pages with {warningCount} fallback warning(s).',
+    pptxImported: 'Imported {pageCount} pages.',
+    pptxImportFailed: 'Failed to import PPTX'
+  },
+  sessions: {
+    eyebrow: 'Sessions',
+    title: 'Sessions',
+    newSession: 'New session',
+    emptyTitle: 'No sessions yet',
+    emptyDescription: 'Create your first presentation task',
+    sourcePptx: 'PPTX import',
+    sourceDocument: 'Document',
+    sourceAi: 'AI created',
+    statusComplete: 'Complete',
+    statusContinuable: 'Can continue',
+    statusRegenerate: 'Regenerate needed',
+    actionEnter: 'Open session',
+    actionContinue: 'Continue',
+    actionRegenerate: 'Regenerate',
+    editTitle: 'Edit session name',
+    titleEmpty: 'Name cannot be empty',
+    titleTooLong: 'Name too long',
+    titleTooLongDescription: 'Session name cannot exceed 120 characters.',
+    titleUpdated: 'Session name updated',
+    renameFailed: 'Rename failed',
+    renameDescription:
+      'Only the session name used in lists and exports will change. Page content will not be regenerated.',
+    renamePlaceholder: 'Enter a new session name',
+    pagesCount: '{generated}/{total} pages',
+    failedCount: '{count} failed'
+  },
+  settings: {
+    eyebrow: 'Preferences',
+    title: 'Settings',
+    interface: 'Interface',
+    language: 'Interface language',
+    languagePlaceholder: 'Select interface language',
+    chinese: 'Simplified Chinese',
+    english: 'English',
+    generalTab: 'General',
+    modelTab: 'Model access',
+    advancedTab: 'Advanced',
+    modelAccess: 'Model access',
+    providerPreset: 'Provider preset',
+    providerPlaceholder: 'Select Provider',
+    modelHint: 'Any compatible model name for this provider is accepted.',
+    baseUrlHint: 'Enter a service URL compatible with the selected provider protocol.',
+    timeoutSection: 'Model timeouts (seconds)',
+    timeoutPlanning: 'Outline planning',
+    timeoutDesign: 'Design contract',
+    timeoutAgent: 'Generation/editing',
+    timeoutDocument: 'Document parsing',
+    timeoutSeconds: 'Model call timeout (seconds)',
+    timeoutPlaceholder: 'Example: 300',
+    timeoutHint:
+      'For local or slower models. Cloud models usually do not need changes here.',
+    timeoutPlanningHint: 'Default 300 seconds. Used for titles, key points, and outlines.',
+    timeoutDesignHint: 'Default 300 seconds. Used for the deck visual direction.',
+    timeoutAgentHint: 'Default 600 seconds. Used for page generation and edits.',
+    timeoutDocumentHint: 'Default 600 seconds. Used for uploaded document outline parsing.',
+    apiKeyPlaceholder: 'Enter {provider} API Key',
+    verifying: 'Verifying...',
+    verify: 'Verify',
+    verifyHint:
+      'Uses the current provider preset, model, api_key, and base_url for a real connectivity check. Local Ollama can use any value.',
+    modelPlaceholder: 'Example: deepseek-v4/gpt-5.4',
+    baseUrlPlaceholder: 'Example: https://api.deepseek.com',
+    storage: 'Storage',
+    storagePath: 'Storage path',
+    storagePlaceholder: 'Choose a storage folder first',
+    choose: 'Choose',
+    storageHint: 'New creative generation results will be written to this folder.',
+    saveSettings: 'Save settings',
+    saveModel: 'Save model settings',
+    saveFailed: 'Failed to save settings',
+    saved: 'Settings saved',
+    savedDescription: 'Configuration has been written locally',
+    modelSaved: 'Model settings saved',
+    modelSavedDescription: 'Provider, model, base_url, api_key, and timeout have been written locally',
+    fillApiKey: 'Enter api_key first',
+    fillModel: 'Enter model first',
+    verifyPassed: 'API Key verified',
+    verifyPassedDescription: 'The current configuration can call the model',
+    verifyFailed: 'API Key verification failed',
+    verifyFailedDescription: 'Check model / api_key / base_url',
+    choosePathFailed: 'Failed to choose folder',
+    storagePathUpdated: 'Storage path updated'
+  },
+  styles: {
+    eyebrow: 'Style Lab',
+    title: 'Style management',
+    description:
+      'Built-in 30+ styles with custom style support. Click Edit or New to open the dedicated editor.',
+    refresh: 'Refresh',
+    newStyle: 'New style',
+    refreshed: 'Style list refreshed',
+    refreshedDescription: '{count} styles total',
+    loadFailed: 'Failed to load styles',
+    sourceBuiltin: 'builtin',
+    pagesCount: 'Pages · {count}'
+  },
+  styleEditor: {
+    eyebrow: 'Style Editor',
+    newStyle: 'New style',
+    backToList: 'Back to list',
+    loading: 'Loading style content...',
+    defaultLabel: 'My style',
+    defaultDescription: 'Custom style',
+    defaultCategory: 'Custom',
+    detailLoadFailed: 'Failed to load style details',
+    invalidStyleId: 'Invalid styleId',
+    backAndRetry: 'Go back to the list and try again',
+    fillName: 'Enter a name first',
+    fillPrompt: 'Enter a style prompt first',
+    saved: 'Style saved',
+    savedOverride: 'Saved as a built-in style override',
+    savedCustom: 'Custom style updated',
+    saveFailed: 'Save failed',
+    cannotDelete: 'This style cannot be deleted',
+    builtinCannotDelete: 'Built-in styles should be edited and saved as an override',
+    deleted: 'Style deleted',
+    deleteFailed: 'Delete failed',
+    name: 'Name',
+    descriptionLabel: 'Description',
+    descriptionPlaceholder: 'Describe this style in one sentence',
+    writingTips: 'Style Skill writing tips',
+    skillMarkdown: 'Skill Markdown',
+    tipStructure:
+      'Organize by Visual / Layout / Typography / Animation / Charts / Avoid so the model can follow it reliably.',
+    tipAnimation:
+      'Anime.js v4 animation is supported. Specify rhythm, duration, easing, and intent.',
+    tipNatural:
+      'Describe the desired effect and rhythm directly. Implementation details are not required.',
+    tipReadable:
+      'Prioritize readability: keep animation light, hierarchy clear, and avoid flicker or excessive motion.',
+    emptyMarkdown: '_No Markdown content_',
+    saveStyle: 'Save style',
+    currentMode: 'Current mode: {mode}',
+    builtinMode: 'Built-in (saving creates an override)',
+    template: `## Visual
+- White or light base with generous whitespace
+- Keep illustration and graphic language consistent
+
+## Layout
+- Strong titles, clear sections, and explicit hierarchy
+- Put each slide's main conclusion first, with supporting details secondary
+
+## Typography
+- Stable size scale across title, body, and notes
+- Comfortable line length; avoid dense paragraphs
+
+## Animation (Anime.js v4)
+- Anime.js v4 animation is supported; keep motion natural
+- Describe elements, sequence, duration, easing, and staggering clearly
+- Suggested entrance animations: 300-700ms with smooth transitions
+- Use motion to clarify hierarchy and guide attention, not to distract
+
+## Charts
+- Specify chart type when needed: bar, line, pie, etc.
+- Keep colors aligned with the slide theme; avoid high-saturation clashes
+
+## Avoid
+- Do not use remote CDN resources
+- Do not stack too many simultaneous moving elements
+- Do not create flicker or disorienting motion`
+  },
+  generating: {
+    stages: {
+      preflight: 'Understanding request',
+      planning: 'Planning structure',
+      rendering: 'Generating pages'
+    },
+    created: 'Understanding request',
+    currentSession: 'Current session',
+    defaultPrompt: 'Create a clear first draft that can be previewed directly.',
+    pageDetail: 'Page {pageNumber}: {title}',
+    completed: 'Completed',
+    failedRetryOrBack: 'Failed',
+    stillRunning: 'Generating pages',
+    started: 'Generating pages',
+    failed: 'Failed',
+    previousFailed: 'The previous generation for this session failed. You can retry directly.',
+    keptFailed: 'Failed',
+    resumed: 'Generating pages',
+    incompleteSome:
+      'Session incomplete: {generated}/{total} pages finished. Continue generating the remaining pages.',
+    continueRemainingEvent: 'Retrying',
+    incompleteNone: 'Session incomplete: 0/{total} pages finished. Please regenerate.',
+    noValidPagesEvent: 'Failed',
+    backHome: 'Back home',
+    title: 'AI is generating your presentation',
+    expandLog: 'Expand log panel',
+    collapseLog: 'Collapse log panel',
+    logTitle: 'Progress log',
+    progress: 'Progress',
+    growing: 'Generating pages',
+    eyebrow: 'Generating',
+    interrupted: 'Interrupted',
+    failedRetry: 'Generation failed. Please retry.',
+    continueRemaining: 'Continue remaining pages',
+    backToSessions: 'Back to sessions',
+    regenerate: 'Regenerate'
+  },
+  sessionDetail: {
+    sessionFallback: 'Session',
+    current: 'Current',
+    pagesCount: 'Pages · {count}',
+    pageNumber: 'Page {pageNumber}',
+    pagesEmpty: 'No pages yet',
+    backToSessions: 'Back to sessions',
+    exportPptx: 'Export PPTX',
+    exportPng: 'Export PNG',
+    exportPdf: 'Export PDF',
+    preview: 'Preview',
+    revealFile: 'Show file',
+    collapseMessages: 'Collapse message panel',
+    expandMessages: 'Expand message panel',
+    messageTitle: 'Messages and input',
+    context: 'Context',
+    contextPlaceholder: 'Select context',
+    currentPage: 'Current page',
+    mainSession: 'Main session',
+    pageContext: 'Current page · P{pageNumber}',
+    mainContext: 'Main session · global structure and index edits',
+    assetPlaceholder:
+      'Describe how to use these assets, for example: use the first image as the cover background.',
+    pagePlaceholder:
+      'Current-page mode only edits this page. You can use Inspect to select an element, then ask to adjust color or font size.',
+    mainDisabledPlaceholder:
+      'Main-session sending is disabled. Switch Context to Current page first.',
+    emptyMessages: 'No creative messages yet',
+    modelProcessing: 'Model processing...',
+    selectorBadge: 'SELECTOR',
+    clearSelector: 'Clear selector',
+    mainDisabled:
+      'Main-session sending is disabled. Switch Context to Current page before editing.',
+    removeAsset: 'Remove asset',
+    addAsset: 'Add asset',
+    chooseImage: 'Choose image',
+    chooseFileSoon: 'Choose file (soon)',
+    stop: 'Stop',
+    send: 'Send',
+    exitWithoutSaving: 'Exit without saving',
+    exitAdjust: 'Exit adjustment',
+    adjustLayout: 'Adjust position/size',
+    saveAdjustments: 'Save adjustments',
+    exitInspect: 'Exit inspect',
+    inspectElement: 'Inspect element',
+    failedPageHint:
+      'This page failed last time and is showing a recoverable file. Keep the Current page context and describe how to fix or regenerate it.',
+    clickToSelect: 'Click an element to select it',
+    emptyPreviewTitle: 'Waiting for your creative draft',
+    preparingPreview: 'Preparing the first preview...',
+    briefHint: 'Enter a brief in the message panel and the preview will appear here.',
+    imageOnly: 'Only image assets are supported for now',
+    imagePathFailed: 'Cannot read image path',
+    assetsAdded: 'Added {count} asset(s)',
+    assetUploadFailed: 'Asset upload failed',
+    switchToPageFirst: 'Main-session sending is disabled. Switch to Current page first.',
+    useUploadedAssets: 'Use uploaded assets',
+    selectPageFirst: 'Select a page before sending',
+    selectorLocated: '(selected element located)',
+    exportFailed: 'Export failed',
+    exportCancelled: 'Export cancelled',
+    exportPdfStart: 'Exporting PDF',
+    exportPdfDescription:
+      'Large decks or complex charts may take a while. Keep the window open and the result will appear automatically.',
+    exportDonePages: 'Export completed ({count} pages)',
+    exportSuccessPages: 'Export succeeded ({count} pages)',
+    exportPngStart: 'Exporting PNG images',
+    exportPngDescription:
+      'All pages will be saved as high-resolution images, suitable for docs, Notion, or social posts.',
+    pngExported: 'PNG exported ({count} images)',
+    pptxPreparing: 'Preparing editable PPTX',
+    pptxPreparingDescription:
+      'The export will preserve layout, colors, and images while keeping key text editable where possible.',
+    pptxExported: 'PPTX exported ({count} pages)',
+    pptxEditableDescription: 'Layout and editable text were preserved where possible.',
+    pageLoadNotice:
+      'Some pages took longer to load and were exported from the current view. Please quickly inspect the PPTX.',
+    noEditableTextNotice:
+      'Some pages were preserved as full visuals and may need manual text tweaks in PowerPoint.',
+    exportCheckNotice: 'File exported. Please quickly inspect layout details in the PPTX.',
+    layoutSaveFailed: 'Failed to save adjustments',
+    adjustmentsSaved: 'Saved {count} adjustment(s)',
+    discardedAdjustments: 'Discarded unsaved adjustments'
+  }
+} satisfies DeepStringShape<typeof zh>

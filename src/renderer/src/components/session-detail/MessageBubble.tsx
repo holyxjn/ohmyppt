@@ -3,6 +3,7 @@ import { Image as ImageIcon } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { Message } from '@renderer/store/sessionStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
+import { useT } from '@renderer/i18n'
 
 export function MessageBubble({
   message,
@@ -11,6 +12,7 @@ export function MessageBubble({
   message: Message
   cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
+  const t = useT()
   const isUser = message.role === 'user'
   const selectorText =
     typeof message.selector === 'string' && message.selector.trim().length > 0
@@ -27,17 +29,19 @@ export function MessageBubble({
     <div className={cn('flex w-full min-w-0', isUser ? 'justify-end' : 'justify-start')}>
       <div
         className={cn(
-          'min-w-0 overflow-hidden rounded-[1.15rem] px-3 py-2 shadow-[0_8px_18px_rgba(93,107,77,0.1)]',
+          'min-w-0 overflow-hidden rounded-[1.15rem] border px-3 py-2 shadow-[0_6px_14px_rgba(74,59,42,0.08)]',
           selectorText ? 'w-full max-w-[238px]' : 'w-fit max-w-[238px]',
-          isUser ? 'bg-[#f5f1e8]/82 text-[#3f4b35]' : 'bg-[#e8e0d0]/76 text-[#3f4b35]'
+          isUser
+            ? 'border-[#d6e3c8]/78 bg-[#fbfef6]/90 text-[#34402c]'
+            : 'border-[#ded2bd]/78 bg-[#fffaf1]/88 text-[#3f372b]'
         )}
       >
         <div className="space-y-1">
           {isUser && selectorText && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex w-full min-w-0 items-center overflow-hidden rounded-full bg-[#d4e4c1]/64 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#657552]">
-                  <span className="mr-1 shrink-0">SELECTOR</span>
+                <div className="flex w-full min-w-0 items-center overflow-hidden rounded-full border border-[#c7d9b4]/62 bg-[#e6f1dc]/72 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#4b5f3b]">
+                  <span className="mr-1 shrink-0">{t('sessionDetail.selectorBadge')}</span>
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal tracking-normal">
                     {selectorText}
                   </span>
@@ -53,7 +57,7 @@ export function MessageBubble({
               {imagePaths.map((imagePath) => (
                 <Tooltip key={imagePath}>
                   <TooltipTrigger asChild>
-                    <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-[#d4e4c1]/64 px-1.5 py-0.5 text-[10px] font-medium text-[#5f6d4b]">
+                    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#c7d9b4]/62 bg-[#e6f1dc]/72 px-1.5 py-0.5 text-[10px] font-medium text-[#4b5f3b]">
                       <ImageIcon className="h-3 w-3 shrink-0" />
                       <span className="min-w-0 max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap">
                         {imagePath}

@@ -6,13 +6,14 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   size?: 'sm' | 'md' | 'lg'
 }
 
-export function Button({ className, variant = 'default', size = 'md', ...props }: ButtonProps) {
+export function Button({ className, variant = 'default', size = 'md', ...props }: ButtonProps): React.JSX.Element {
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center rounded-lg font-medium transition-all',
+        'inline-flex items-center justify-center whitespace-nowrap rounded-lg font-medium leading-none transition-all',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         'disabled:pointer-events-none disabled:opacity-50',
+        '[&_svg]:shrink-0',
         'cursor-pointer',
         {
           'bg-gradient-to-r from-[#6f8159] to-[#4f613f] text-white shadow-lg shadow-[#5d6b4d]/30 hover:shadow-xl hover:shadow-[#5d6b4d]/40': variant === 'default',

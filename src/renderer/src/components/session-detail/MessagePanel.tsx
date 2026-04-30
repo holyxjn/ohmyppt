@@ -16,6 +16,7 @@ import { ScrollArea } from '../ui/ScrollArea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/Select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import { MessageBubble } from './MessageBubble'
+import { useT } from '@renderer/i18n'
 
 type PanelProgress = {
   label?: string
@@ -45,6 +46,7 @@ export function MessagePanel({
   onCancel: () => void
   cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
+  const t = useT()
   const messages = useSessionStore((state) => state.currentMessages)
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const input = useSessionDetailUiStore((state) => state.input)
@@ -68,14 +70,14 @@ export function MessagePanel({
 
   const contextHint =
     chatType === 'page' && selectedPageNumber
-      ? `当前页 · P${selectedPageNumber}`
-      : '主会话 · 用于全局结构与 index 调整'
+      ? t('sessionDetail.pageContext', { pageNumber: selectedPageNumber })
+      : t('sessionDetail.mainContext')
   const inputPlaceholder =
     pendingAssets.length > 0
-      ? '描述你想怎么使用这些素材，例如：把第一张图作为封面背景。'
+      ? t('sessionDetail.assetPlaceholder')
       : chatType === 'page'
-        ? '当前页模式：只会修改当前页内容。可先用“检选”选中元素，再说：改改当前的颜色或者字号等等。'
-        : '主会话模式已禁用发送。请先把“上下文”切到“当前页”。'
+        ? t('sessionDetail.pagePlaceholder')
+        : t('sessionDetail.mainDisabledPlaceholder')
   const selectorSummary = selectedSelector
     ? [
         selectorLabel || selectedSelector,
@@ -96,25 +98,25 @@ export function MessagePanel({
     : undefined
 
   return (
-    <aside className="mr-3 my-3 flex min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-[2rem] bg-[#d4e4c1]/58 shadow-[0_24px_54px_rgba(93,107,77,0.18)] backdrop-blur-xl">
-      <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] bg-[#f5f1e8]/68 px-3 pb-2.5 pt-3 shadow-[0_8px_20px_rgba(93,107,77,0.1)]">
-        <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#8fbc8f]/24" />
+    <aside className="mr-3 my-3 flex min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-[2rem] border border-[#ded2bd]/60 bg-[#f3ecdf]/76 shadow-[0_20px_44px_rgba(74,59,42,0.13)] backdrop-blur-xl">
+      <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 pb-2.5 pt-3 shadow-[0_6px_16px_rgba(77,61,43,0.08)]">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#c7d9b4]/12" />
         <div className="relative flex flex-col gap-2">
-          <h3 className="text-sm font-semibold tracking-[0.04em] text-[#4c5f3f]">消息与输入</h3>
-          <div className="flex items-center justify-between gap-2 text-xs text-[#6f7f58]">
-            <span>上下文</span>
+          <h3 className="text-sm font-semibold tracking-[0.04em] text-[#34402c]">{t('sessionDetail.messageTitle')}</h3>
+          <div className="flex items-center justify-between gap-2 text-xs text-[#6d604d]">
+            <span>{t('sessionDetail.context')}</span>
             <Select
               value={chatType}
               onValueChange={(value) => setChatType(value === 'page' ? 'page' : 'main')}
             >
-              <SelectTrigger className="h-8 w-[96px] rounded-full border-transparent bg-[#f5f1e8]/76 px-2.5 py-1 text-xs text-[#3e4a32] shadow-[0_4px_10px_rgba(93,107,77,0.08)]">
-                <SelectValue placeholder="选择上下文" />
+              <SelectTrigger className="h-8 w-[132px] rounded-full border-[#ded2bd]/70 bg-[#fffdf8]/82 px-3 py-1 text-xs text-[#3e4a32] shadow-[0_3px_8px_rgba(74,59,42,0.06)]">
+                <SelectValue placeholder={t('sessionDetail.contextPlaceholder')} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="page" disabled={!selectedPageExists}>
-                  当前页
+                  {t('sessionDetail.currentPage')}
                 </SelectItem>
-                <SelectItem value="main">主会话</SelectItem>
+                <SelectItem value="main">{t('sessionDetail.mainSession')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -127,8 +129,8 @@ export function MessagePanel({
         viewportClassName="px-2.5 py-2"
       >
         {messages.length === 0 && !isGenerating ? (
-          <div className="flex min-h-full items-center justify-center text-sm text-[#6f7f58] mt-24">
-            还没有创意消息
+          <div className="mt-24 flex min-h-full items-center justify-center text-sm text-[#7a6b56]">
+            {t('sessionDetail.emptyMessages')}
           </div>
         ) : (
           <div className="flex min-h-full flex-col justify-end gap-2.5">
@@ -137,8 +139,8 @@ export function MessagePanel({
             ))}
 
             {isGenerating && progress && (
-              <div className="rounded-[1.15rem] bg-[#f5f1e8]/74 px-3 py-2 shadow-[0_8px_18px_rgba(93,107,77,0.08)]">
-                <p className="mb-2 text-sm text-[#6f7f58]">{progress.label || '模型处理中…'}</p>
+              <div className="rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffaf1]/82 px-3 py-2 shadow-[0_6px_14px_rgba(74,59,42,0.08)]">
+                <p className="mb-2 text-sm text-[#655843]">{progress.label || t('sessionDetail.modelProcessing')}</p>
                 <Progress value={progress.progress} />
               </div>
             )}
@@ -155,8 +157,8 @@ export function MessagePanel({
 
       <div
         className={cn(
-          'mx-2.5 mb-2.5 rounded-[1.4rem] bg-[#f5f1e8]/72 px-2.5 pb-3 pt-2 shadow-[0_14px_30px_rgba(93,107,77,0.12)] transition-colors',
-          assetDragActive && 'bg-[#edf4e3]/78'
+          'mx-2.5 mb-2.5 rounded-[1.4rem] border border-[#ded2bd]/72 bg-[#fffaf1]/84 px-2.5 pb-3 pt-2 shadow-[0_12px_24px_rgba(74,59,42,0.11)] transition-colors',
+          assetDragActive && 'border-[#afc79a]/75 bg-[#f3f8ec]/88'
         )}
         onDragEnter={(event) => {
           event.preventDefault()
@@ -177,9 +179,9 @@ export function MessagePanel({
         }}
       >
         {selectedSelector && (
-          <div className="mb-2 flex items-center gap-2 rounded-[1rem] bg-[#e8e0d0]/64 px-2 py-1.5">
-            <span className="shrink-0 rounded-full bg-[#d4e4c1]/72 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-[#5f6d4b]">
-              SELECTOR
+          <div className="mb-2 flex items-center gap-2 rounded-[1rem] border border-[#ded2bd]/65 bg-[#f4ebdc]/70 px-2 py-1.5">
+            <span className="shrink-0 rounded-full bg-[#dcebcf]/82 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-[#4f6340]">
+              {t('sessionDetail.selectorBadge')}
             </span>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -195,16 +197,16 @@ export function MessagePanel({
               type="button"
               onClick={clearSelectedElement}
               className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[#64735a] transition-colors hover:bg-[#d4e4c1]/85 hover:text-[#3e4a32]"
-              aria-label="清除 selector"
-              title="清除 selector"
+              aria-label={t('sessionDetail.clearSelector')}
+              title={t('sessionDetail.clearSelector')}
             >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
         )}
         {chatType === 'main' && (
-          <div className="mb-2 rounded-[1rem] bg-[#e8e0d0]/72 px-2.5 py-2 text-xs text-[#6b785a]">
-            主会话已禁用发送。请将“上下文”切换到“当前页”后再继续编辑。
+          <div className="mb-2 rounded-[1rem] border border-[#ded2bd]/65 bg-[#f4ebdc]/70 px-2.5 py-2 text-xs text-[#6a5c48]">
+            {t('sessionDetail.mainDisabled')}
           </div>
         )}
         {pendingAssets.length > 0 && (
@@ -212,7 +214,7 @@ export function MessagePanel({
             {pendingAssets.map((asset) => (
               <div
                 key={asset.id}
-                className="flex max-w-full items-center gap-1.5 rounded-full bg-[#d4e4c1]/74 px-2 py-1 text-[11px] text-[#4f6340] shadow-[0_3px_8px_rgba(93,107,77,0.08)]"
+                className="flex max-w-full items-center gap-1.5 rounded-full border border-[#c7d9b4]/66 bg-[#e6f1dc]/76 px-2 py-1 text-[11px] text-[#405333] shadow-[0_3px_8px_rgba(93,107,77,0.06)]"
                 title={`${asset.originalName}\n${asset.relativePath}`}
               >
                 <ImageIcon className="h-3.5 w-3.5 shrink-0" />
@@ -223,7 +225,7 @@ export function MessagePanel({
                   type="button"
                   onClick={() => removePendingAsset(asset.id)}
                   className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#657552] hover:bg-[#c8ddb2]"
-                  aria-label="移除素材"
+                  aria-label={t('sessionDetail.removeAsset')}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -243,7 +245,7 @@ export function MessagePanel({
           }}
           disabled={isGenerating || chatType === 'main'}
           rows={4}
-          className="min-h-[96px] resize-none rounded-[1.15rem] border-transparent bg-[#e8e0d0]/52 px-3 py-2 text-[13px] leading-5 text-[#445439] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)] focus-visible:ring-0 focus-visible:ring-offset-0"
+          className="min-h-[96px] resize-none rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-3 py-2 text-[13px] leading-5 text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
         />
         <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
           <div className="flex min-w-0 items-center gap-2">
@@ -252,9 +254,9 @@ export function MessagePanel({
                 <button
                   type="button"
                   disabled={isGenerating || isUploadingAssets || chatType === 'main'}
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#d4e4c1]/78 text-[#5e704c] shadow-[0_5px_12px_rgba(93,107,77,0.12)] transition-colors hover:bg-[#c8ddb2] disabled:pointer-events-none disabled:opacity-45"
-                  aria-label="添加素材"
-                  title="添加素材"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] border border-[#c7d9b4]/66 bg-[#e6f1dc]/80 text-[#526942] shadow-[0_4px_10px_rgba(93,107,77,0.09)] transition-colors hover:bg-[#d7e8c8] disabled:pointer-events-none disabled:opacity-45"
+                  aria-label={t('sessionDetail.addAsset')}
+                  title={t('sessionDetail.addAsset')}
                 >
                   {isUploadingAssets ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -266,15 +268,15 @@ export function MessagePanel({
               <DropdownMenuContent align="start" side="top" className="w-40">
                 <DropdownMenuItem onSelect={onChooseAssets}>
                   <ImageIcon className="h-4 w-4" />
-                  选择图片
+                  {t('sessionDetail.chooseImage')}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
                   <FileText className="h-4 w-4" />
-                  选择文件（即将支持）
+                  {t('sessionDetail.chooseFileSoon')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-[#6f7f58]">
+            <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-[#6d604d]">
               {contextHint}
             </div>
           </div>
@@ -287,7 +289,7 @@ export function MessagePanel({
               className="shrink-0 whitespace-nowrap rounded-full px-3 text-xs shadow-[0_8px_18px_rgba(177,90,88,0.22)]"
             >
               <StopCircle className="mr-1 h-4 w-4" />
-              停止
+              {t('sessionDetail.stop')}
             </Button>
           ) : (
             <Button
@@ -301,7 +303,7 @@ export function MessagePanel({
               className="shrink-0 whitespace-nowrap rounded-full bg-[#5d6b4d] px-3 text-xs text-white shadow-[0_8px_18px_rgba(93,107,77,0.24)] hover:bg-[#3e4a32]"
             >
               <Send className="mr-1 h-4 w-4" />
-              发送
+              {t('sessionDetail.send')}
             </Button>
           )}
         </div>

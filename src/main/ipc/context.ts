@@ -4,6 +4,7 @@ import log from 'electron-log/main.js'
 import type { PPTDatabase } from '../db/database'
 import type { AgentManager } from '../agent'
 import type { GenerateChunkEvent, UploadedAsset } from '@shared/generation'
+import { progressLabel, type AppLocale } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
@@ -73,7 +74,10 @@ export interface IpcContext {
   }) => void
   trackSessionRunChunk: (sessionId: string, chunk: GenerateChunkEvent) => void
   emitGenerateChunk: (sessionId: string, chunk: GenerateChunkEvent) => void
-  createDeckProgressEmitter: (sessionId: string) => (chunk: GenerateChunkEvent) => void
+  createDeckProgressEmitter: (
+    sessionId: string,
+    appLocale?: AppLocale
+  ) => (chunk: GenerateChunkEvent) => void
   resolveStoragePath: () => Promise<string>
   normalizeSessionId: (value: unknown) => string | undefined
   parsePathPayload: (
@@ -486,7 +490,10 @@ export function createIpcContext(
     }
   }
 
-  const createDeckProgressEmitter = (sessionId: string): ((chunk: GenerateChunkEvent) => void) => {
+  const createDeckProgressEmitter = (
+    sessionId: string,
+    appLocale?: AppLocale
+  ): ((chunk: GenerateChunkEvent) => void) => {
     let normalizedProgress = 0
 
     const clamp = (value: number, min: number, max: number): number =>
@@ -532,6 +539,7 @@ export function createIpcContext(
         ...chunk,
         payload: {
           ...chunk.payload,
+          label: progressLabel(appLocale, chunk.payload.label),
           progress: normalizedProgress
         }
       } as GenerateChunkEvent)

@@ -4,8 +4,10 @@ import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { Button } from '../ui/Button'
 import { PreviewIframe } from '../preview/PreviewIframe'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import type { DragEditorMovePayload } from '../preview/drag-editor-script'
 import type { SessionPreviewPage } from './types'
+import { useT } from '@renderer/i18n'
 
 export function PreviewStage({
   selectedPage,
@@ -30,12 +32,14 @@ export function PreviewStage({
   onSaveDragEdits: () => void
   onCancelDragEdits: () => void
 }): React.JSX.Element {
+  const t = useT()
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const inspecting = useSessionDetailUiStore((state) => state.inspecting)
   const dragEditing = useSessionDetailUiStore((state) => state.dragEditing)
   const setInspecting = useSessionDetailUiStore((state) => state.setInspecting)
   const setDragEditing = useSessionDetailUiStore((state) => state.setDragEditing)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
+  const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
 
   useEffect(() => {
     if (!inspecting && !dragEditing) return
@@ -59,9 +63,16 @@ export function PreviewStage({
         <div className="pointer-events-none absolute -bottom-24 left-8 h-48 w-64 rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#c8b89e]/22" />
         {selectedPage ? (
           <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_14px_32px_rgba(93,107,77,0.14)]">
-            <div className="pointer-events-none absolute left-5 top-5 z-20 max-w-[calc(100%-9rem)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
-              {sessionTitle || '会话'}
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="absolute left-5 top-5 z-20 w-[clamp(250px,38%,500px)] truncate rounded-[8px] bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
+                  {displayTitle}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start">
+                {displayTitle}
+              </TooltipContent>
+            </Tooltip>
             <PreviewIframe
               key={`preview-${selectedPage.pageId}-${previewKey}-${previewRefreshKey}`}
               src={selectedPage.sourceUrl}
@@ -85,7 +96,7 @@ export function PreviewStage({
                   variant={dragEditing ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    'rounded-full px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
                     dragEditing
                       ? 'bg-[#5d6b4d] text-white'
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
@@ -100,14 +111,18 @@ export function PreviewStage({
                   disabled={isGenerating || isSavingDragEdits}
                 >
                   <Move className="mr-1 h-3 w-3" />
-                  {dragEditing ? (pendingDragCount > 0 ? '退出不保存' : '退出调整') : '调整位置/大小'}
+                  {dragEditing
+                    ? pendingDragCount > 0
+                      ? t('sessionDetail.exitWithoutSaving')
+                      : t('sessionDetail.exitAdjust')
+                    : t('sessionDetail.adjustLayout')}
                 </Button>
                 {dragEditing && pendingDragCount > 0 && (
                   <Button
                     type="button"
                     variant="default"
                     size="sm"
-                    className="rounded-full bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
+                    className="rounded-[8px] bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
                     onClick={onSaveDragEdits}
                     disabled={isGenerating || isSavingDragEdits}
                   >
@@ -116,7 +131,7 @@ export function PreviewStage({
                     ) : (
                       <Check className="mr-1 h-3 w-3" />
                     )}
-                    保存调整
+                    {t('sessionDetail.saveAdjustments')}
                   </Button>
                 )}
                 <Button
@@ -124,7 +139,7 @@ export function PreviewStage({
                   variant={inspecting ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    'rounded-full px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                    'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
                     inspecting
                       ? 'bg-[#5d6b4d] text-white'
                       : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
@@ -139,18 +154,18 @@ export function PreviewStage({
                   disabled={isGenerating || isSavingDragEdits}
                 >
                   <Crosshair className="mr-1 h-3 w-3" />
-                  {inspecting ? '退出检选' : '检选元素'}
+                  {inspecting ? t('sessionDetail.exitInspect') : t('sessionDetail.inspectElement')}
                 </Button>
               </div>
             )}
             {selectedPage.status === 'failed' && (
               <div className="absolute bottom-5 left-5 z-20 max-w-[520px] rounded-[1rem] bg-[#fff4ef]/92 px-3 py-2 text-xs text-[#8e5a53] shadow-[0_10px_24px_rgba(142,90,83,0.12)] backdrop-blur-sm">
-                这一页上次生成失败，当前展示的是可恢复的页面文件。请保持“当前页”上下文，直接描述如何修复或重新生成这一页。
+                {t('sessionDetail.failedPageHint')}
               </div>
             )}
             {inspecting && (
               <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-2.5 py-1.5 text-[11px] leading-none text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
-                点击页面元素以选中
+                {t('sessionDetail.clickToSelect')}
               </div>
             )}
             {isGenerating && (
@@ -170,11 +185,11 @@ export function PreviewStage({
               <Sparkles className="h-7 w-7 text-[#8fbc8f]" />
             )}
             <div className="space-y-1">
-              <p className="text-base font-medium text-[#3e4a32]">等着你的创意</p>
+              <p className="text-base font-medium text-[#3e4a32]">{t('sessionDetail.emptyPreviewTitle')}</p>
               <p className="text-sm">
                 {isGenerating
-                  ? '正在准备第一版预览…'
-                  : '在消息面板里输入 brief，我会把预览放到这里。'}
+                  ? t('sessionDetail.preparingPreview')
+                  : t('sessionDetail.briefHint')}
               </p>
             </div>
           </div>

@@ -56,6 +56,23 @@ const SCRIPT_SRC_RE = /<script[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
 const REMOTE_SCRIPT_OR_LINK_RE = /<(script|link)\b[^>]*(?:src|href)\s*=\s*["'](?:https?:)?\/\/[^"']+["'][^>]*>/i;
 const HIDDEN_STYLE_RULE_RE = /(?:^|[;}])\s*[^{}]+\{\s*[^{}]*(?:opacity\s*:\s*0(?:\.0+)?|visibility\s*:\s*hidden)[^{}]*\}/i;
 
+const classBaseName = (cls: string): string => cls.split(":").pop() || cls;
+
+const hasConcreteChartHeightClass = (classRaw: string): boolean =>
+  classRaw
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((cls) => {
+      const base = classBaseName(cls);
+      if (/^(?:h|min-h)-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false;
+      return /^(?:h|min-h)-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base);
+    });
+
+const hasConcreteChartHeightStyle = (styleRaw: string): boolean =>
+  /(?:^|;)\s*(?:height|min-height)\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
+    styleRaw
+  );
+
 const isAllowedRuntimeAsset = (src: string): boolean => {
   const normalized = src.trim().toLowerCase();
   const clean = normalized.split("?")[0].split("#")[0];
@@ -90,7 +107,7 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
     return { valid: false, errors };
   }
   // Strict new-structure mode: content must be a page fragment only.
-  if (/<\!doctype[\s>]/i.test(html)) {
+  if (/<!doctype[\s>]/i.test(html)) {
     errors.push("检测到 <!doctype>。请仅传页面片段，不要传完整文档。");
   }
   if (/<html[\s>]/i.test(html) || /<\/html>/i.test(html)) {
@@ -277,27 +294,20 @@ export const validatePersistedPageHtml = (
   }
 
   $("canvas").each((index, node) => {
-    let current = $(node).parent();
-    if (!current.length) {
+    const canvas = $(node);
+    const parent = canvas.parent();
+    if (!parent.length) {
       errors.push(`第 ${index + 1} 个 canvas 缺少父容器`);
       return;
     }
-    let hasHeight = false;
-    for (let depth = 0; depth < 3 && current.length; depth += 1) {
-      const className = current.attr("class") || "";
-      const style = current.attr("style") || "";
-      const hasHeightClass = className
-        .split(/\s+/)
-        .some((cls) => /^h-/.test(cls) || /^min-h-/.test(cls) || /^max-h-/.test(cls));
-      const hasHeightStyle = /(?:^|;)\s*(?:height|min-height|max-height)\s*:/.test(style);
-      if (hasHeightClass || hasHeightStyle) {
-        hasHeight = true;
-        break;
-      }
-      current = current.parent();
-    }
-    if (!hasHeight) {
-      errors.push(`第 ${index + 1} 个 canvas 近层容器缺少明确高度`);
+    const parentElementChildren = parent.children();
+    const parentIsDedicatedFrame = parentElementChildren.length === 1 && parentElementChildren.get(0) === canvas.get(0);
+    const hasDirectHeight =
+      hasConcreteChartHeightClass(parent.attr("class") || "") ||
+      hasConcreteChartHeightStyle(parent.attr("style") || "");
+
+    if (!parentIsDedicatedFrame || !hasDirectHeight) {
+      errors.push(`第 ${index + 1} 个 canvas 必须放在带固定高度的直接父容器中`);
     }
   });
 
