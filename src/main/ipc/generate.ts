@@ -12,6 +12,7 @@ import {
   buildSinglePageGenerationPrompt
 } from '../prompt'
 import type { GenerateChunkEvent } from '@shared/generation'
+import { progressLabel, progressText } from '@shared/progress'
 import type { DesignContract, OutlineItem } from '../tools/types'
 import { extractModelText, extractJsonBlock, sleep } from './utils'
 import {
@@ -295,7 +296,7 @@ export const planDeckWithLLM = async (args: {
     payload: {
       runId: args.runId || '',
       stage: 'planning',
-      label: uiText(args.appLocale, '正在整理演示大纲', 'Organizing presentation outline'),
+      label: progressText(args.appLocale, 'planning'),
       progress: 4,
       totalPages: args.totalPages,
       provider: args.provider,
@@ -330,7 +331,7 @@ export const planDeckWithLLM = async (args: {
     payload: {
       runId: args.runId || '',
       stage: 'planning',
-      label: uiText(args.appLocale, '大纲草案已生成', 'Outline draft generated'),
+      label: progressText(args.appLocale, 'planning'),
       progress: 9,
       totalPages: args.totalPages,
       provider: args.provider,
@@ -439,7 +440,7 @@ export const buildDesignContractWithLLM = async (args: {
     payload: {
       runId: args.runId || '',
       stage: 'planning',
-      label: uiText(args.appLocale, '正在统一视觉方向', 'Unifying visual direction'),
+      label: progressText(args.appLocale, 'planning'),
       progress: 9,
       totalPages,
       provider: args.provider,
@@ -479,7 +480,7 @@ export const buildDesignContractWithLLM = async (args: {
       payload: {
         runId: args.runId || '',
         stage: 'planning',
-        label: uiText(args.appLocale, '视觉方向已统一', 'Visual direction unified'),
+        label: progressText(args.appLocale, 'planning'),
         progress: 10,
         totalPages,
         provider: args.provider,
@@ -647,11 +648,9 @@ export const runDeepAgentDeckGeneration = async (args: {
   }
 
   emitRenderingStatus({
-    label: uiText(args.appLocale, '创意引擎已启动', 'Creative engine started'),
+    label: progressText(args.appLocale, 'generating'),
     progress: 12,
-    detail: useDualWorkerQueue
-      ? uiText(args.appLocale, '已启用双通道并发生成每一页', 'Dual-worker page generation enabled')
-      : uiText(args.appLocale, '将按顺序细致生成每一页', 'Generating each page sequentially')
+    detail: uiText(args.appLocale, `共 ${totalPages} 页`, `${totalPages} pages`)
   })
 
   log.info('[deepagent] invoke deck generation', {
@@ -701,11 +700,7 @@ export const runDeepAgentDeckGeneration = async (args: {
 
     emitPageStatus({
       pageId: page.pageId,
-      label: uiText(
-        args.appLocale,
-        `开始生成第 ${page.pageNumber} 页`,
-        `Starting page ${page.pageNumber}`
-      ),
+      label: progressText(args.appLocale, 'generating'),
       detail: `${page.pageId} · ${page.title}`,
       pageProgress: 5
     })
@@ -824,21 +819,7 @@ export const runDeepAgentDeckGeneration = async (args: {
         workerLabel,
         onCustom: (custom) => {
           const mappedPageProgress = resolvePageProgressFromCustomStatus(custom)
-          const normalizedLabel = /生成完成|Generation completed/i.test(custom.label || '')
-            ? uiText(
-                args.appLocale,
-                `第 ${page.pageNumber} 页内容生成完成`,
-                `Page ${page.pageNumber} content generated`
-              )
-            : /所有页面已填充|当前页面已填充|All pages filled|Current page filled/i.test(
-                  custom.label || ''
-                )
-              ? uiText(
-                  args.appLocale,
-                  `第 ${page.pageNumber} 页验证通过`,
-                  `Page ${page.pageNumber} verified`
-                )
-              : custom.label || ''
+          const normalizedLabel = progressLabel(args.appLocale, custom.label)
           const normalizedDetail =
             /所有页面已填充|当前页面已填充|All pages filled|Current page filled/i.test(
               custom.label || ''
@@ -868,11 +849,7 @@ export const runDeepAgentDeckGeneration = async (args: {
           const mappedPageProgress = Math.max(12, Math.min(96, defaultProgress))
           emitPageStatus({
             pageId: page.pageId,
-            label: uiText(
-              args.appLocale,
-              `模型正在构思第 ${page.pageNumber} 页`,
-              `Drafting page ${page.pageNumber}`
-            ),
+            label: progressText(args.appLocale, 'generating'),
             detail: page.title,
             pageProgress: mappedPageProgress
           })
@@ -894,11 +871,7 @@ export const runDeepAgentDeckGeneration = async (args: {
       setPageProgress(page.pageId, 100)
       const completedCount = getCompletedPageCount()
       emitRenderingStatus({
-        label: uiText(
-          args.appLocale,
-          `第 ${page.pageNumber} 页完成`,
-          `Page ${page.pageNumber} completed`
-        ),
+        label: progressText(args.appLocale, 'completed'),
         detail: uiText(
           args.appLocale,
           `${page.title} · 已完成 ${completedCount}/${totalPages} 页`,
@@ -957,11 +930,7 @@ export const runDeepAgentDeckGeneration = async (args: {
         const retryDelayMs = RETRY_DELAY_BASE_MS * retryAttempt
         emitPageStatus({
           pageId: page.pageId,
-          label: uiText(
-            args.appLocale,
-            `第 ${page.pageNumber} 页重试中（${retryAttempt}/${MAX_PAGE_RETRIES}）`,
-            `Retrying page ${page.pageNumber} (${retryAttempt}/${MAX_PAGE_RETRIES})`
-          ),
+          label: progressText(args.appLocale, 'retrying'),
           detail: uiText(
             args.appLocale,
             `仅重试失败页：上次失败原因 ${reason}`,
@@ -994,7 +963,7 @@ export const runDeepAgentDeckGeneration = async (args: {
   const PAGE_GENERATION_STAGGER_MS = 500
   if (useDualWorkerQueue) {
     emitRenderingStatus({
-      label: uiText(args.appLocale, '正在加速生成流程', 'Accelerating generation flow'),
+      label: progressText(args.appLocale, 'generating'),
       progress: 14,
       detail: uiText(args.appLocale, '创意即将正式生成..', 'Generation is about to begin.')
     })
@@ -1163,10 +1132,7 @@ export const runDeepAgentEdit = async (args: {
     payload: {
       runId: args.runId || '',
       stage: 'editing',
-      label:
-        args.editScope === 'main'
-          ? uiText(args.appLocale, '正在微调总览壳交互', 'Refining overview shell interactions')
-          : uiText(args.appLocale, '正在温和调整页面内容', 'Refining page content'),
+      label: progressText(args.appLocale, 'generating'),
       progress: 40,
       totalPages: args.outlineTitles.length,
       provider: args.provider,
@@ -1263,14 +1229,14 @@ export const runDeepAgentEdit = async (args: {
       sessionId: args.sessionId,
       onCustom: (custom) => {
         emitEditStatus({
-          label: custom.label || '',
+          label: progressLabel(args.appLocale, custom.label),
           detail: custom.detail,
           progress: custom.progress ?? 50
         })
       },
       onModelThinking: (defaultProgress) => {
         emitEditStatus({
-          label: uiText(args.appLocale, '模型正在分析修改需求', 'Analyzing edit request'),
+          label: progressText(args.appLocale, 'understanding'),
           detail: uiText(
             args.appLocale,
             '正在规划最小改动路径',
