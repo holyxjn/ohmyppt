@@ -96,6 +96,7 @@ const DEFAULT_SLIDE_WIDTH = 13.333
 const DEFAULT_SLIDE_HEIGHT = 7.5
 const DEFAULT_MAX_TEXT_CHARS = 1000
 const DEFAULT_MAX_IMAGE_BYTES = 2 * 1024 * 1024
+const MAX_EXPORT_FONT_SIZE_PT = 144
 const require = createRequire(import.meta.url)
 const PRETEXT_MODULE_URL = pathToFileURL(require.resolve('@chenglou/pretext')).toString()
 
@@ -445,7 +446,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     if (textSeen.has(key)) return;
     textSeen.add(key);
     const fontSizePx = Number.parseFloat(parentStyle.fontSize || '16') || 16;
-    const fontSizePt = Math.max(6, Math.min(72, fontSizePx * pointsPerPx));
+    const fontSizePt = Math.max(6, Math.min(${MAX_EXPORT_FONT_SIZE_PT}, fontSizePx * pointsPerPx));
     const fontWeight = Number.parseInt(parentStyle.fontWeight || '400', 10) || 400;
     const fontFace = String(parentStyle.fontFamily || 'Aptos').split(',')[0].replace(/["']/g, '').trim() || 'Aptos';
     const x = pxToInX(rect.left);
@@ -711,7 +712,7 @@ export const normalizeExtractedHtmlToPptxSlide = (
         y: clamp(Number(row.y) || 0, 0, DEFAULT_SLIDE_HEIGHT),
         w: clamp(Number(row.w) || 0.4, 0.1, DEFAULT_SLIDE_WIDTH),
         h: clamp(Number(row.h) || 0.2, 0.08, DEFAULT_SLIDE_HEIGHT),
-        fontSize: clamp(Number(row.fontSize) || 12, 6, 54),
+        fontSize: clamp(Number(row.fontSize) || 12, 6, MAX_EXPORT_FONT_SIZE_PT),
         fontFace: resolveExportFontFace(text, String(row.fontFace || '')),
         color: normalizeHexColor(String(row.color || ''), '111827'),
         bold: Boolean(row.bold),
