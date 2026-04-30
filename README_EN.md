@@ -74,12 +74,9 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 
 
 <p>
- <img width="600" alt="Oh My PPT - 9" src="./docs/images/9.png" />
-</p>
-
-<p align="center">
-<img width="45%" alt="Oh My PPT - 10" src="./docs/images/10.png" />
-<img width="45%" alt="Oh My PPT - 11" src="./docs/images/8.png" />
+<img width="30%" alt="Oh My PPT - 9" src="./docs/images/9.png" />
+<img width="30%" alt="Oh My PPT - 10" src="./docs/images/10.png" />
+<img width="30%" alt="Oh My PPT - 11" src="https://arcsin1.github.io/drag.gif" />
 </p>
 
 <a id="workflow"></a>
@@ -111,7 +108,7 @@ The most reliable whole-element animations today are:
 
 Animations are meant to guide attention and show hierarchy. Avoid complex timelines, high-frequency flashing, infinite loops, or large shaking motion. Slides should remain readable even if animation is disabled.
 
-<img src="./docs/video/anime.gif" alt="Oh My PPT animation demo" width="600" />
+<img src="https://arcsin1.github.io/anime.gif" alt="Oh My PPT animation demo" width="600" />
 
 <a id="ollama"></a>
 ## 🦙 Local Ollama Support (OpenAI-Compatible)
