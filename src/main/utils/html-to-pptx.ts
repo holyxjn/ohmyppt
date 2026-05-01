@@ -174,9 +174,13 @@ const rgbToHex = (value) => {
     const raw = source.slice(1).toUpperCase();
     return raw.length === 3 ? raw.split('').map((part) => part + part).join('') : raw;
   }
-  const match = source.match(/rgba?\\((\\d+(?:\\.\\d+)?),\\s*(\\d+(?:\\.\\d+)?),\\s*(\\d+(?:\\.\\d+)?)(?:,\\s*(\\d+(?:\\.\\d+)?))?/i);
+  const match = source.match(/rgba?\\(\\s*(\\d+(?:\\.\\d+)?)(?:\\s*,\\s*|\\s+)(\\d+(?:\\.\\d+)?)(?:\\s*,\\s*|\\s+)(\\d+(?:\\.\\d+)?)(?:\\s*(?:,|\\/)\\s*(\\d+(?:\\.\\d+)?%?))?/i);
   if (!match) return '';
-  const alpha = match[4] === undefined ? 1 : Number(match[4]);
+  const alpha = match[4] === undefined
+    ? 1
+    : String(match[4]).endsWith('%')
+      ? Number.parseFloat(match[4]) / 100
+      : Number(match[4]);
   if (alpha <= 0.02) return '';
   return [match[1], match[2], match[3]]
     .map((part) => Math.max(0, Math.min(255, Math.round(Number(part) || 0))).toString(16).padStart(2, '0'))
@@ -249,12 +253,23 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   const sizeToInY = (value) => (Number(value) || 0) / layoutHeightPx * slideHeightIn;
   const pointsPerPx = Math.min(slideWidthIn / layoutWidthPx, slideHeightIn / layoutHeightPx) * 72;
   const parseAlpha = (value) => {
-    const match = String(value || '').match(/rgba?\\((?:[^,]+,){3}\\s*(\\d+(?:\\.\\d+)?)\\s*\\)/i);
-    return match ? Math.max(0, Math.min(1, Number(match[1]) || 0)) : 1;
+    const match = String(value || '').match(/rgba?\\(\\s*\\d+(?:\\.\\d+)?(?:\\s*,\\s*|\\s+)\\d+(?:\\.\\d+)?(?:\\s*,\\s*|\\s+)\\d+(?:\\.\\d+)?(?:\\s*(?:,|\\/)\\s*(\\d+(?:\\.\\d+)?%?))?/i);
+    if (!match || match[1] === undefined) return 1;
+    const raw = String(match[1]);
+    const alpha = raw.endsWith('%') ? Number.parseFloat(raw) / 100 : Number(raw);
+    return Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 1));
   };
   const transparencyFor = (color, opacity) => {
     const alpha = parseAlpha(color) * Math.max(0, Math.min(1, Number(opacity || 1)));
     return Math.round((1 - alpha) * 100);
+  };
+  const resolveTextPaint = (style) => {
+    const textFill = style.webkitTextFillColor || style.getPropertyValue?.('-webkit-text-fill-color') || '';
+    const textFillHex = rgbToHex(textFill);
+    const colorSource = textFillHex ? textFill : style.color;
+    const color = rgbToHex(colorSource) || rgbToHex(style.color) || '111827';
+    const opacity = parseAlpha(colorSource) * Math.max(0, Math.min(1, Number(style.opacity || 1)));
+    return { color, opacity };
   };
   const parseRotate = (style) => {
     if (!style.transform || style.transform === 'none') return undefined;
@@ -417,12 +432,37 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   };
   const isVerticalWritingMode = (style) => /vertical/i.test(String(style.writingMode || ''));
   const normalizeVerticalText = (value) => {
-    const source = normalize(value).replace(/\s+/g, '');
+    const source = normalize(value).replace(/\\s+/g, '');
     if (!source) return '';
     return Array.from(source).join('\\n');
   };
   const makeTextKey = (text, rect) =>
     [text.toLowerCase(), Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)].join('|');
+  const textStyleSignature = (style) => {
+    const paint = resolveTextPaint(style);
+    return [
+      paint.color,
+      Math.round(paint.opacity * 100),
+      String(style.fontSize || ''),
+      String(style.fontWeight || ''),
+      String(style.fontStyle || ''),
+      String(style.textDecorationLine || style.textDecoration || '')
+    ].join('|');
+  };
+  const hasDistinctVisibleTextChild = (element, parentStyle) => {
+    const parentSignature = textStyleSignature(parentStyle);
+    const children = Array.from(element.children || []);
+    for (const child of children) {
+      const text = normalize(child.innerText || child.textContent);
+      if (!text || child.closest?.('script, style, noscript, svg, canvas, video, iframe, .katex, .katex-mathml')) continue;
+      const childStyle = window.getComputedStyle(child);
+      const childRect = child.getBoundingClientRect();
+      if (!isVisible(child, childStyle, childRect)) continue;
+      if (textStyleSignature(childStyle) !== parentSignature) return true;
+      if (hasDistinctVisibleTextChild(child, parentStyle)) return true;
+    }
+    return false;
+  };
   const pushTextBox = (text, rect, parentStyle, parentElement, shouldWrap = false) => {
     if (texts.length >= maxTextBoxes) return;
     text = shouldWrap ? clampBlockText(text) : clampText(text);
@@ -450,6 +490,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const fontWeight = Number.parseInt(parentStyle.fontWeight || '400', 10) || 400;
     const fontFace = String(parentStyle.fontFamily || 'Aptos').split(',')[0].replace(/["']/g, '').trim() || 'Aptos';
     const x = pxToInX(rect.left);
+    const textPaint = resolveTextPaint(parentStyle);
     texts.push({
       text,
       x,
@@ -464,7 +505,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
         : textHeightIn(sizeToInY(rect.height), fontSizePt),
       fontSize: fontSizePt,
       fontFace,
-      color: rgbToHex(parentStyle.color) || '111827',
+      color: textPaint.color,
       bold: fontWeight >= 600 || /^H[1-6]$/i.test(parentElement.tagName),
       italic: parentStyle.fontStyle === 'italic' || parentStyle.fontStyle === 'oblique',
       underline: String(parentStyle.textDecoration || '').includes('underline'),
@@ -480,7 +521,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
               ? 'justify'
               : 'left'
         : 'left',
-      opacity: Number(parentStyle.opacity || '1'),
+      opacity: textPaint.opacity,
       rotate: parseRotate(parentStyle),
       lineSpacing: parentStyle.lineHeight && parentStyle.lineHeight !== 'normal'
         ? Math.max(fontSizePt * 1.08, (Number.parseFloat(parentStyle.lineHeight) || 0) * pointsPerPx)
@@ -502,6 +543,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     if (element.querySelector?.('.katex')) return false;
     if (hasNestedTextBlock(element)) return false;
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'MATH'].includes(element.tagName)) return false;
+    if (hasDistinctVisibleTextChild(element, style)) return false;
     const tag = element.tagName;
     if (/^H[1-6]$/.test(tag) || ['P', 'LI', 'BLOCKQUOTE', 'TD', 'TH', 'FIGCAPTION'].includes(tag)) return true;
     if (element.matches('[data-ppt-text],[data-role="title"],.title,.slide-title,.page-title')) return true;

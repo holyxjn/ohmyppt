@@ -1160,7 +1160,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           content: z
             .string()
             .describe(
-              'Page HTML fragment. It must include section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. Do not pass <!doctype>, <html>, or <body> tags.'
+              'Complete page HTML fragment only. It must include one balanced section[data-page-scaffold] wrapping one balanced main[data-block-id="content"][data-role="content"]. Do not pass <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, data-ppt-guard-root, or any runtime shell markup.'
             )
         })
       }
@@ -1192,7 +1192,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       {
         name: "update_page_file",
         description:
-          'Multi-page generation/global edit tool. Disabled in single-page context. In generation mode pageId may be omitted to resolve pages by order; in edit mode pageId is required. content must be a page HTML fragment containing section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. The tool wraps it as a complete HTML document and injects runtime assets. Do not pass a full HTML document. HTML is validated before writing.',
+          'Multi-page generation/global edit tool. Disabled in single-page context. In generation mode pageId may be omitted to resolve pages by order; in edit mode pageId is required. content must be a complete, balanced page fragment containing section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. The tool wraps it as a complete HTML document and injects runtime assets. Do not pass a full HTML document, runtime page shell, or ppt-page-root/content/fit-scope markup. HTML is validated before writing.',
         schema: z.object({
           pageId: z
             .string()
@@ -1203,7 +1203,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           content: z
             .string()
             .describe(
-              'Page HTML fragment. It must include section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. Do not pass <!doctype>, <html>, or <body> tags.'
+              'Complete page HTML fragment only. It must include one balanced section[data-page-scaffold] wrapping one balanced main[data-block-id="content"][data-role="content"]. Do not pass <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, data-ppt-guard-root, or any runtime shell markup.'
             )
         })
       }

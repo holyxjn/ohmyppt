@@ -1,47 +1,35 @@
 import { create } from 'zustand'
-import { ipc } from '@renderer/lib/ipc'
-import {
-  CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
-  type ConfigurableModelTimeoutProfile,
-  modelTimeoutMsToSeconds,
-  resolveModelTimeoutMs
-} from '@shared/model-timeout.js'
-
-interface ProviderConfig {
-  model: string
-  apiKey: string
-  baseUrl: string
-  timeouts?: Partial<Record<ConfigurableModelTimeoutProfile, number>>
-  timeoutMs?: number
-}
+import { ipc, type ModelConfig } from '@renderer/lib/ipc'
+import type { ConfigurableModelTimeoutProfile } from '@shared/model-timeout.js'
 
 interface Settings {
-  provider: string
   theme: string
   locale: 'zh' | 'en'
-  autoSave: boolean
   storagePath: string
-  providerConfigs: Record<string, ProviderConfig>
+  timeouts: Record<ConfigurableModelTimeoutProfile, number>
 }
 
 interface SettingsStore {
   settings: Settings | null
-  apiKey: string
-  model: string
-  baseUrl: string
-  timeoutSeconds: Record<ConfigurableModelTimeoutProfile, number>
+  modelConfigs: ModelConfig[]
   verificationMessage: string | null
   storagePathError: string | null
   loading: boolean
 
   fetchSettings: () => Promise<void>
   saveSettings: (settings: Partial<Settings>) => Promise<void>
-  setApiKey: (apiKey: string) => void
-  setModel: (model: string) => void
-  setBaseUrl: (baseUrl: string) => void
-  setTimeoutSeconds: (profile: ConfigurableModelTimeoutProfile, timeoutSeconds: number) => void
+  upsertModelConfig: (config: {
+    id?: string
+    name: string
+    provider: 'anthropic' | 'openai'
+    model: string
+    apiKey: string
+    baseUrl: string
+    active?: boolean
+  }) => Promise<string | null>
+  setActiveModelConfig: (id: string) => Promise<void>
+  deleteModelConfig: (id: string) => Promise<void>
   setVerificationMessage: (message: string | null) => void
-  loadProviderConfig: (provider: string) => void
   verifyApiKey: (
     provider: string,
     apiKey: string,
@@ -59,43 +47,27 @@ const readStoredLocale = (): 'zh' | 'en' => {
 
 const fallbackMessage = (zh: string, en: string): string => (readStoredLocale() === 'en' ? en : zh)
 
-const resolveProviderTimeoutSeconds = (
-  config?: ProviderConfig
-): Record<ConfigurableModelTimeoutProfile, number> =>
-  Object.fromEntries(
-    CONFIGURABLE_MODEL_TIMEOUT_PROFILES.map((profile) => [
-      profile,
-      modelTimeoutMsToSeconds(
-        config?.timeouts?.[profile] ??
-          ((profile === 'agent' || profile === 'document') ? config?.timeoutMs : undefined),
-        profile
-      )
-    ])
-  ) as Record<ConfigurableModelTimeoutProfile, number>
-
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   settings: null,
-  apiKey: '',
-  model: '',
-  baseUrl: '',
-  timeoutSeconds: resolveProviderTimeoutSeconds(),
+  modelConfigs: [],
   verificationMessage: null,
   storagePathError: null,
   loading: false,
 
   fetchSettings: async () => {
     try {
-      const settings = await ipc.getSettings()
+      const [settings, modelConfigs] = await Promise.all([
+        ipc.getSettings(),
+        ipc.listModelConfigs()
+      ])
       const typedSettings = settings as unknown as Settings
       const locale = typedSettings.locale === 'en' ? 'en' : 'zh'
       set({
-        settings: { ...typedSettings, locale },
-        apiKey: typedSettings.providerConfigs?.[typedSettings.provider]?.apiKey || '',
-        model: typedSettings.providerConfigs?.[typedSettings.provider]?.model || '',
-        baseUrl: typedSettings.providerConfigs?.[typedSettings.provider]?.baseUrl || '',
-        timeoutSeconds: resolveProviderTimeoutSeconds(
-          typedSettings.providerConfigs?.[typedSettings.provider]
-        ),
+        settings: {
+          ...typedSettings,
+          locale
+        },
+        modelConfigs: Array.isArray(modelConfigs) ? modelConfigs : [],
         storagePathError: null,
         verificationMessage: null
       })
@@ -109,19 +81,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   saveSettings: async (newSettings) => {
-    const settings = get().settings
+    set({ verificationMessage: null })
     const settingsToSave: Partial<Settings> = { ...newSettings }
-    if (newSettings.providerConfigs) {
-      const activeProvider = newSettings.provider || settings?.provider || 'openai'
-      settingsToSave.providerConfigs = {
-        ...(settings?.providerConfigs || {}),
-        ...newSettings.providerConfigs,
-        [activeProvider]: {
-          ...(settings?.providerConfigs?.[activeProvider] || {}),
-          ...(newSettings.providerConfigs[activeProvider] || {})
-        }
-      }
-    }
 
     try {
       await ipc.saveSettings(settingsToSave)
@@ -135,33 +96,51 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
 
-  setApiKey: (apiKey) => set({ apiKey, verificationMessage: null }),
-  setModel: (model) => set({ model, verificationMessage: null }),
-  setBaseUrl: (baseUrl) => set({ baseUrl, verificationMessage: null }),
-  setTimeoutSeconds: (profile, timeoutSeconds) =>
-    set((state) => ({
-      timeoutSeconds: {
-        ...state.timeoutSeconds,
-        [profile]: Math.round(resolveModelTimeoutMs(Number(timeoutSeconds) * 1000, profile) / 1000)
-      },
-      verificationMessage: null
-    })),
-  setVerificationMessage: (message) => set({ verificationMessage: message }),
-
-  loadProviderConfig: (provider) => {
-    const config = get().settings?.providerConfigs?.[provider] || {
-      apiKey: '',
-      model: '',
-      baseUrl: ''
+  upsertModelConfig: async (config) => {
+    set({ verificationMessage: null })
+    try {
+      const result = await ipc.upsertModelConfig(config)
+      await get().fetchSettings()
+      return result.id
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('保存模型失败。', 'Failed to save model.')
+      set({ verificationMessage: message })
+      return null
     }
-    set({
-      apiKey: config.apiKey || '',
-      model: config.model || '',
-      baseUrl: config.baseUrl || '',
-      timeoutSeconds: resolveProviderTimeoutSeconds(config),
-      verificationMessage: null
-    })
   },
+
+  setActiveModelConfig: async (id) => {
+    set({ verificationMessage: null })
+    try {
+      await ipc.setActiveModelConfig(id)
+      await get().fetchSettings()
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('启用模型失败。', 'Failed to activate model.')
+      set({ verificationMessage: message })
+    }
+  },
+
+  deleteModelConfig: async (id) => {
+    set({ verificationMessage: null })
+    try {
+      await ipc.deleteModelConfig(id)
+      await get().fetchSettings()
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('删除模型失败。', 'Failed to delete model.')
+      set({ verificationMessage: message })
+    }
+  },
+
+  setVerificationMessage: (message) => set({ verificationMessage: message }),
 
   verifyApiKey: async (provider, apiKey, model, baseUrl, timeoutMs) => {
     try {

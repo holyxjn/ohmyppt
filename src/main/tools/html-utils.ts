@@ -195,11 +195,19 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
   }
   try {
     const $ = cheerio.load(html, { scriptingEnabled: false });
-    if ($("[data-page-scaffold]").length < 1) {
-      errors.push("缺少 section[data-page-scaffold] 页面片段根节点");
+    const scaffoldSections = $('section[data-page-scaffold="1"]');
+    if (scaffoldSections.length < 1) {
+      errors.push('缺少 section[data-page-scaffold="1"] 页面片段根节点');
+    } else if (scaffoldSections.length > 1) {
+      errors.push(`section[data-page-scaffold="1"] 只能有 1 个，当前 ${scaffoldSections.length} 个`);
     }
-    if ($('[data-block-id="content"][data-role="content"], [data-role="content"][data-block-id="content"]').length < 1) {
+    const contentEntrypoints = $('main[data-block-id="content"][data-role="content"]');
+    if (contentEntrypoints.length < 1) {
       errors.push('缺少 main[data-block-id="content"][data-role="content"] 内容入口');
+    } else if (contentEntrypoints.length > 1) {
+      errors.push(
+        `main[data-block-id="content"][data-role="content"] 只能有 1 个，当前 ${contentEntrypoints.length} 个`
+      );
     }
     if ($('[data-role="title"]').length < 1) {
       errors.push('缺少 data-role="title" 标题语义元素');

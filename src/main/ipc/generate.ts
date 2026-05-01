@@ -273,6 +273,34 @@ const normalizePageSummary = (raw: string, pageTitle: string, appLocale?: AppLoc
   return `${candidate.slice(0, 120).trimEnd()}…`
 }
 
+const buildPlanningRetryUserPrompt = (
+  userPrompt: string,
+  totalPages: number,
+  previousError: string
+): string =>
+  [
+    userPrompt,
+    '',
+    'Planning retry requirement:',
+    `- The previous planning response failed validation: ${previousError}`,
+    `- Retry now and return exactly ${totalPages} items.`,
+    '- Return only a raw JSON array. Do not wrap it in Markdown. Do not add explanations.',
+    '- Each item must have exactly these fields: title, keyPoints, layoutIntent.',
+    '- keyPoints must be an array with 1-6 short strings.'
+  ].join('\n')
+
+const buildDesignContractRetryUserPrompt = (userPrompt: string, previousError: string): string =>
+  [
+    userPrompt,
+    '',
+    'Design contract retry requirement:',
+    `- The previous design contract response failed validation: ${previousError}`,
+    '- Retry now and return only a raw JSON object. Do not wrap it in Markdown. Do not add explanations.',
+    '- Use exactly these fields: theme, background, palette, titleStyle, layoutMotif, chartStyle, shapeLanguage.',
+    '- palette must be an array with 3-6 color strings.',
+    '- titleStyle must use text-5xl and must not use text-6xl, text-7xl, or text-8xl.'
+  ].join('\n')
+
 export const planDeckWithLLM = async (args: {
   provider: string
   apiKey: string
@@ -302,6 +330,72 @@ export const planDeckWithLLM = async (args: {
     totalPages: args.totalPages,
     userMessage: args.userMessage
   })
+  const parsePlanningItems = (responseText: string): OutlineItem[] => {
+    const parsed = parseModelJson(responseText, args.appLocale)
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        uiText(
+          args.appLocale,
+          'LLM plan_deck 返回格式不正确，期望 [{title, keyPoints[], layoutIntent}] 数组。',
+          'LLM plan_deck returned an invalid format; expected an array like [{ title, keyPoints[], layoutIntent }].'
+        )
+      )
+    }
+    if (parsed.length === 0 || typeof parsed[0] !== 'object' || parsed[0] === null) {
+      throw new Error(
+        uiText(
+          args.appLocale,
+          'LLM plan_deck pages 返回格式不正确，期望 [{title, keyPoints[], layoutIntent}] 数组。',
+          'LLM plan_deck pages returned an invalid format; expected an array like [{ title, keyPoints[], layoutIntent }].'
+        )
+      )
+    }
+    const items: OutlineItem[] = (parsed as Array<Record<string, unknown>>).map((item, index) => {
+      const title = String(item.title ?? '').trim()
+      const keyPoints = normalizeKeyPoints(item.keyPoints)
+      if (!title) {
+        throw new Error(
+          uiText(
+            args.appLocale,
+            `LLM plan_deck 第 ${index + 1} 项缺少 title，期望格式: { title, keyPoints[], layoutIntent }`,
+            `LLM plan_deck item ${index + 1} is missing title; expected format: { title, keyPoints[], layoutIntent }`
+          )
+        )
+      }
+      if (keyPoints.length < 1) {
+        throw new Error(
+          uiText(
+            args.appLocale,
+            `LLM plan_deck 第 ${index + 1} 项 keyPoints 为空，至少需要 1 条。`,
+            `LLM plan_deck item ${index + 1} has empty keyPoints; at least one item is required.`
+          )
+        )
+      }
+      return {
+        title,
+        contentOutline: normalizeOutlineText(keyPoints.join('；')),
+        layoutIntent: normalizeLayoutIntent(item.layoutIntent)
+      }
+    })
+    if (items.length === 0) {
+      throw new Error(
+        uiText(
+          args.appLocale,
+          'LLM plan_deck 返回空大纲。',
+          'LLM plan_deck returned an empty outline.'
+        )
+      )
+    }
+    // Pad if LLM returned fewer pages than requested
+    while (items.length < args.totalPages) {
+      items.push({
+        title: uiText(args.appLocale, `第 ${items.length + 1} 页`, `Page ${items.length + 1}`),
+        contentOutline: '',
+        layoutIntent: 'concept'
+      })
+    }
+    return items.slice(0, args.totalPages)
+  }
 
   args.emit?.({
     type: 'llm_status',
@@ -320,110 +414,96 @@ export const planDeckWithLLM = async (args: {
       )
     }
   })
-  log.info('[llm] invoke plan_deck', {
-    provider: args.provider,
-    model: args.model,
-    temperature: args.temperature ?? null,
-    styleId: args.styleId || '',
-    totalPages: args.totalPages,
-    topic: args.topic
-  })
-  const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'planning', args.signal)
-  const response = await client.invoke(
-    [
-      { role: 'system' as const, content: systemPrompt },
-      { role: 'user' as const, content: userPrompt }
-    ],
-    { signal: combinedSignal }
-  )
-  const responseText = extractModelText(response)
-  args.emit?.({
-    type: 'llm_status',
-    payload: {
-      runId: args.runId || '',
-      stage: 'planning',
-      label: progressText(args.appLocale, 'planning'),
-      progress: 9,
-      totalPages: args.totalPages,
+  const maxAttempts = 2
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      args.emit?.({
+        type: 'llm_status',
+        payload: {
+          runId: args.runId || '',
+          stage: 'planning',
+          label: progressText(args.appLocale, 'planning'),
+          progress: 5,
+          totalPages: args.totalPages,
+          provider: args.provider,
+          model: args.model,
+          detail: uiText(
+            args.appLocale,
+            '页面计划格式异常，正在自动重试一次',
+            'The page plan format was invalid; retrying once'
+          )
+        }
+      })
+    }
+    const previousError =
+      lastError instanceof Error ? lastError.message : lastError ? String(lastError) : ''
+    const effectiveUserPrompt =
+      attempt === 1
+        ? userPrompt
+        : buildPlanningRetryUserPrompt(userPrompt, args.totalPages, previousError)
+    log.info('[llm] invoke plan_deck', {
       provider: args.provider,
       model: args.model,
-      detail: uiText(
-        args.appLocale,
-        '正在整理成可执行页面计划',
-        'Converting outline into an executable page plan'
-      )
-    }
-  })
-  log.info('[llm] plan_deck response', {
-    textLength: responseText.length,
-    preview: JSON.stringify(
-      responseText.length > 240 ? `${responseText.slice(0, 240)}…` : responseText
-    )
-  })
-  const parsed = parseModelJson(responseText, args.appLocale)
-  if (!Array.isArray(parsed)) {
-    throw new Error(
-      uiText(
-        args.appLocale,
-        'LLM plan_deck 返回格式不正确，期望 [{title, keyPoints[], layoutIntent}] 数组。',
-        'LLM plan_deck returned an invalid format; expected an array like [{ title, keyPoints[], layoutIntent }].'
-      )
-    )
-  }
-  if (parsed.length === 0 || typeof parsed[0] !== 'object' || parsed[0] === null) {
-    throw new Error(
-      uiText(
-        args.appLocale,
-        'LLM plan_deck pages 返回格式不正确，期望 [{title, keyPoints[], layoutIntent}] 数组。',
-        'LLM plan_deck pages returned an invalid format; expected an array like [{ title, keyPoints[], layoutIntent }].'
-      )
-    )
-  }
-  const items: OutlineItem[] = (parsed as Array<Record<string, unknown>>).map((item, index) => {
-    const title = String(item.title ?? '').trim()
-    const keyPoints = normalizeKeyPoints(item.keyPoints)
-    if (!title) {
-      throw new Error(
-        uiText(
-          args.appLocale,
-          `LLM plan_deck 第 ${index + 1} 项缺少 title，期望格式: { title, keyPoints[], layoutIntent }`,
-          `LLM plan_deck item ${index + 1} is missing title; expected format: { title, keyPoints[], layoutIntent }`
-        )
-      )
-    }
-    if (keyPoints.length < 1) {
-      throw new Error(
-        uiText(
-          args.appLocale,
-          `LLM plan_deck 第 ${index + 1} 项 keyPoints 为空，至少需要 1 条。`,
-          `LLM plan_deck item ${index + 1} has empty keyPoints; at least one item is required.`
-        )
-      )
-    }
-    return {
-      title,
-      contentOutline: normalizeOutlineText(keyPoints.join('；')),
-      layoutIntent: normalizeLayoutIntent(item.layoutIntent)
-    }
-  })
-  if (items.length === 0) {
-    throw new Error(
-      uiText(
-        args.appLocale,
-        'LLM plan_deck 返回空大纲。',
-        'LLM plan_deck returned an empty outline.'
-      )
-    )
-  }
-  // Pad if LLM returned fewer pages than requested
-  while (items.length < args.totalPages) {
-    items.push({
-      title: uiText(args.appLocale, `第 ${items.length + 1} 页`, `Page ${items.length + 1}`),
-      contentOutline: '',
-      layoutIntent: 'concept'
+      temperature: args.temperature ?? null,
+      styleId: args.styleId || '',
+      totalPages: args.totalPages,
+      topic: args.topic,
+      attempt,
+      maxAttempts
     })
+    try {
+      const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'planning', args.signal)
+      const response = await client.invoke(
+        [
+          { role: 'system' as const, content: systemPrompt },
+          { role: 'user' as const, content: effectiveUserPrompt }
+        ],
+        { signal: combinedSignal }
+      )
+      const responseText = extractModelText(response)
+      args.emit?.({
+        type: 'llm_status',
+        payload: {
+          runId: args.runId || '',
+          stage: 'planning',
+          label: progressText(args.appLocale, 'planning'),
+          progress: 9,
+          totalPages: args.totalPages,
+          provider: args.provider,
+          model: args.model,
+          detail: uiText(
+            args.appLocale,
+            '正在整理成可执行页面计划',
+            'Converting outline into an executable page plan'
+          )
+        }
+      })
+      log.info('[llm] plan_deck response', {
+        attempt,
+        textLength: responseText.length,
+        preview: JSON.stringify(
+          responseText.length > 240 ? `${responseText.slice(0, 240)}…` : responseText
+        )
+      })
+      return parsePlanningItems(responseText)
+    } catch (error) {
+      lastError = error
+      if (args.signal?.aborted || attempt >= maxAttempts) {
+        throw error
+      }
+      log.warn('[llm] plan_deck retry scheduled', {
+        provider: args.provider,
+        model: args.model,
+        attempt,
+        maxAttempts,
+        reason: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
-  return items.slice(0, args.totalPages)
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError ?? 'Planning failed'))
 }
 
 export const buildDesignContractWithLLM = async (args: {
@@ -449,6 +529,50 @@ export const buildDesignContractWithLLM = async (args: {
     args.temperature
   )
   const totalPages = Math.max(1, args.totalPages)
+  const systemPrompt = buildDesignContractSystemPrompt(args.styleSkillPrompt)
+  const userPrompt = buildDesignContractUserPrompt()
+  const parseDesignContract = (responseText: string): DesignContract => {
+    const parsed = parseModelJson(responseText, args.appLocale)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(
+        uiText(
+          args.appLocale,
+          'LLM design_contract 返回格式不正确，期望 JSON object。',
+          'LLM design_contract returned an invalid format; expected a JSON object.'
+        )
+      )
+    }
+    const record = parsed as Record<string, unknown>
+    const requiredKeys = [
+      'theme',
+      'background',
+      'palette',
+      'titleStyle',
+      'layoutMotif',
+      'chartStyle',
+      'shapeLanguage'
+    ]
+    const missingKeys = requiredKeys.filter((key) => record[key] === undefined || record[key] === '')
+    if (missingKeys.length > 0) {
+      throw new Error(
+        uiText(
+          args.appLocale,
+          `LLM design_contract 缺少字段：${missingKeys.join(', ')}`,
+          `LLM design_contract is missing fields: ${missingKeys.join(', ')}`
+        )
+      )
+    }
+    if (!Array.isArray(record.palette) || record.palette.length < 3) {
+      throw new Error(
+        uiText(
+          args.appLocale,
+          'LLM design_contract palette 至少需要 3 个颜色。',
+          'LLM design_contract palette must contain at least 3 colors.'
+        )
+      )
+    }
+    return normalizeDesignContract(parsed)
+  }
   args.emit?.({
     type: 'llm_status',
     payload: {
@@ -462,57 +586,95 @@ export const buildDesignContractWithLLM = async (args: {
       detail: uiText(args.appLocale, '正在生成独立设计契约', 'Generating design contract')
     }
   })
-  try {
-    const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'design', args.signal)
-    const response = await client.invoke(
-      [
-        {
-          role: 'system' as const,
-          content: buildDesignContractSystemPrompt(args.styleSkillPrompt)
-        },
-        {
-          role: 'user' as const,
-          content: buildDesignContractUserPrompt()
+  const maxAttempts = 2
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      args.emit?.({
+        type: 'llm_status',
+        payload: {
+          runId: args.runId || '',
+          stage: 'planning',
+          label: progressText(args.appLocale, 'planning'),
+          progress: 9,
+          totalPages,
+          provider: args.provider,
+          model: args.model,
+          detail: uiText(
+            args.appLocale,
+            '设计契约格式异常，正在自动重试一次',
+            'The design contract format was invalid; retrying once'
+          )
         }
-      ],
-      { signal: combinedSignal }
-    )
-    const responseText = extractModelText(response)
-    log.info('[llm] design_contract response', {
-      textLength: responseText.length,
-      preview: JSON.stringify(
-        responseText.length > 240 ? `${responseText.slice(0, 240)}…` : responseText
-      )
-    })
-    const parsed = parseModelJson(responseText, args.appLocale)
-    const contract = normalizeDesignContract(parsed)
-    args.emit?.({
-      type: 'llm_status',
-      payload: {
-        runId: args.runId || '',
-        stage: 'planning',
-        label: progressText(args.appLocale, 'planning'),
-        progress: 10,
-        totalPages,
-        provider: args.provider,
-        model: args.model,
-        detail: contract.theme
-      }
-    })
-    return contract
-  } catch (error) {
-    if (args.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
-      throw error
+      })
     }
-    log.warn('[llm] design_contract fallback', {
-      provider: args.provider,
-      model: args.model,
-      temperature: args.temperature ?? null,
-      styleId: args.styleId || '',
-      message: error instanceof Error ? error.message : String(error)
-    })
-    return normalizeDesignContract(null)
+    const previousError =
+      lastError instanceof Error ? lastError.message : lastError ? String(lastError) : ''
+    const effectiveUserPrompt =
+      attempt === 1 ? userPrompt : buildDesignContractRetryUserPrompt(userPrompt, previousError)
+    try {
+      const combinedSignal = modelCallSignal(args.modelTimeoutMs, 'design', args.signal)
+      const response = await client.invoke(
+        [
+          {
+            role: 'system' as const,
+            content: systemPrompt
+          },
+          {
+            role: 'user' as const,
+            content: effectiveUserPrompt
+          }
+        ],
+        { signal: combinedSignal }
+      )
+      const responseText = extractModelText(response)
+      log.info('[llm] design_contract response', {
+        attempt,
+        textLength: responseText.length,
+        preview: JSON.stringify(
+          responseText.length > 240 ? `${responseText.slice(0, 240)}…` : responseText
+        )
+      })
+      const contract = parseDesignContract(responseText)
+      args.emit?.({
+        type: 'llm_status',
+        payload: {
+          runId: args.runId || '',
+          stage: 'planning',
+          label: progressText(args.appLocale, 'planning'),
+          progress: 10,
+          totalPages,
+          provider: args.provider,
+          model: args.model,
+          detail: contract.theme
+        }
+      })
+      return contract
+    } catch (error) {
+      if (args.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        throw error
+      }
+      lastError = error
+      if (attempt < maxAttempts) {
+        log.warn('[llm] design_contract retry scheduled', {
+          provider: args.provider,
+          model: args.model,
+          attempt,
+          maxAttempts,
+          message: error instanceof Error ? error.message : String(error)
+        })
+        continue
+      }
+    }
   }
+  log.warn('[llm] design_contract fallback', {
+    provider: args.provider,
+    model: args.model,
+    temperature: args.temperature ?? null,
+    styleId: args.styleId || '',
+    message: lastError instanceof Error ? lastError.message : String(lastError)
+  })
+  return normalizeDesignContract(null)
 }
 
 export const runDeepAgentDeckGeneration = async (args: {

@@ -10,6 +10,7 @@ import { extractJsonBlock, extractModelText } from './utils'
 import type { IpcContext } from './context'
 import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string
@@ -134,7 +135,10 @@ const stringifyLooseValue = (value: unknown): string => {
   if (typeof value === 'string') return value.trim()
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (Array.isArray(value)) {
-    return value.map((item) => stringifyLooseValue(item)).filter(isMeaningfulText).join('\n')
+    return value
+      .map((item) => stringifyLooseValue(item))
+      .filter(isMeaningfulText)
+      .join('\n')
   }
   const record = getObject(value)
   if (record) {
@@ -149,10 +153,7 @@ const stringifyLooseValue = (value: unknown): string => {
   return ''
 }
 
-const readFirstLooseString = (
-  object: Record<string, unknown>,
-  keys: string[]
-): string => {
+const readFirstLooseString = (object: Record<string, unknown>, keys: string[]): string => {
   for (const key of keys) {
     const value = object[key]
     const text = stringifyLooseValue(value)
@@ -170,8 +171,7 @@ const unescapeLooseJsonString = (value: string): string =>
     .replace(/\\\\/g, '\\')
     .trim()
 
-const escapeRegExp = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const extractLooseFieldFromText = (rawText: string, keys: string[]): string => {
   for (const key of keys) {
@@ -245,7 +245,8 @@ const extractNumberedSectionCount = (text: string, headingPattern: RegExp): numb
   for (const line of lines.slice(startIndex + 1)) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    if (/^(每页要点|必须保留|风格|表达|注意事项|受众|核心观点|演示目标)\s*[:：]/.test(trimmed)) break
+    if (/^(每页要点|必须保留|风格|表达|注意事项|受众|核心观点|演示目标)\s*[:：]/.test(trimmed))
+      break
     const match = trimmed.match(/^(\d{1,2})\s*[.、．)]\s*\S+/)
     if (!match) {
       if (count > 0 && /^[^\d第]/.test(trimmed)) break
@@ -261,9 +262,7 @@ const extractNumberedSectionCount = (text: string, headingPattern: RegExp): numb
 }
 
 const extractImpliedPageCount = (text: string): number => {
-  const pageNumbers = Array.from(
-    text.matchAll(/第\s*([一二两三四五六七八九十\d]{1,3})\s*页/g)
-  )
+  const pageNumbers = Array.from(text.matchAll(/第\s*([一二两三四五六七八九十\d]{1,3})\s*页/g))
     .map((match) => parseChinesePageNumber(match[1] || ''))
     .filter((value): value is number => Boolean(value && value >= 1 && value <= MAX_PAGE_COUNT))
   const maxPageNumber = pageNumbers.length > 0 ? Math.max(...pageNumbers) : 0
@@ -280,7 +279,9 @@ const readMessageField = (message: Record<string, unknown>, key: string): unknow
   return undefined
 }
 
-const summarizeToolCall = (toolCall: unknown): {
+const summarizeToolCall = (
+  toolCall: unknown
+): {
   id: string
   name: string
   argsPreview: string
@@ -393,10 +394,7 @@ const extractAssistantTextsFromState = (data: unknown): string[] => {
         ''
     ).toLowerCase()
     const isAssistant =
-      role === 'assistant' ||
-      type === 'ai' ||
-      type === 'assistant' ||
-      constructorName === 'ai'
+      role === 'assistant' || type === 'ai' || type === 'assistant' || constructorName === 'ai'
     const isToolOrHuman =
       role === 'tool' ||
       role === 'user' ||
@@ -683,7 +681,9 @@ const buildDocumentPlanPrompt = (args: {
     args.retryHint
       ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
       : '',
-    args.topic ? `\nUser-provided topic: ${args.topic}` : '\nThe user did not provide a topic; infer it from the document.',
+    args.topic
+      ? `\nUser-provided topic: ${args.topic}`
+      : '\nThe user did not provide a topic; infer it from the document.',
     args.existingBrief ? `\nExisting user brief:\n${args.existingBrief}` : '',
     '',
     'Return format example:',
@@ -777,7 +777,7 @@ const runDocumentPlanAgent = async (args: {
 }
 
 export function registerDocumentParseHandlers(ctx: IpcContext): void {
-  const { db, decryptApiKey, resolveStoragePath } = ctx
+  const { resolveStoragePath } = ctx
 
   ipcMain.handle('documents:parsePlan', async (_event, payload: ParseDocumentPlanPayload) => {
     const input = payload && typeof payload === 'object' ? payload : { files: [] }
@@ -796,18 +796,11 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
     const [sourceFile] = preparedFiles
     if (!sourceFile) throw new Error('请先选择要解析的文档')
 
-    const settings = await db.getAllSettings()
-    const provider = String(settings.provider || '').trim()
-    if (!provider) throw new Error('请先前往系统设置选择 provider。')
-    const model = String(settings[`model_${provider}`] || '').trim()
-    const baseUrl = String(settings[`base_url_${provider}`] || '').trim()
-    const modelTimeoutMs = resolveModelTimeoutMs(
-      settings[`timeout_ms_${provider}_document`] ?? settings[`timeout_ms_${provider}`],
-      'document'
-    )
-    const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim()
-    if (!model) throw new Error('请先前往系统设置填写 model。')
-    if (!apiKey) throw new Error('请先前往系统设置填写 api_key。')
+    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+    const { provider, model, apiKey } = activeModel
+    const baseUrl = activeModel.baseUrl
+    const modelTimeoutMs = modelTimeouts.document
 
     const topic = typeof input.topic === 'string' ? input.topic.trim() : ''
     const existingBrief = typeof input.existingBrief === 'string' ? input.existingBrief.trim() : ''
@@ -838,10 +831,7 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
           topic,
           pageCount,
           existingBrief,
-          retryHint:
-            attempt > 1 && lastError instanceof Error
-              ? lastError.message
-              : undefined
+          retryHint: attempt > 1 && lastError instanceof Error ? lastError.message : undefined
         })
       ).trim()
       if (!responseText) {
@@ -867,11 +857,14 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
         lastError = error
         if (error instanceof RetryableDocumentPlanQualityError && attempt >= MAX_ATTEMPTS) {
           plan = normalizeGeneratedPlan(responseText, fallbackPlan)
-          log.warn('[documents:parsePlan] quality check failed after retry, returning editable plan', {
-            attempt,
-            message: error.message,
-            responsePreview: responseText.slice(0, 400)
-          })
+          log.warn(
+            '[documents:parsePlan] quality check failed after retry, returning editable plan',
+            {
+              attempt,
+              message: error.message,
+              responsePreview: responseText.slice(0, 400)
+            }
+          )
           break
         }
         log.warn('[documents:parsePlan] normalize failed, will retry', {

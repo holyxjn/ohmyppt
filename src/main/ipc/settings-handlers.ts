@@ -5,28 +5,22 @@ import type { IpcContext } from './context'
 import {
   CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
   type ConfigurableModelTimeoutProfile,
-  MODEL_TIMEOUT_PROFILES,
-  normalizeModelTimeoutMs,
-  resolveModelTimeoutMs,
-  type ModelTimeoutProfile
+  resolveModelTimeoutMs
 } from '@shared/model-timeout'
+import { readAppLocale, uiText } from './locale-utils'
 
-const readProviderTimeouts = (
-  settings: Record<string, unknown>,
-  provider: string
-): Record<ModelTimeoutProfile, number> =>
+const readGlobalTimeouts = (
+  settings: Record<string, unknown>
+): Record<ConfigurableModelTimeoutProfile, number> =>
   Object.fromEntries(
-    MODEL_TIMEOUT_PROFILES.map((profile) => [
+    CONFIGURABLE_MODEL_TIMEOUT_PROFILES.map((profile) => [
       profile,
-      resolveModelTimeoutMs(
-        settings[`timeout_ms_${provider}_${profile}`] ??
-          ((profile === 'agent' || profile === 'document')
-            ? settings[`timeout_ms_${provider}`]
-            : undefined),
-        profile
-      )
+      resolveModelTimeoutMs(settings[`timeout_ms_${profile}`], profile)
     ])
-  ) as Record<ModelTimeoutProfile, number>
+  ) as Record<ConfigurableModelTimeoutProfile, number>
+
+const normalizeProvider = (provider: unknown): 'anthropic' | 'openai' =>
+  provider === 'anthropic' ? 'anthropic' : 'openai'
 
 export function registerSettingsHandlers(ctx: IpcContext): void {
   const { mainWindow, db, encryptApiKey, decryptApiKey } = ctx
@@ -38,127 +32,166 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       typeof settings.storage_path === 'string' && settings.storage_path.trim().length > 0
         ? settings.storage_path.trim()
         : ''
-    const providerConfigs = {
-      anthropic: {
-        model: typeof settings.model_anthropic === 'string' ? settings.model_anthropic : '',
-        apiKey: decryptApiKey(settings.api_key_anthropic),
-        baseUrl: typeof settings.base_url_anthropic === 'string' ? settings.base_url_anthropic : '',
-        timeoutMs: normalizeModelTimeoutMs(settings.timeout_ms_anthropic),
-        timeouts: readProviderTimeouts(settings, 'anthropic')
-      },
-      openai: {
-        model: typeof settings.model_openai === 'string' ? settings.model_openai : '',
-        apiKey: decryptApiKey(settings.api_key_openai),
-        baseUrl: typeof settings.base_url_openai === 'string' ? settings.base_url_openai : '',
-        timeoutMs: normalizeModelTimeoutMs(settings.timeout_ms_openai),
-        timeouts: readProviderTimeouts(settings, 'openai')
-      }
-    }
-
     return {
-      provider: settings.provider || 'openai',
       theme: settings.theme || 'light',
       locale: settings.locale === 'en' ? 'en' : 'zh',
-      autoSave: settings.auto_save ?? true,
       storagePath,
-      providerConfigs
+      timeouts: readGlobalTimeouts(settings)
     }
+  })
+
+  ipcMain.handle('settings:listModelConfigs', async () => {
+    return (await db.listModelConfigs()).map((config) => ({
+      id: config.id,
+      name: config.name,
+      provider: config.provider,
+      model: config.model,
+      apiKey: decryptApiKey(config.apiKey),
+      baseUrl: config.baseUrl,
+      active: config.active === 1,
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt
+    }))
   })
 
   ipcMain.handle('settings:save', async (_event, settings) => {
     log.info('[settings:save] received', {
-      provider: settings?.provider,
       hasStoragePath:
-        typeof settings?.storagePath === 'string' && settings.storagePath.trim().length > 0,
-      providers: settings?.providerConfigs ? Object.keys(settings.providerConfigs) : []
+        typeof settings?.storagePath === 'string' && settings.storagePath.trim().length > 0
     })
-    if (settings.provider !== undefined) await db.setSetting('provider', settings.provider)
     if (settings.theme !== undefined) await db.setSetting('theme', settings.theme)
-    if (settings.locale === 'zh' || settings.locale === 'en') await db.setSetting('locale', settings.locale)
-    if (settings.autoSave !== undefined) await db.setSetting('auto_save', settings.autoSave)
+    if (settings.locale === 'zh' || settings.locale === 'en')
+      await db.setSetting('locale', settings.locale)
     if (typeof settings.storagePath === 'string' && settings.storagePath.trim().length > 0) {
       await db.setStoragePath(settings.storagePath)
     }
-    if (settings.providerConfigs && typeof settings.providerConfigs === 'object') {
-      const providerConfigs = settings.providerConfigs as Record<
-        string,
-        {
-          model?: unknown
-          apiKey?: unknown
-          baseUrl?: unknown
-          timeoutMs?: unknown
-          timeouts?: Partial<Record<ConfigurableModelTimeoutProfile, unknown>>
-        }
+    if (settings.timeouts && typeof settings.timeouts === 'object') {
+      const timeouts = settings.timeouts as Partial<
+        Record<ConfigurableModelTimeoutProfile, unknown>
       >
-      for (const [provider, config] of Object.entries(providerConfigs)) {
-        if (typeof config.model === 'string') await db.setSetting(`model_${provider}`, config.model)
-        if (typeof config.apiKey === 'string') {
-          await db.setSetting(`api_key_${provider}`, encryptApiKey(config.apiKey))
-        }
-        if (typeof config.baseUrl === 'string')
-          await db.setSetting(`base_url_${provider}`, config.baseUrl)
-        if (config.timeoutMs !== undefined) {
-          await db.setSetting(`timeout_ms_${provider}`, normalizeModelTimeoutMs(config.timeoutMs))
-        }
-        if (config.timeouts && typeof config.timeouts === 'object') {
-          for (const profile of CONFIGURABLE_MODEL_TIMEOUT_PROFILES) {
-            const value = config.timeouts[profile]
-            if (value !== undefined) {
-              await db.setSetting(
-                `timeout_ms_${provider}_${profile}`,
-                resolveModelTimeoutMs(value, profile)
-              )
-            }
-          }
+      for (const profile of CONFIGURABLE_MODEL_TIMEOUT_PROFILES) {
+        const value = timeouts[profile]
+        if (value !== undefined) {
+          await db.setSetting(`timeout_ms_${profile}`, resolveModelTimeoutMs(value, profile))
         }
       }
     }
     return { success: true }
   })
 
-  ipcMain.handle('settings:verifyApiKey', async (_event, { provider, apiKey, model, baseUrl, timeoutMs }) => {
-    const resolvedTimeoutMs = resolveModelTimeoutMs(timeoutMs, 'verify')
-    log.info('[settings:verifyApiKey] received', {
+  ipcMain.handle('settings:upsertModelConfig', async (_event, payload) => {
+    const locale = await readAppLocale(ctx)
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const name = typeof record.name === 'string' ? record.name.trim() : ''
+    const provider = normalizeProvider(record.provider)
+    const model = typeof record.model === 'string' ? record.model.trim() : ''
+    const apiKey = typeof record.apiKey === 'string' ? record.apiKey.trim() : ''
+    const baseUrl = typeof record.baseUrl === 'string' ? record.baseUrl.trim() : ''
+    const id =
+      typeof record.id === 'string' && record.id.trim().length > 0 ? record.id.trim() : undefined
+    if (!name) throw new Error(uiText(locale, '请填写模型名称。', 'Enter model name.'))
+    if (!model) throw new Error(uiText(locale, '请填写 model。', 'Enter model.'))
+    if (!apiKey) throw new Error(uiText(locale, '请填写 api_key。', 'Enter api_key.'))
+    const savedId = await db.upsertModelConfig({
+      id,
+      name,
       provider,
       model,
-      hasApiKey: typeof apiKey === 'string' && apiKey.trim().length > 0,
-      baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
-      timeoutMs: resolvedTimeoutMs
+      apiKey: encryptApiKey(apiKey),
+      baseUrl,
+      active: record.active === true
     })
+    return { success: true, id: savedId }
+  })
 
-    if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
-      return { valid: false, message: '请先填写 api_key。' }
+  ipcMain.handle('settings:setActiveModelConfig', async (_event, id) => {
+    const locale = await readAppLocale(ctx)
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error(uiText(locale, '模型配置 ID 不能为空。', 'Model config ID is required.'))
     }
-    if (typeof model !== 'string' || model.trim().length === 0) {
-      return { valid: false, message: '请先填写 model。' }
-    }
-
+    const modelId = id.trim()
     try {
-      const client = resolveModel(
-        provider,
-        apiKey.trim(),
-        model.trim(),
-        typeof baseUrl === 'string' ? baseUrl.trim() : ''
-      )
-      await client.invoke('Reply with OK.', {
-        signal: AbortSignal.timeout(resolvedTimeoutMs)
-      })
-      log.info('[settings:verifyApiKey] success', { provider, model })
-      return { valid: true, message: '连接验证成功。' }
+      await db.setActiveModelConfig(modelId)
     } catch (error) {
-      const message =
-        error instanceof Error && error.message.length > 0
-          ? error.message
-          : '连接验证失败，请检查 api_key、model 或 base_url。'
-      log.error('[settings:verifyApiKey] failed', {
+      if (error instanceof Error && error.message === 'Model config does not exist') {
+        throw new Error(uiText(locale, '模型配置不存在。', 'Model config does not exist.'))
+      }
+      throw error
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('settings:deleteModelConfig', async (_event, id) => {
+    const locale = await readAppLocale(ctx)
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error(uiText(locale, '模型配置 ID 不能为空。', 'Model config ID is required.'))
+    }
+    try {
+      await db.deleteModelConfig(id.trim())
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Model config does not exist') {
+        throw new Error(uiText(locale, '模型配置不存在。', 'Model config does not exist.'))
+      }
+      throw error
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle(
+    'settings:verifyApiKey',
+    async (_event, { provider, apiKey, model, baseUrl, timeoutMs }) => {
+      const locale = await readAppLocale(ctx)
+      const resolvedTimeoutMs = resolveModelTimeoutMs(timeoutMs, 'verify')
+      log.info('[settings:verifyApiKey] received', {
         provider,
         model,
+        hasApiKey: typeof apiKey === 'string' && apiKey.trim().length > 0,
         baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
-        message
+        timeoutMs: resolvedTimeoutMs
       })
-      return { valid: false, message }
+
+      if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+        return {
+          valid: false,
+          message: uiText(locale, '请先填写 api_key。', 'Enter api_key first.')
+        }
+      }
+      if (typeof model !== 'string' || model.trim().length === 0) {
+        return { valid: false, message: uiText(locale, '请先填写 model。', 'Enter model first.') }
+      }
+
+      try {
+        const client = resolveModel(
+          provider,
+          apiKey.trim(),
+          model.trim(),
+          typeof baseUrl === 'string' ? baseUrl.trim() : ''
+        )
+        await client.invoke('Reply with OK.', {
+          signal: AbortSignal.timeout(resolvedTimeoutMs)
+        })
+        log.info('[settings:verifyApiKey] success', { provider, model })
+        return { valid: true, message: uiText(locale, '连接验证成功。', 'Connection verified.') }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message.length > 0
+            ? error.message
+            : uiText(
+                locale,
+                '连接验证失败，请检查 api_key、model 或 base_url。',
+                'Connection verification failed. Check api_key, model, or base_url.'
+              )
+        log.error('[settings:verifyApiKey] failed', {
+          provider,
+          model,
+          baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
+          message
+        })
+        return { valid: false, message }
+      }
     }
-  })
+  )
 
   ipcMain.handle('settings:chooseStoragePath', async (event) => {
     log.info('[settings:chooseStoragePath] received')

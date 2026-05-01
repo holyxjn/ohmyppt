@@ -47,7 +47,7 @@ const resolvePageCount = (raw: string): number => {
 export function HomePage(): ReactElement {
   const navigate = useNavigate()
   const { createSession, loading } = useSessionStore()
-  const { settings, fetchSettings } = useSettingsStore()
+  const { settings, modelConfigs, fetchSettings } = useSettingsStore()
   const { success, error, warning } = useToastStore()
   const t = useT()
   const [topic, setTopic] = useState('')
@@ -75,7 +75,8 @@ export function HomePage(): ReactElement {
     if (!selectedStyle) return t('home.validationStyleMissing')
 
     const pageCountText = pageCount.trim()
-    if (!pageCountText) return t('home.validationPageCount', { min: MIN_PAGE_COUNT, max: MAX_PAGE_COUNT })
+    if (!pageCountText)
+      return t('home.validationPageCount', { min: MIN_PAGE_COUNT, max: MAX_PAGE_COUNT })
     if (!/^\d+$/.test(pageCountText)) return t('home.validationPageCountNumber')
     const rawPageCount = Number.parseInt(pageCountText, 10)
     if (rawPageCount < MIN_PAGE_COUNT || rawPageCount > MAX_PAGE_COUNT) {
@@ -85,10 +86,9 @@ export function HomePage(): ReactElement {
     const briefText = brief.trim()
     if (!briefText) return t('home.validationBrief')
 
-    const provider = settings?.provider
-    const providerConfig = provider ? settings?.providerConfigs?.[provider] : undefined
-    const resolvedApiKey = (providerConfig?.apiKey || '').trim()
-    const resolvedModel = (providerConfig?.model || '').trim()
+    const activeModelConfig = modelConfigs.find((config) => config.active)
+    const resolvedApiKey = (activeModelConfig?.apiKey || '').trim()
+    const resolvedModel = (activeModelConfig?.model || '').trim()
     const resolvedStoragePath = (settings?.storagePath || '').trim()
     if (!resolvedApiKey || !resolvedModel || !resolvedStoragePath) return t('home.settingsRequired')
 
@@ -331,9 +331,7 @@ export function HomePage(): ReactElement {
         <h1 className="organic-serif mt-2 text-[32px] font-semibold leading-none text-[#3e4a32]">
           {t('home.title')}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {t('home.description')}
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">{t('home.description')}</p>
       </div>
 
       <div className="space-y-4">
@@ -403,9 +401,7 @@ export function HomePage(): ReactElement {
               <p className="min-w-0 text-xs text-[#4f6340]">{pptxImportProgress}</p>
             ) : null}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t('home.localOnly')}
-          </p>
+          <p className="mt-2 text-xs text-muted-foreground">{t('home.localOnly')}</p>
 
           <input
             ref={documentInputRef}
