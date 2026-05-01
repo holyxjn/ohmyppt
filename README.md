@@ -40,7 +40,7 @@
   - [如何添加图片到 PPT 中](#assets)
   - [关于预览模式](#preview)
   - [关于导出](#export)
-- [未签名应用打不开的问题](#unsigned-app)
+- [未签名应用打不开的问题(mac已损坏等问题)](#unsigned-app)
 - [需求反馈](#feedback)
 - [参考](#references)
 - [License](#license)
