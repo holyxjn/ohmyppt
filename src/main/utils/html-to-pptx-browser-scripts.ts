@@ -87,8 +87,8 @@ export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
   const style = document.createElement('style');
   style.id = 'ohmyppt-pptx-hide-text';
   style.textContent = [
-    'body :not(.katex):not(.katex *):not(canvas) { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
-    'body :not(.katex):not(.katex *)::before, body :not(.katex):not(.katex *)::after { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
+    'body :not(.katex):not(.katex *):not(canvas) { -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
+    'body :not(.katex):not(.katex *)::before, body :not(.katex):not(.katex *)::after { -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
     '.katex, .katex * { -webkit-text-fill-color: currentColor !important; text-shadow: none !important; }',
     'svg text, svg tspan { fill: transparent !important; stroke: transparent !important; }',
     'input, textarea { color: transparent !important; -webkit-text-fill-color: transparent !important; }'
@@ -102,7 +102,6 @@ export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
     node.style.fontFamily = 'KaTeX_Main, "Times New Roman", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif';
   });
   const hideTextPaint = (node) => {
-    node.style.setProperty('color', 'transparent', 'important');
     node.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
     node.style.setProperty('-webkit-text-stroke-color', 'transparent', 'important');
     node.style.setProperty('text-shadow', 'none', 'important');

@@ -1,6 +1,28 @@
 # 更新日志 / Changelog
 
+## 2026-05-01
+
+### 中文
+
+- 新增多模型列表管理：可以在设置中添加多个模型，并把常用模型设为默认模型，随意切换模型（Breaking change）。
+- 优化生成稳定性： 生成的稳定性得到了显著提升，减少了直接失败的情况。
+- 优化错误提示：设置和生成相关提示会跟随当前界面语言显示中文或英文。
+- 优化生成页日志：日志面板滚动更稳定，连续生成时更容易看到最新进度。
+- 优化pptx导出：对于pptx导出进一步做优化策略，进一步提升导出效果（未引入ocr识别）。
+
+### English
+
+- Added multi-model list management: add multiple models in Settings, choose a default model, and switch between models freely.
+- Improved generation stability: generation is noticeably more reliable, with fewer cases that fail outright.
+- Improved error messages: Settings and generation errors now follow the current interface language.
+- Improved generation logs: the log panel scrolls more reliably and keeps the latest progress easier to see.
+- Improved PPTX export: added further export optimizations without introducing OCR.
+
+---
+
 ## 2026-04-30
+
+### 中文
 
 - 优化页面调整体验：一切皆可拖拽，现在可以直接拖拽和缩放，调整文字、图片、公式、列表、数据标签和图表更顺手。
 - 优化调整保存流程：页面调整不会立即保存，可连续微调多个元素后统一确认，也可以退出并放弃本次调整。
@@ -13,7 +35,25 @@
 - 优化会话详情页体验：顶部工具、预览标题、右侧消息面板和整体圆角更克制，界面层次更清爽。
 - 优化图表生成稳定性：减少图表高度异常、被压缩或显示不完整的问题。
 
+### English
+
+- Improved slide adjustment: more slide content can now be moved and resized directly, making text, images, formulas, lists, data labels, and charts easier to refine.
+- Improved the adjustment flow: layout edits are no longer saved immediately, so users can make several changes and then confirm or discard them together.
+- Improved AI-generated layouts: titles and content placement are more flexible, moving beyond a fixed top-title template.
+- Improved chart presentation: axes, tooltips, and data labels are cleaner, with fewer overly long numbers and fewer visual glitches.
+- Added Chinese and English interface languages: the app UI can switch languages while generated content still follows the user's prompt and source materials.
+- Improved generation progress: progress logs are cleaner and more consistent, with less repetition and fewer overly verbose status messages.
+- Improved slide layout continuity: generation, editing, and retries now better preserve each slide's content structure and visual direction.
+- Improved model settings: common model fields are easier to scan, while advanced timeout controls are tucked away for slower or local models.
+- Improved the session detail experience: toolbar buttons, preview titles, the message panel, and overall corner radii now feel more restrained and easier to read.
+- Fixed duplicate messages during single-slide editing: current-slide edits now show a cleaner, more stable conversation flow.
+- Improved chart stability: reduced cases where charts appear compressed, clipped, or lose their intended height.
+
+---
+
 ## 2026-04-29
+
+### 中文
 
 - 新增 PPTX 导入：可把本地 PPTX 转成应用内可编辑的演示稿，再继续预览、调整和对话修改。
 - 优化从文档创建演示：上传文档后会更稳定地整理主题、页数和详细描述，大纲页数会更贴近实际内容。
@@ -22,6 +62,16 @@
 - 优化首页入口：文档解析和 PPTX 导入入口更清晰，并提示本地文档只会在本机处理。
 - 优化会话列表：可区分 AI 创建和 PPTX 导入的演示稿，并支持修改演示稿名称。
 
+### English
+
+- Added PPTX import: convert local PPTX files into editable in-app presentations for previewing, positioning, and chat-based editing.
+- Improved document-based creation: uploaded documents now produce more reliable topics, page counts, and descriptions, with outlines that better match the content.
+- Added math formula rendering: generated pages can display common LaTeX formulas, and exports try to preserve formula visuals.
+- Improved editable PPTX export: reduced text overlap and improved mixed Chinese/English and formula-heavy slides.
+- Improved the Home page: document parsing and PPTX import are easier to find, with clearer local-document privacy messaging.
+- Improved the session list: imported PPTX sessions are easier to identify, and presentation names can be renamed.
+
+---
 
 ## 2026-04-28
 
@@ -33,6 +83,17 @@
 - 优化文档生成体验：上传较长文档后，每页内容会更贴近原文对应部分，生成速度和稳定性更好。
 - 优化 OpenAI 兼容模型体验：默认关闭 thinking，减少文档解析、工具调用和重试生成时的兼容报错。
 - 优化会话详情页结构：拆分页面侧栏、预览区、顶部工具栏和消息面板。
+
+### English
+
+- Added drag-to-position editing: enable Adjust Position in preview to drag structured page blocks and persist their layout.
+- Added document-based creation: upload txt, md, csv, or docx files to automatically prepare the topic, page count, and description.
+- Added animation documentation: describes basic Anime.js v4-powered whole-element animations with an example GIF.
+- Improved document-based creation: pages now stay closer to the relevant parts of long uploaded documents, with better speed and stability.
+- Improved OpenAI-compatible model behavior: thinking mode is disabled by default to reduce compatibility errors during document parsing, tool calls, and retry generation.
+- Improved the session detail architecture: split the page sidebar, preview stage, top toolbar, and message panel, and added a page-level UI store for local state.
+
+---
 
 ## 2026-04-27
 
@@ -51,60 +112,6 @@
 - 优化页面生成约束：生成时按固定 16:9 画布和内容高度预算组织页面，减少元素超出画布的问题。
 - 优化 README 文档：补充多格式导出说明，并完善 macOS / Windows 未签名应用打开指引。
 
-## 2026-04-26
-
-### 中文
-
-- 支持通过一句话生成本地 HTML 幻灯片。
-- 支持逐页预览、演示模式和键盘切换。
-- 支持对话式修改当前页内容。
-- 支持检选页面元素后精准修改。
-- 支持图片素材上传到本地会话目录并在编辑时引用。
-- 支持一键导出 PDF。
-- 新增风格管理，可查看、编辑和新增风格 Skill。
-- 优化生成页动画、缩略图列表、预览画布和右侧 AI 面板体验。
-- 补充 Ollama / OpenAI 兼容模型使用说明。
-- 补充 macOS 与 Windows 未签名应用打开说明。
-
----
-
-## 2026-04-30
-
-- Improved slide adjustment: more slide content can now be moved and resized directly, making text, images, formulas, lists, data labels, and charts easier to refine.
-- Improved the adjustment flow: layout edits are no longer saved immediately, so users can make several changes and then confirm or discard them together.
-- Improved AI-generated layouts: titles and content placement are more flexible, moving beyond a fixed top-title template.
-- Improved chart presentation: axes, tooltips, and data labels are cleaner, with fewer overly long numbers and fewer visual glitches.
-- Added Chinese and English interface languages: the app UI can switch languages while generated content still follows the user's prompt and source materials.
-- Improved generation progress: progress logs are cleaner and more consistent, with less repetition and fewer overly verbose status messages.
-- Improved slide layout continuity: generation, editing, and retries now better preserve each slide's content structure and visual direction.
-- Improved model settings: common model fields are easier to scan, while advanced timeout controls are tucked away for slower or local models.
-- Improved the session detail experience: toolbar buttons, preview titles, the message panel, and overall corner radii now feel more restrained and easier to read.
-- Fixed duplicate messages during single-slide editing: current-slide edits now show a cleaner, more stable conversation flow.
-- Improved chart stability: reduced cases where charts appear compressed, clipped, or lose their intended height.
-
-## 2026-04-29
-
-- Added PPTX import: convert local PPTX files into editable in-app presentations for previewing, positioning, and chat-based editing.
-- Improved document-based creation: uploaded documents now produce more reliable topics, page counts, and descriptions, with outlines that better match the content.
-- Added math formula rendering: generated pages can display common LaTeX formulas, and exports try to preserve formula visuals.
-- Improved editable PPTX export: reduced text overlap and improved mixed Chinese/English and formula-heavy slides.
-- Improved the Home page: document parsing and PPTX import are easier to find, with clearer local-document privacy messaging.
-- Improved the session list: imported PPTX sessions are easier to identify, and presentation names can be renamed.
-
-
-## 2026-04-28
-
-### English
-
-- Added drag-to-position editing: enable Adjust Position in preview to drag structured page blocks and persist their layout.
-- Added document-based creation: upload txt, md, csv, or docx files to automatically prepare the topic, page count, and description.
-- Added animation documentation: describes basic Anime.js v4-powered whole-element animations with an example GIF.
-- Improved document-based creation: pages now stay closer to the relevant parts of long uploaded documents, with better speed and stability.
-- Improved OpenAI-compatible model behavior: thinking mode is disabled by default to reduce compatibility errors during document parsing, tool calls, and retry generation.
-- Improved the session detail architecture: split the page sidebar, preview stage, top toolbar, and message panel, and added a page-level UI store for local state.
-
-## 2026-04-27
-
 ### English
 
 - Added update notifications: the app checks GitHub Releases on startup and lets users open the release page when a newer version is available.
@@ -120,7 +127,22 @@
 - Improved generation layout constraints: slides now follow a fixed 16:9 canvas and content-height budget to reduce overflow.
 - Updated README docs: added multi-format export notes and clearer macOS / Windows unsigned-app instructions.
 
+---
+
 ## 2026-04-26
+
+### 中文
+
+- 支持通过一句话生成本地 HTML 幻灯片。
+- 支持逐页预览、演示模式和键盘切换。
+- 支持对话式修改当前页内容。
+- 支持检选页面元素后精准修改。
+- 支持图片素材上传到本地会话目录并在编辑时引用。
+- 支持一键导出 PDF。
+- 新增风格管理，可查看、编辑和新增风格 Skill。
+- 优化生成页动画、缩略图列表、预览画布和右侧 AI 面板体验。
+- 补充 Ollama / OpenAI 兼容模型使用说明。
+- 补充 macOS 与 Windows 未签名应用打开说明。
 
 ### English
 
