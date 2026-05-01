@@ -1,223 +1,247 @@
-import { createClient } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { eq, ne, gt, lte, count, max, asc, desc, sql, and } from "drizzle-orm";
-import * as schema from "./schema";
-import path from "path";
-import { app } from "electron";
-import { is } from "@electron-toolkit/utils";
-import fs from "fs";
-import crypto from "crypto";
-import { runDatabasePatches } from "./patch";
+import { createClient } from '@libsql/client'
+import { drizzle } from 'drizzle-orm/libsql'
+import { eq, ne, gt, lte, count, max, asc, desc, sql, and } from 'drizzle-orm'
+import * as schema from './schema'
+import path from 'path'
+import { app } from 'electron'
+import { is } from '@electron-toolkit/utils'
+import fs from 'fs'
+import crypto from 'crypto'
+import { runDatabasePatches } from './patch'
 
-type SessionStatus = "active" | "completed" | "failed" | "archived";
-type MessageRole = "user" | "assistant" | "system" | "tool";
-type MessageType = "text" | "tool_call" | "tool_result" | "stream_chunk";
-type ChatScope = "main" | "page";
-type StyleSource = "builtin" | "custom" | "override";
-type GenerationRunMode = "generate" | "retry" | "edit" | "import";
-type GenerationRunStatus = "running" | "completed" | "failed" | "partial";
-type GenerationPageStatus = "pending" | "running" | "completed" | "failed";
+type SessionStatus = 'active' | 'completed' | 'failed' | 'archived'
+type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
+type MessageType = 'text' | 'tool_call' | 'tool_result' | 'stream_chunk'
+type ChatScope = 'main' | 'page'
+type StyleSource = 'builtin' | 'custom' | 'override'
+type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import'
+type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
+type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface Session {
-  id: string;
-  title: string;
-  topic: string | null;
-  styleId: string | null;
-  page_count: number | null;
-  reference_document_path: string | null;
-  referenceDocumentPath?: string | null;
-  status: SessionStatus;
-  provider: string;
-  model: string;
-  created_at: number;
-  updated_at: number;
-  metadata: string | null;
+  id: string
+  title: string
+  topic: string | null
+  styleId: string | null
+  page_count: number | null
+  reference_document_path: string | null
+  referenceDocumentPath?: string | null
+  status: SessionStatus
+  provider: string
+  model: string
+  created_at: number
+  updated_at: number
+  metadata: string | null
 }
 
 export interface Message {
-  id: string;
-  session_id: string;
-  chat_scope: ChatScope;
-  page_id: string | null;
-  selector: string | null;
-  image_paths: string[] | null;
-  role: MessageRole;
-  content: string;
-  type: MessageType;
-  tool_name: string | null;
-  tool_call_id: string | null;
-  token_count: number | null;
-  created_at: number;
+  id: string
+  session_id: string
+  chat_scope: ChatScope
+  page_id: string | null
+  selector: string | null
+  image_paths: string[] | null
+  role: MessageRole
+  content: string
+  type: MessageType
+  tool_name: string | null
+  tool_call_id: string | null
+  token_count: number | null
+  created_at: number
 }
 
 interface MemorySummary {
-  id: string;
-  session_id: string;
-  message_range_start: number;
-  message_range_end: number;
-  summary: string;
-  token_count: number | null;
-  created_at: number;
+  id: string
+  session_id: string
+  message_range_start: number
+  message_range_end: number
+  summary: string
+  token_count: number | null
+  created_at: number
 }
 
 interface UserPreference {
-  key: string;
-  value: unknown;
-  confidence: number;
-  source_sessions: string[];
-  created_at: number;
-  updated_at: number;
-  last_used_at: number | null;
+  key: string
+  value: unknown
+  confidence: number
+  source_sessions: string[]
+  created_at: number
+  updated_at: number
+  last_used_at: number | null
 }
 
 interface Project {
-  id: string;
-  session_id: string;
-  title: string;
-  output_path: string;
-  file_count: number;
-  total_size: number;
-  status: "draft" | "published" | "exported";
-  created_at: number;
-  updated_at: number;
+  id: string
+  session_id: string
+  title: string
+  output_path: string
+  file_count: number
+  total_size: number
+  status: 'draft' | 'published' | 'exported'
+  created_at: number
+  updated_at: number
 }
 
 export interface GenerationRunRecord {
-  id: string;
-  session_id: string;
-  mode: GenerationRunMode;
-  status: GenerationRunStatus;
-  total_pages: number;
-  error: string | null;
-  metadata: string | null;
-  created_at: number;
-  updated_at: number;
+  id: string
+  session_id: string
+  mode: GenerationRunMode
+  status: GenerationRunStatus
+  total_pages: number
+  error: string | null
+  metadata: string | null
+  created_at: number
+  updated_at: number
 }
 
 export interface GenerationPageRecord {
-  id: string;
-  run_id: string;
-  session_id: string;
-  page_id: string;
-  page_number: number;
-  title: string;
-  content_outline: string | null;
-  layout_intent: string | null;
-  html_path: string | null;
-  status: GenerationPageStatus;
-  error: string | null;
-  retry_count: number;
-  created_at: number;
-  updated_at: number;
+  id: string
+  run_id: string
+  session_id: string
+  page_id: string
+  page_number: number
+  title: string
+  content_outline: string | null
+  layout_intent: string | null
+  html_path: string | null
+  status: GenerationPageStatus
+  error: string | null
+  retry_count: number
+  created_at: number
+  updated_at: number
 }
 
 export interface StyleRow {
-  id: string;
-  style: string;
-  styleName: string;
-  description: string;
-  category: string;
-  aliases: string;      // JSON array
-  source: StyleSource;
-  styleSkill: string;   // plain markdown
-  createdAt: number;
-  updatedAt: number;
+  id: string
+  style: string
+  styleName: string
+  description: string
+  category: string
+  aliases: string // JSON array
+  source: StyleSource
+  styleSkill: string // plain markdown
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ModelConfigRow {
+  id: string
+  name: string
+  provider: string
+  model: string
+  apiKey: string
+  baseUrl: string
+  active: number
+  createdAt: number
+  updatedAt: number
 }
 
 export class PPTDatabase {
-  private db: ReturnType<typeof drizzle>;
-  private client: ReturnType<typeof createClient>;
-  private _storagePath: string | null = null;
-  private _initialized = false;
-  private _stylesCache: StyleRow[] = [];
+  private db: ReturnType<typeof drizzle>
+  private client: ReturnType<typeof createClient>
+  private _storagePath: string | null = null
+  private _initialized = false
+  private _stylesCache: StyleRow[] = []
 
   constructor(dbPath?: string) {
     const defaultPath = is.dev
-      ? path.join(process.cwd(), "ohmyppt.dev.db")
-      : path.join(app.getPath("userData"), "ohmyppt.db");
-    const resolvedPath = dbPath || defaultPath;
+      ? path.join(process.cwd(), 'ohmyppt.dev.db')
+      : path.join(app.getPath('userData'), 'ohmyppt.db')
+    const resolvedPath = dbPath || defaultPath
 
-    const dir = path.dirname(resolvedPath);
+    const dir = path.dirname(resolvedPath)
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true })
     }
 
-    const url = resolvedPath.startsWith("file:") ? resolvedPath : `file:${resolvedPath}`;
+    const url = resolvedPath.startsWith('file:') ? resolvedPath : `file:${resolvedPath}`
 
-    this.client = createClient({ url });
-    this.db = drizzle(this.client, { schema });
-    this._storagePath = null;
+    this.client = createClient({ url })
+    this.db = drizzle(this.client, { schema })
+    this._storagePath = null
   }
 
   async init(): Promise<void> {
-    if (this._initialized) return;
+    if (this._initialized) return
     await runDatabasePatches({
       client: this.client,
       db: this.db,
-      resolveStoragePath: async () => (await this.getSetting<string>("storage_path").catch(() => "")) || "",
-    });
-    await this.seedStylesFromResources();
-    this._initialized = true;
+      resolveStoragePath: async () =>
+        (await this.getSetting<string>('storage_path').catch(() => '')) || ''
+    })
+    await this.seedStylesFromResources()
+    this._initialized = true
   }
 
   getStoragePath(): string {
-    return this._storagePath || "";
+    return this._storagePath || ''
   }
 
   async setStoragePath(storagePath: string): Promise<void> {
-    await this.setSetting("storage_path", storagePath);
-    this._storagePath = storagePath;
+    await this.setSetting('storage_path', storagePath)
+    this._storagePath = storagePath
     if (!fs.existsSync(storagePath)) {
-      fs.mkdirSync(storagePath, { recursive: true });
+      fs.mkdirSync(storagePath, { recursive: true })
     }
   }
 
   async close(): Promise<void> {
-    await this.client.close();
-    this._initialized = false;
+    await this.client.close()
+    this._initialized = false
   }
 
   // ========== Session ==========
 
   async createSession(data: {
-    id?: string;
-    title: string;
-    topic?: string;
-    styleId?: string;
-    pageCount?: number;
-    referenceDocumentPath?: string | null;
-    provider: string;
-    model: string;
+    id?: string
+    title: string
+    topic?: string
+    styleId?: string
+    pageCount?: number
+    referenceDocumentPath?: string | null
+    provider: string
+    model: string
   }): Promise<string> {
-    const id = data.id || crypto.randomUUID();
-    const now = Math.floor(Date.now() / 1000);
+    const id = data.id || crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
 
-    await this.db.insert(schema.sessions).values({
-      id,
-      title: data.title,
-      topic: data.topic || null,
-      styleId: data.styleId || null,
-      pageCount: data.pageCount || null,
-      referenceDocumentPath: data.referenceDocumentPath || null,
-      status: "active",
-      provider: data.provider,
-      model: data.model,
-      createdAt: now,
-      updatedAt: now,
-      metadata: null,
-    }).run();
+    await this.db
+      .insert(schema.sessions)
+      .values({
+        id,
+        title: data.title,
+        topic: data.topic || null,
+        styleId: data.styleId || null,
+        pageCount: data.pageCount || null,
+        referenceDocumentPath: data.referenceDocumentPath || null,
+        status: 'active',
+        provider: data.provider,
+        model: data.model,
+        createdAt: now,
+        updatedAt: now,
+        metadata: null
+      })
+      .run()
 
-    return id;
+    return id
   }
 
   async getSession(sessionId: string): Promise<Session | undefined> {
-    const result = await this.db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
-    return result as unknown as Session | undefined;
+    const result = await this.db
+      .select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .get()
+    return result as unknown as Session | undefined
   }
 
   async updateSessionStatus(sessionId: string, status: SessionStatus): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    await this.db.update(schema.sessions).set({ status, updatedAt: now }).where(eq(schema.sessions.id, sessionId)).run();
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .update(schema.sessions)
+      .set({ status, updatedAt: now })
+      .where(eq(schema.sessions.id, sessionId))
+      .run()
   }
 
   async updateSessionMetadata(sessionId: string, metadata: object): Promise<void> {
@@ -225,124 +249,144 @@ export class PPTDatabase {
       .update(schema.sessions)
       .set({ metadata: JSON.stringify(metadata), updatedAt: Math.floor(Date.now() / 1000) })
       .where(eq(schema.sessions.id, sessionId))
-      .run();
+      .run()
   }
 
   async updateSessionTitle(sessionId: string, title: string): Promise<void> {
-    const updatedAt = Math.floor(Date.now() / 1000);
+    const updatedAt = Math.floor(Date.now() / 1000)
     await this.db
       .update(schema.sessions)
       .set({ title, updatedAt })
       .where(eq(schema.sessions.id, sessionId))
-      .run();
+      .run()
     await this.db
       .update(schema.projects)
       .set({ title, updatedAt })
       .where(eq(schema.projects.sessionId, sessionId))
-      .run();
+      .run()
   }
 
   async updateSessionDesignContract(sessionId: string, designContract: unknown): Promise<void> {
     await this.db
       .update(schema.sessions)
-      .set({ designContract: designContract ? JSON.stringify(designContract) : null, updatedAt: Math.floor(Date.now() / 1000) })
+      .set({
+        designContract: designContract ? JSON.stringify(designContract) : null,
+        updatedAt: Math.floor(Date.now() / 1000)
+      })
       .where(eq(schema.sessions.id, sessionId))
-      .run();
+      .run()
   }
 
   async listSessions(limit = 50, offset = 0): Promise<Session[]> {
     const results = await this.db
       .select()
       .from(schema.sessions)
-      .where(ne(schema.sessions.status, "archived"))
+      .where(ne(schema.sessions.status, 'archived'))
       .orderBy(desc(schema.sessions.updatedAt))
       .limit(limit)
       .offset(offset)
-      .all();
+      .all()
 
-    return results as unknown as Session[];
+    return results as unknown as Session[]
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.db.delete(schema.generationPages).where(eq(schema.generationPages.sessionId, sessionId)).run();
-    await this.db.delete(schema.generationRuns).where(eq(schema.generationRuns.sessionId, sessionId)).run();
-    await this.db.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run();
-    await this.db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
+    await this.db
+      .delete(schema.generationPages)
+      .where(eq(schema.generationPages.sessionId, sessionId))
+      .run()
+    await this.db
+      .delete(schema.generationRuns)
+      .where(eq(schema.generationRuns.sessionId, sessionId))
+      .run()
+    await this.db.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run()
+    await this.db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run()
   }
 
   // ========== Generation Records ==========
 
   private normalizeGenerationRunRow(row: Record<string, unknown>): GenerationRunRecord {
     return {
-      id: String(row.id || ""),
-      session_id: String(row.sessionId ?? row.session_id ?? ""),
-      mode: String(row.mode || "generate") as GenerationRunMode,
-      status: String(row.status || "running") as GenerationRunStatus,
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      mode: String(row.mode || 'generate') as GenerationRunMode,
+      status: String(row.status || 'running') as GenerationRunStatus,
       total_pages: Number(row.totalPages ?? row.total_pages ?? 0) || 0,
-      error: typeof (row.error) === "string" ? String(row.error) : null,
-      metadata: typeof (row.metadata) === "string" ? String(row.metadata) : null,
+      error: typeof row.error === 'string' ? String(row.error) : null,
+      metadata: typeof row.metadata === 'string' ? String(row.metadata) : null,
       created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
-      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
-    };
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
+    }
   }
 
   private normalizeGenerationPageRow(row: Record<string, unknown>): GenerationPageRecord {
     return {
-      id: String(row.id || ""),
-      run_id: String(row.runId ?? row.run_id ?? ""),
-      session_id: String(row.sessionId ?? row.session_id ?? ""),
-      page_id: String(row.pageId ?? row.page_id ?? ""),
+      id: String(row.id || ''),
+      run_id: String(row.runId ?? row.run_id ?? ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      page_id: String(row.pageId ?? row.page_id ?? ''),
       page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
-      title: String(row.title || ""),
+      title: String(row.title || ''),
       content_outline:
-        typeof (row.contentOutline ?? row.content_outline) === "string"
+        typeof (row.contentOutline ?? row.content_outline) === 'string'
           ? String(row.contentOutline ?? row.content_outline)
           : null,
       layout_intent:
-        typeof (row.layoutIntent ?? row.layout_intent) === "string"
+        typeof (row.layoutIntent ?? row.layout_intent) === 'string'
           ? String(row.layoutIntent ?? row.layout_intent)
           : null,
       html_path:
-        typeof (row.htmlPath ?? row.html_path) === "string"
+        typeof (row.htmlPath ?? row.html_path) === 'string'
           ? String(row.htmlPath ?? row.html_path)
           : null,
-      status: String(row.status || "pending") as GenerationPageStatus,
-      error: typeof row.error === "string" ? String(row.error) : null,
+      status: String(row.status || 'pending') as GenerationPageStatus,
+      error: typeof row.error === 'string' ? String(row.error) : null,
       retry_count: Number(row.retryCount ?? row.retry_count ?? 0) || 0,
       created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
-      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
-    };
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
+    }
   }
 
   async createGenerationRun(data: {
-    id?: string;
-    sessionId: string;
-    mode: GenerationRunMode;
-    totalPages: number;
-    metadata?: unknown;
+    id?: string
+    sessionId: string
+    mode: GenerationRunMode
+    totalPages: number
+    metadata?: unknown
   }): Promise<string> {
-    const id = data.id || crypto.randomUUID();
-    const now = Math.floor(Date.now() / 1000);
-    await this.db.insert(schema.generationRuns).values({
-      id,
-      sessionId: data.sessionId,
-      mode: data.mode,
-      status: "running",
-      totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
-      error: null,
-      metadata: data.metadata ? JSON.stringify(data.metadata) : null,
-      createdAt: now,
-      updatedAt: now,
-    }).run();
-    return id;
+    const id = data.id || crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.generationRuns)
+      .values({
+        id,
+        sessionId: data.sessionId,
+        mode: data.mode,
+        status: 'running',
+        totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
+        error: null,
+        metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+        createdAt: now,
+        updatedAt: now
+      })
+      .run()
+    return id
   }
 
-  async updateGenerationRunStatus(runId: string, status: GenerationRunStatus, error?: string | null): Promise<void> {
-    await this.db.update(schema.generationRuns).set({
-      status,
-      error: error || null,
-      updatedAt: Math.floor(Date.now() / 1000),
-    }).where(eq(schema.generationRuns.id, runId)).run();
+  async updateGenerationRunStatus(
+    runId: string,
+    status: GenerationRunStatus,
+    error?: string | null
+  ): Promise<void> {
+    await this.db
+      .update(schema.generationRuns)
+      .set({
+        status,
+        error: error || null,
+        updatedAt: Math.floor(Date.now() / 1000)
+      })
+      .where(eq(schema.generationRuns.id, runId))
+      .run()
   }
 
   async getGenerationRun(runId: string): Promise<GenerationRunRecord | undefined> {
@@ -350,8 +394,8 @@ export class PPTDatabase {
       .select()
       .from(schema.generationRuns)
       .where(eq(schema.generationRuns.id, runId))
-      .get();
-    return row ? this.normalizeGenerationRunRow(row as Record<string, unknown>) : undefined;
+      .get()
+    return row ? this.normalizeGenerationRunRow(row as Record<string, unknown>) : undefined
   }
 
   async getLatestGenerationRun(sessionId: string): Promise<GenerationRunRecord | undefined> {
@@ -361,25 +405,25 @@ export class PPTDatabase {
       .where(eq(schema.generationRuns.sessionId, sessionId))
       .orderBy(desc(schema.generationRuns.createdAt))
       .limit(1)
-      .get();
-    return row ? this.normalizeGenerationRunRow(row as Record<string, unknown>) : undefined;
+      .get()
+    return row ? this.normalizeGenerationRunRow(row as Record<string, unknown>) : undefined
   }
 
   async upsertGenerationPage(data: {
-    runId: string;
-    sessionId: string;
-    pageId: string;
-    pageNumber: number;
-    title: string;
-    contentOutline?: string | null;
-    layoutIntent?: string | null;
-    htmlPath?: string | null;
-    status: GenerationPageStatus;
-    error?: string | null;
-    retryCount?: number;
+    runId: string
+    sessionId: string
+    pageId: string
+    pageNumber: number
+    title: string
+    contentOutline?: string | null
+    layoutIntent?: string | null
+    htmlPath?: string | null
+    status: GenerationPageStatus
+    error?: string | null
+    retryCount?: number
   }): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    const id = `${data.runId}:${data.pageId}`;
+    const now = Math.floor(Date.now() / 1000)
+    const id = `${data.runId}:${data.pageId}`
     const values = {
       id,
       runId: data.runId,
@@ -394,22 +438,26 @@ export class PPTDatabase {
       error: data.error || null,
       retryCount: Math.max(0, Math.floor(data.retryCount || 0)),
       createdAt: now,
-      updatedAt: now,
-    };
-    await this.db.insert(schema.generationPages).values(values).onConflictDoUpdate({
-      target: schema.generationPages.id,
-      set: {
-        pageNumber: values.pageNumber,
-        title: values.title,
-        contentOutline: values.contentOutline,
-        layoutIntent: values.layoutIntent,
-        htmlPath: values.htmlPath,
-        status: values.status,
-        error: values.error,
-        retryCount: values.retryCount,
-        updatedAt: now,
-      },
-    }).run();
+      updatedAt: now
+    }
+    await this.db
+      .insert(schema.generationPages)
+      .values(values)
+      .onConflictDoUpdate({
+        target: schema.generationPages.id,
+        set: {
+          pageNumber: values.pageNumber,
+          title: values.title,
+          contentOutline: values.contentOutline,
+          layoutIntent: values.layoutIntent,
+          htmlPath: values.htmlPath,
+          status: values.status,
+          error: values.error,
+          retryCount: values.retryCount,
+          updatedAt: now
+        }
+      })
+      .run()
   }
 
   async listGenerationPages(runId: string): Promise<GenerationPageRecord[]> {
@@ -418,14 +466,14 @@ export class PPTDatabase {
       .from(schema.generationPages)
       .where(eq(schema.generationPages.runId, runId))
       .orderBy(asc(schema.generationPages.pageNumber))
-      .all();
-    return rows.map((row) => this.normalizeGenerationPageRow(row as Record<string, unknown>));
+      .all()
+    return rows.map((row) => this.normalizeGenerationPageRow(row as Record<string, unknown>))
   }
 
   async listLatestFailedGenerationPages(sessionId: string): Promise<GenerationPageRecord[]> {
-    const run = await this.getLatestGenerationRun(sessionId);
-    if (!run) return [];
-    return (await this.listGenerationPages(run.id)).filter((page) => page.status === "failed");
+    const run = await this.getLatestGenerationRun(sessionId)
+    if (!run) return []
+    return (await this.listGenerationPages(run.id)).filter((page) => page.status === 'failed')
   }
 
   async listLatestGenerationPageSnapshot(sessionId: string): Promise<GenerationPageRecord[]> {
@@ -434,14 +482,14 @@ export class PPTDatabase {
       .from(schema.generationPages)
       .where(eq(schema.generationPages.sessionId, sessionId))
       .orderBy(asc(schema.generationPages.pageNumber), desc(schema.generationPages.updatedAt))
-      .all();
-    const latestByPageId = new Map<string, GenerationPageRecord>();
+      .all()
+    const latestByPageId = new Map<string, GenerationPageRecord>()
     for (const row of rows) {
-      const page = this.normalizeGenerationPageRow(row as Record<string, unknown>);
-      if (!page.page_id || latestByPageId.has(page.page_id)) continue;
-      latestByPageId.set(page.page_id, page);
+      const page = this.normalizeGenerationPageRow(row as Record<string, unknown>)
+      if (!page.page_id || latestByPageId.has(page.page_id)) continue
+      latestByPageId.set(page.page_id, page)
     }
-    return Array.from(latestByPageId.values()).sort((a, b) => a.page_number - b.page_number);
+    return Array.from(latestByPageId.values()).sort((a, b) => a.page_number - b.page_number)
   }
 
   // ========== Messages ==========
@@ -449,147 +497,158 @@ export class PPTDatabase {
   async getSessionMessages(
     sessionId: string,
     options?: {
-      chatScope?: ChatScope;
-      pageId?: string;
+      chatScope?: ChatScope
+      pageId?: string
     }
   ): Promise<Message[]> {
-    const chatScope = options?.chatScope ?? "main";
-    const normalizedPageId = typeof options?.pageId === "string" && options.pageId.trim().length > 0
-      ? options.pageId.trim()
-      : null;
-    if (chatScope === "page" && !normalizedPageId) {
-      return [];
+    const chatScope = options?.chatScope ?? 'main'
+    const normalizedPageId =
+      typeof options?.pageId === 'string' && options.pageId.trim().length > 0
+        ? options.pageId.trim()
+        : null
+    if (chatScope === 'page' && !normalizedPageId) {
+      return []
     }
-    const whereClause = chatScope === "page" && normalizedPageId
-      ? and(
-        eq(schema.messages.sessionId, sessionId),
-        eq(schema.messages.chatScope, "page"),
-        eq(schema.messages.pageId, normalizedPageId)
-      )
-      : and(
-        eq(schema.messages.sessionId, sessionId),
-        eq(schema.messages.chatScope, "main")
-      );
+    const whereClause =
+      chatScope === 'page' && normalizedPageId
+        ? and(
+            eq(schema.messages.sessionId, sessionId),
+            eq(schema.messages.chatScope, 'page'),
+            eq(schema.messages.pageId, normalizedPageId)
+          )
+        : and(eq(schema.messages.sessionId, sessionId), eq(schema.messages.chatScope, 'main'))
     const results = await this.db
       .select()
       .from(schema.messages)
       .where(whereClause)
       .orderBy(asc(schema.messages.createdAt))
-      .all();
+      .all()
 
-    return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>));
+    return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>))
   }
 
   private normalizeImagePaths(value: unknown): string[] | null {
-    if (typeof value !== "string" || value.trim().length === 0) return null;
+    if (typeof value !== 'string' || value.trim().length === 0) return null
     try {
-      const parsed = JSON.parse(value) as unknown;
-      if (!Array.isArray(parsed)) return null;
+      const parsed = JSON.parse(value) as unknown
+      if (!Array.isArray(parsed)) return null
       const valid = parsed
-        .map((item) => String(item || "").trim())
-        .filter((item) => item.startsWith("./images/"))
-        .slice(0, 10);
-      return valid.length > 0 ? valid : null;
+        .map((item) => String(item || '').trim())
+        .filter((item) => item.startsWith('./images/'))
+        .slice(0, 10)
+      return valid.length > 0 ? valid : null
     } catch {
-      return null;
+      return null
     }
   }
 
   private normalizeMessageRow(message: Record<string, unknown>): Message {
-    const rawImagePaths = message.imagePaths ?? message.image_paths ?? null;
-    const imagePaths = this.normalizeImagePaths(rawImagePaths);
+    const rawImagePaths = message.imagePaths ?? message.image_paths ?? null
+    const imagePaths = this.normalizeImagePaths(rawImagePaths)
     return {
-      id: String(message.id || ""),
-      session_id: String(message.sessionId ?? message.session_id ?? ""),
-      chat_scope: (message.chatScope === "page" || message.chat_scope === "page" ? "page" : "main"),
+      id: String(message.id || ''),
+      session_id: String(message.sessionId ?? message.session_id ?? ''),
+      chat_scope: message.chatScope === 'page' || message.chat_scope === 'page' ? 'page' : 'main',
       page_id:
-        typeof (message.pageId ?? message.page_id) === "string"
+        typeof (message.pageId ?? message.page_id) === 'string'
           ? String(message.pageId ?? message.page_id)
           : null,
       selector:
-        typeof message.selector === "string" && message.selector.trim().length > 0
+        typeof message.selector === 'string' && message.selector.trim().length > 0
           ? message.selector.trim()
           : null,
       image_paths: imagePaths,
-      role: String(message.role || "system") as MessageRole,
-      content: String(message.content || ""),
-      type: String(message.type || "text") as MessageType,
+      role: String(message.role || 'system') as MessageRole,
+      content: String(message.content || ''),
+      type: String(message.type || 'text') as MessageType,
       tool_name:
-        typeof (message.toolName ?? message.tool_name) === "string"
+        typeof (message.toolName ?? message.tool_name) === 'string'
           ? String(message.toolName ?? message.tool_name)
           : null,
       tool_call_id:
-        typeof (message.toolCallId ?? message.tool_call_id) === "string"
+        typeof (message.toolCallId ?? message.tool_call_id) === 'string'
           ? String(message.toolCallId ?? message.tool_call_id)
           : null,
       token_count:
-        typeof (message.tokenCount ?? message.token_count) === "number"
+        typeof (message.tokenCount ?? message.token_count) === 'number'
           ? Number(message.tokenCount ?? message.token_count)
           : null,
       created_at:
-        typeof (message.createdAt ?? message.created_at) === "number"
+        typeof (message.createdAt ?? message.created_at) === 'number'
           ? Number(message.createdAt ?? message.created_at)
-          : Math.floor(Date.now() / 1000),
-    };
+          : Math.floor(Date.now() / 1000)
+    }
   }
 
   async addMessage(
     sessionId: string,
     message: {
-      role: MessageRole;
-      content: string;
-      type?: MessageType;
-      tool_name?: string | null;
-      tool_call_id?: string | null;
-      token_count?: number | null;
-      chat_scope?: ChatScope;
-      page_id?: string | null;
-      selector?: string | null;
-      image_paths?: string[] | null;
+      role: MessageRole
+      content: string
+      type?: MessageType
+      tool_name?: string | null
+      tool_call_id?: string | null
+      token_count?: number | null
+      chat_scope?: ChatScope
+      page_id?: string | null
+      selector?: string | null
+      image_paths?: string[] | null
     }
   ): Promise<string> {
-    const id = crypto.randomUUID();
-    const now = Math.floor(Date.now() / 1000);
-    const chatScope = message.chat_scope === "page" ? "page" : "main";
-    const pageId = chatScope === "page" && typeof message.page_id === "string" && message.page_id.trim().length > 0
-      ? message.page_id.trim()
-      : null;
+    const id = crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    const chatScope = message.chat_scope === 'page' ? 'page' : 'main'
+    const pageId =
+      chatScope === 'page' &&
+      typeof message.page_id === 'string' &&
+      message.page_id.trim().length > 0
+        ? message.page_id.trim()
+        : null
     const selector =
-      chatScope === "page" && typeof message.selector === "string" && message.selector.trim().length > 0
+      chatScope === 'page' &&
+      typeof message.selector === 'string' &&
+      message.selector.trim().length > 0
         ? message.selector.trim()
-        : null;
-    const imagePathsRaw = Array.isArray(message.image_paths) ? message.image_paths : [];
+        : null
+    const imagePathsRaw = Array.isArray(message.image_paths) ? message.image_paths : []
     const imagePaths =
       imagePathsRaw.length > 0
         ? imagePathsRaw
-            .map((item) => String(item || "").trim())
-            .filter((item) => item.startsWith("./images/"))
+            .map((item) => String(item || '').trim())
+            .filter((item) => item.startsWith('./images/'))
             .slice(0, 10)
-        : [];
-    const imagePathsJson = imagePaths.length > 0 ? JSON.stringify(imagePaths) : null;
-    if (chatScope === "page" && !pageId) {
-      throw new Error("page chat message requires page_id");
+        : []
+    const imagePathsJson = imagePaths.length > 0 ? JSON.stringify(imagePaths) : null
+    if (chatScope === 'page' && !pageId) {
+      throw new Error('page chat message requires page_id')
     }
 
-    await this.db.insert(schema.messages).values({
-      id,
-      sessionId,
-      chatScope,
-      pageId,
-      selector,
-      imagePaths: imagePathsJson,
-      role: message.role,
-      content: message.content,
-      type: message.type || "text",
-      toolName: message.tool_name || null,
-      toolCallId: message.tool_call_id || null,
-      tokenCount: message.token_count || null,
-      createdAt: now,
-    }).run();
+    await this.db
+      .insert(schema.messages)
+      .values({
+        id,
+        sessionId,
+        chatScope,
+        pageId,
+        selector,
+        imagePaths: imagePathsJson,
+        role: message.role,
+        content: message.content,
+        type: message.type || 'text',
+        toolName: message.tool_name || null,
+        toolCallId: message.tool_call_id || null,
+        tokenCount: message.token_count || null,
+        createdAt: now
+      })
+      .run()
 
-    await this.db.update(schema.sessions).set({ updatedAt: now }).where(eq(schema.sessions.id, sessionId)).run();
+    await this.db
+      .update(schema.sessions)
+      .set({ updatedAt: now })
+      .where(eq(schema.sessions.id, sessionId))
+      .run()
 
-    return id;
+    return id
   }
 
   async getMessageCount(sessionId: string): Promise<number> {
@@ -597,8 +656,8 @@ export class PPTDatabase {
       .select({ count: count() })
       .from(schema.messages)
       .where(eq(schema.messages.sessionId, sessionId))
-      .get();
-    return result?.count ?? 0;
+      .get()
+    return result?.count ?? 0
   }
 
   async getRecentMessages(sessionId: string, count: number): Promise<Message[]> {
@@ -608,9 +667,9 @@ export class PPTDatabase {
       .where(eq(schema.messages.sessionId, sessionId))
       .orderBy(desc(schema.messages.createdAt))
       .limit(count)
-      .all();
+      .all()
 
-    return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>));
+    return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>))
   }
 
   // ========== Memory ==========
@@ -622,34 +681,37 @@ export class PPTDatabase {
       .where(eq(schema.memorySummaries.sessionId, sessionId))
       .orderBy(desc(schema.memorySummaries.messageRangeEnd))
       .limit(1)
-      .get();
+      .get()
 
-    return result as MemorySummary | undefined;
+    return result as MemorySummary | undefined
   }
 
   async saveSummary(
     sessionId: string,
     data: {
-      rangeStart: number;
-      rangeEnd: number;
-      summary: string;
-      tokenCount?: number;
+      rangeStart: number
+      rangeEnd: number
+      summary: string
+      tokenCount?: number
     }
   ): Promise<string> {
-    const id = crypto.randomUUID();
-    const now = Math.floor(Date.now() / 1000);
+    const id = crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
 
-    await this.db.insert(schema.memorySummaries).values({
-      id,
-      sessionId,
-      messageRangeStart: data.rangeStart,
-      messageRangeEnd: data.rangeEnd,
-      summary: data.summary,
-      tokenCount: data.tokenCount || null,
-      createdAt: now,
-    }).run();
+    await this.db
+      .insert(schema.memorySummaries)
+      .values({
+        id,
+        sessionId,
+        messageRangeStart: data.rangeStart,
+        messageRangeEnd: data.rangeEnd,
+        summary: data.summary,
+        tokenCount: data.tokenCount || null,
+        createdAt: now
+      })
+      .run()
 
-    return id;
+    return id
   }
 
   async getLastCompressedIndex(sessionId: string): Promise<number> {
@@ -657,12 +719,15 @@ export class PPTDatabase {
       .select({ maxIndex: max(schema.memorySummaries.messageRangeEnd) })
       .from(schema.memorySummaries)
       .where(eq(schema.memorySummaries.sessionId, sessionId))
-      .get();
-    return result?.maxIndex ?? 0;
+      .get()
+    return result?.maxIndex ?? 0
   }
 
-  async getMessagesForCompression(sessionId: string, batchSize: number): Promise<(Message & { idx: number })[]> {
-    const lastCompressedIndex = await this.getLastCompressedIndex(sessionId);
+  async getMessagesForCompression(
+    sessionId: string,
+    batchSize: number
+  ): Promise<(Message & { idx: number })[]> {
+    const lastCompressedIndex = await this.getLastCompressedIndex(sessionId)
 
     const results = await this.db
       .select({
@@ -676,19 +741,24 @@ export class PPTDatabase {
         toolName: schema.messages.toolName,
         toolCallId: schema.messages.toolCallId,
         tokenCount: schema.messages.tokenCount,
-        createdAt: schema.messages.createdAt,
+        createdAt: schema.messages.createdAt
       })
       .from(schema.messages)
-      .where(and(eq(schema.messages.sessionId, sessionId), gt(schema.messages.createdAt, lastCompressedIndex)))
+      .where(
+        and(
+          eq(schema.messages.sessionId, sessionId),
+          gt(schema.messages.createdAt, lastCompressedIndex)
+        )
+      )
       .orderBy(asc(schema.messages.createdAt))
       .limit(batchSize)
-      .all();
+      .all()
 
-    let idx = lastCompressedIndex + 1;
+    let idx = lastCompressedIndex + 1
     return results.map((r) => ({
       ...r,
-      idx: idx++,
-    })) as unknown as (Message & { idx: number })[];
+      idx: idx++
+    })) as unknown as (Message & { idx: number })[]
   }
 
   // ========== Settings ==========
@@ -698,35 +768,136 @@ export class PPTDatabase {
       .select({ value: schema.settings.value })
       .from(schema.settings)
       .where(eq(schema.settings.key, key))
-      .get();
-    if (!result) return undefined;
+      .get()
+    if (!result) return undefined
     try {
-      return JSON.parse(result.value) as T;
+      return JSON.parse(result.value) as T
     } catch {
-      return result.value as T;
+      return result.value as T
     }
   }
 
   async setSetting<T>(key: string, value: T): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(Date.now() / 1000)
     await this.db
       .insert(schema.settings)
       .values({ key, value: JSON.stringify(value), updatedAt: now })
-      .onConflictDoUpdate({ target: schema.settings.key, set: { value: JSON.stringify(value), updatedAt: now } })
-      .run();
+      .onConflictDoUpdate({
+        target: schema.settings.key,
+        set: { value: JSON.stringify(value), updatedAt: now }
+      })
+      .run()
   }
 
   async getAllSettings(): Promise<Record<string, unknown>> {
-    const results = await this.db.select().from(schema.settings).all();
-    const result: Record<string, unknown> = {};
+    const results = await this.db.select().from(schema.settings).all()
+    const result: Record<string, unknown> = {}
     for (const row of results) {
       try {
-        result[row.key] = JSON.parse(row.value);
+        result[row.key] = JSON.parse(row.value)
       } catch {
-        result[row.key] = row.value;
+        result[row.key] = row.value
       }
     }
-    return result;
+    return result
+  }
+
+  // ========== Model Configs ==========
+
+  async listModelConfigs(): Promise<ModelConfigRow[]> {
+    const results = await this.db
+      .select()
+      .from(schema.modelConfigs)
+      .orderBy(desc(schema.modelConfigs.active), desc(schema.modelConfigs.updatedAt))
+      .all()
+    return results as unknown as ModelConfigRow[]
+  }
+
+  async getActiveModelConfig(): Promise<ModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.modelConfigs)
+      .where(eq(schema.modelConfigs.active, 1))
+      .limit(1)
+      .get()
+    return result as unknown as ModelConfigRow | undefined
+  }
+
+  async upsertModelConfig(data: {
+    id?: string
+    name: string
+    provider: string
+    model: string
+    apiKey: string
+    baseUrl: string
+    active?: boolean
+  }): Promise<string> {
+    const id = data.id || crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    if (data.active) {
+      await this.db
+        .update(schema.modelConfigs)
+        .set({ active: 0, updatedAt: now })
+        .where(eq(schema.modelConfigs.active, 1))
+        .run()
+    }
+    await this.db
+      .insert(schema.modelConfigs)
+      .values({
+        id,
+        name: data.name,
+        provider: data.provider,
+        model: data.model,
+        apiKey: data.apiKey,
+        baseUrl: data.baseUrl,
+        active: data.active ? 1 : 0,
+        createdAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: schema.modelConfigs.id,
+        set: {
+          name: data.name,
+          provider: data.provider,
+          model: data.model,
+          apiKey: data.apiKey,
+          baseUrl: data.baseUrl,
+          active: data.active ? 1 : 0,
+          updatedAt: now
+        }
+      })
+      .run()
+    return id
+  }
+
+  async setActiveModelConfig(id: string): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const existing = await this.db
+      .select()
+      .from(schema.modelConfigs)
+      .where(eq(schema.modelConfigs.id, id))
+      .get()
+    if (!existing) throw new Error('Model config does not exist')
+    await this.db
+      .update(schema.modelConfigs)
+      .set({ active: 0, updatedAt: now })
+      .where(eq(schema.modelConfigs.active, 1))
+      .run()
+    await this.db
+      .update(schema.modelConfigs)
+      .set({ active: 1, updatedAt: now })
+      .where(eq(schema.modelConfigs.id, id))
+      .run()
+  }
+
+  async deleteModelConfig(id: string): Promise<void> {
+    const existing = await this.db
+      .select()
+      .from(schema.modelConfigs)
+      .where(eq(schema.modelConfigs.id, id))
+      .get()
+    if (!existing) throw new Error('Model config does not exist')
+    await this.db.delete(schema.modelConfigs).where(eq(schema.modelConfigs.id, id)).run()
   }
 
   // ========== Preferences ==========
@@ -738,7 +909,7 @@ export class PPTDatabase {
       .where(gt(schema.userPreferences.confidence, 0.3))
       .orderBy(desc(schema.userPreferences.confidence), desc(schema.userPreferences.lastUsedAt))
       .limit(10)
-      .all();
+      .all()
 
     return results.map((r) => ({
       key: r.key,
@@ -747,20 +918,29 @@ export class PPTDatabase {
       source_sessions: r.sourceSessions ? JSON.parse(r.sourceSessions) : [],
       created_at: r.createdAt,
       updated_at: r.updatedAt,
-      last_used_at: r.lastUsedAt,
-    })) as unknown as UserPreference[];
+      last_used_at: r.lastUsedAt
+    })) as unknown as UserPreference[]
   }
 
-  async upsertPreference(key: string, data: { value: unknown; confidence?: number; sourceSessions?: string[] }): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    const existing = await this.db.select().from(schema.userPreferences).where(eq(schema.userPreferences.key, key)).get();
+  async upsertPreference(
+    key: string,
+    data: { value: unknown; confidence?: number; sourceSessions?: string[] }
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const existing = await this.db
+      .select()
+      .from(schema.userPreferences)
+      .where(eq(schema.userPreferences.key, key))
+      .get()
 
     if (existing) {
-      const existingSources = existing.sourceSessions ? JSON.parse(existing.sourceSessions) : [];
-      const newSources = data.sourceSessions ? [...new Set([...existingSources, ...data.sourceSessions])] : existingSources;
-      const baseConfidence = existing.confidence ?? 0.5;
-      const increment = (data.confidence ?? 0.5) * 0.3;
-      const newConfidence = Math.min(1.0, baseConfidence + increment);
+      const existingSources = existing.sourceSessions ? JSON.parse(existing.sourceSessions) : []
+      const newSources = data.sourceSessions
+        ? [...new Set([...existingSources, ...data.sourceSessions])]
+        : existingSources
+      const baseConfidence = existing.confidence ?? 0.5
+      const increment = (data.confidence ?? 0.5) * 0.3
+      const newConfidence = Math.min(1.0, baseConfidence + increment)
 
       await this.db
         .update(schema.userPreferences)
@@ -769,10 +949,10 @@ export class PPTDatabase {
           confidence: newConfidence,
           sourceSessions: JSON.stringify(newSources),
           updatedAt: now,
-          lastUsedAt: now,
+          lastUsedAt: now
         })
         .where(eq(schema.userPreferences.key, key))
-        .run();
+        .run()
     } else {
       await this.db
         .insert(schema.userPreferences)
@@ -783,9 +963,9 @@ export class PPTDatabase {
           sourceSessions: JSON.stringify(data.sourceSessions || []),
           createdAt: now,
           updatedAt: now,
-          lastUsedAt: now,
+          lastUsedAt: now
         })
-        .run();
+        .run()
     }
   }
 
@@ -794,30 +974,40 @@ export class PPTDatabase {
       .update(schema.userPreferences)
       .set({ confidence: sql`${schema.userPreferences.confidence} * 0.95` })
       .where(gt(schema.userPreferences.confidence, 0.1))
-      .run();
+      .run()
 
-    await this.db.delete(schema.userPreferences).where(lte(schema.userPreferences.confidence, 0.1)).run();
+    await this.db
+      .delete(schema.userPreferences)
+      .where(lte(schema.userPreferences.confidence, 0.1))
+      .run()
   }
 
   // ========== Projects ==========
 
-  async createProject(data: { session_id: string; title: string; output_path: string }): Promise<string> {
-    const id = crypto.randomUUID();
-    const now = Math.floor(Date.now() / 1000);
+  async createProject(data: {
+    session_id: string
+    title: string
+    output_path: string
+  }): Promise<string> {
+    const id = crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
 
-    await this.db.insert(schema.projects).values({
-      id,
-      sessionId: data.session_id,
-      title: data.title,
-      outputPath: data.output_path,
-      fileCount: 0,
-      totalSize: 0,
-      status: "draft",
-      createdAt: now,
-      updatedAt: now,
-    }).run();
+    await this.db
+      .insert(schema.projects)
+      .values({
+        id,
+        sessionId: data.session_id,
+        title: data.title,
+        outputPath: data.output_path,
+        fileCount: 0,
+        totalSize: 0,
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now
+      })
+      .run()
 
-    return id;
+    return id
   }
 
   async getProject(sessionId: string): Promise<Project | undefined> {
@@ -827,70 +1017,77 @@ export class PPTDatabase {
       .where(eq(schema.projects.sessionId, sessionId))
       .orderBy(desc(schema.projects.createdAt))
       .limit(1)
-      .get();
+      .get()
 
-    return result as Project | undefined;
+    return result as Project | undefined
   }
 
-  async updateProjectStatus(projectId: string, status: "draft" | "published" | "exported"): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    await this.db.update(schema.projects).set({ status, updatedAt: now }).where(eq(schema.projects.id, projectId)).run();
+  async updateProjectStatus(
+    projectId: string,
+    status: 'draft' | 'published' | 'exported'
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .update(schema.projects)
+      .set({ status, updatedAt: now })
+      .where(eq(schema.projects.id, projectId))
+      .run()
   }
 
   // ========== Styles ==========
 
   async countStyles(): Promise<number> {
-    const result = await this.db
-      .select({ count: count() })
-      .from(schema.styles)
-      .get();
-    return result?.count ?? 0;
+    const result = await this.db.select({ count: count() }).from(schema.styles).get()
+    return result?.count ?? 0
   }
 
   async seedStylesFromResources(): Promise<void> {
-    const rowCount = await this.countStyles();
+    const rowCount = await this.countStyles()
     if (rowCount > 0) {
-      await this._refreshStylesCache();
-      return;
+      await this._refreshStylesCache()
+      return
     }
 
     const stylesPath = is.dev
-      ? path.join(process.cwd(), "resources", "styles.json")
-      : path.join(process.resourcesPath, "app.asar.unpacked", "resources", "styles.json");
+      ? path.join(process.cwd(), 'resources', 'styles.json')
+      : path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'styles.json')
 
     if (!fs.existsSync(stylesPath)) {
-      console.warn("[db] styles.json not found at", stylesPath);
-      return;
+      console.warn('[db] styles.json not found at', stylesPath)
+      return
     }
 
-    const raw = fs.readFileSync(stylesPath, "utf-8");
+    const raw = fs.readFileSync(stylesPath, 'utf-8')
     const items: Array<{
-      style: string;
-      styleName: string;
-      description?: string;
-      category?: string;
-      aliases?: string[];
-      source?: string;
-      styleSkill?: string;
-    }> = JSON.parse(raw);
+      style: string
+      styleName: string
+      description?: string
+      category?: string
+      aliases?: string[]
+      source?: string
+      styleSkill?: string
+    }> = JSON.parse(raw)
 
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(Date.now() / 1000)
     for (const item of items) {
-      const id = crypto.randomUUID();
-      await this.db.insert(schema.styles).values({
-        id,
-        style: item.style,
-        styleName: item.styleName,
-        description: item.description || "",
-        category: item.category || "",
-        aliases: JSON.stringify(item.aliases || []),
-        source: (item.source as StyleSource) || "builtin",
-        styleSkill: item.styleSkill || "",
-        createdAt: now,
-        updatedAt: now,
-      }).run();
+      const id = crypto.randomUUID()
+      await this.db
+        .insert(schema.styles)
+        .values({
+          id,
+          style: item.style,
+          styleName: item.styleName,
+          description: item.description || '',
+          category: item.category || '',
+          aliases: JSON.stringify(item.aliases || []),
+          source: (item.source as StyleSource) || 'builtin',
+          styleSkill: item.styleSkill || '',
+          createdAt: now,
+          updatedAt: now
+        })
+        .run()
     }
-    await this._refreshStylesCache();
+    await this._refreshStylesCache()
   }
 
   private async _refreshStylesCache(): Promise<void> {
@@ -898,23 +1095,23 @@ export class PPTDatabase {
       .select()
       .from(schema.styles)
       .orderBy(asc(schema.styles.style))
-      .all();
-    this._stylesCache = results as unknown as StyleRow[];
+      .all()
+    this._stylesCache = results as unknown as StyleRow[]
   }
 
   /** Synchronous read from in-memory cache. Used by prompt builders. */
   listStyleRowsSync(): StyleRow[] {
-    return this._stylesCache;
+    return this._stylesCache
   }
 
   /** Synchronous cache lookup. */
   getStyleRowSync(styleId: string): StyleRow | undefined {
-    return this._stylesCache.find((r) => r.id === styleId);
+    return this._stylesCache.find((r) => r.id === styleId)
   }
 
   /** Synchronous cache lookup by style key. */
   getStyleRowByStyleSync(style: string): StyleRow | undefined {
-    return this._stylesCache.find((r) => r.style === style);
+    return this._stylesCache.find((r) => r.style === style)
   }
 
   async listStyleRows(): Promise<StyleRow[]> {
@@ -922,8 +1119,8 @@ export class PPTDatabase {
       .select()
       .from(schema.styles)
       .orderBy(asc(schema.styles.style))
-      .all();
-    return results as unknown as StyleRow[];
+      .all()
+    return results as unknown as StyleRow[]
   }
 
   async getStyleRow(styleId: string): Promise<StyleRow | undefined> {
@@ -931,70 +1128,69 @@ export class PPTDatabase {
       .select()
       .from(schema.styles)
       .where(eq(schema.styles.id, styleId))
-      .get();
-    return result as unknown as StyleRow | undefined;
+      .get()
+    return result as unknown as StyleRow | undefined
   }
 
   async createStyleRow(data: {
-    id?: string;
-    style: string;
-    styleName: string;
-    description?: string;
-    category?: string;
-    aliases?: string[];
-    source?: StyleSource;
-    styleSkill?: string;
+    id?: string
+    style: string
+    styleName: string
+    description?: string
+    category?: string
+    aliases?: string[]
+    source?: StyleSource
+    styleSkill?: string
   }): Promise<string> {
-    const id = data.id || crypto.randomUUID();
-    const now = Math.floor(Date.now() / 1000);
-    await this.db.insert(schema.styles).values({
-      id,
-      style: data.style,
-      styleName: data.styleName,
-      description: data.description || "",
-      category: data.category || "",
-      aliases: JSON.stringify(data.aliases || []),
-      source: data.source || "custom",
-      styleSkill: data.styleSkill || "",
-      createdAt: now,
-      updatedAt: now,
-    }).run();
-    await this._refreshStylesCache();
-    return id;
+    const id = data.id || crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.styles)
+      .values({
+        id,
+        style: data.style,
+        styleName: data.styleName,
+        description: data.description || '',
+        category: data.category || '',
+        aliases: JSON.stringify(data.aliases || []),
+        source: data.source || 'custom',
+        styleSkill: data.styleSkill || '',
+        createdAt: now,
+        updatedAt: now
+      })
+      .run()
+    await this._refreshStylesCache()
+    return id
   }
 
-  async updateStyleRow(styleId: string, data: {
-    styleName?: string;
-    description?: string;
-    category?: string;
-    aliases?: string[];
-    source?: StyleSource;
-    styleSkill?: string;
-  }): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    const set: Record<string, unknown> = { updatedAt: now };
-    if (data.styleName !== undefined) set.styleName = data.styleName;
-    if (data.description !== undefined) set.description = data.description;
-    if (data.category !== undefined) set.category = data.category;
-    if (data.aliases !== undefined) set.aliases = JSON.stringify(data.aliases);
-    if (data.source !== undefined) set.source = data.source;
-    if (data.styleSkill !== undefined) set.styleSkill = data.styleSkill;
-    await this.db
-      .update(schema.styles)
-      .set(set)
-      .where(eq(schema.styles.id, styleId))
-      .run();
-    await this._refreshStylesCache();
+  async updateStyleRow(
+    styleId: string,
+    data: {
+      styleName?: string
+      description?: string
+      category?: string
+      aliases?: string[]
+      source?: StyleSource
+      styleSkill?: string
+    }
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const set: Record<string, unknown> = { updatedAt: now }
+    if (data.styleName !== undefined) set.styleName = data.styleName
+    if (data.description !== undefined) set.description = data.description
+    if (data.category !== undefined) set.category = data.category
+    if (data.aliases !== undefined) set.aliases = JSON.stringify(data.aliases)
+    if (data.source !== undefined) set.source = data.source
+    if (data.styleSkill !== undefined) set.styleSkill = data.styleSkill
+    await this.db.update(schema.styles).set(set).where(eq(schema.styles.id, styleId)).run()
+    await this._refreshStylesCache()
   }
 
   async deleteStyleRow(styleId: string): Promise<boolean> {
-    const existing = await this.getStyleRow(styleId);
-    if (!existing) return false;
-    await this.db
-      .delete(schema.styles)
-      .where(eq(schema.styles.id, styleId))
-      .run();
-    await this._refreshStylesCache();
-    return true;
+    const existing = await this.getStyleRow(styleId)
+    if (!existing) return false
+    await this.db.delete(schema.styles).where(eq(schema.styles.id, styleId)).run()
+    await this._refreshStylesCache()
+    return true
   }
 }

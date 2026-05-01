@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Sparkles,
@@ -36,6 +36,11 @@ const extractFailedPages = (message: string | null): string[] => {
 const isSessionFullyGenerated = (gate: EditorGate): boolean =>
   gate.generatedCount >= gate.totalCount && gate.failedCount === 0
 
+const LOG_AUTO_SCROLL_THRESHOLD = 48
+
+const isNearLogBottom = (el: HTMLDivElement): boolean =>
+  el.scrollHeight - el.scrollTop - el.clientHeight <= LOG_AUTO_SCROLL_THRESHOLD
+
 export function SessionGeneratingPage(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -47,6 +52,7 @@ export function SessionGeneratingPage(): React.JSX.Element {
   const terminalStatusRef = useRef<'completed' | 'failed' | null>(null)
   const eventsContainerRef = useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = useRef(true)
+  const shouldAutoScrollRef = useRef(true)
 
   const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
   const [progress, setProgress] = useState(0)
@@ -60,6 +66,8 @@ export function SessionGeneratingPage(): React.JSX.Element {
   const [editorGate, setEditorGate] = useState<EditorGate>(() => getEditorGate(null))
 
   const appendEvent = (line: string, timestamp?: string): void => {
+    const el = eventsContainerRef.current
+    shouldAutoScrollRef.current = !el || stickToBottomRef.current || isNearLogBottom(el)
     setEvents((prev) => {
       const normalized = line.replace(/\s+/g, ' ').trim()
       if (!normalized) return prev
@@ -76,11 +84,22 @@ export function SessionGeneratingPage(): React.JSX.Element {
     })
   }
 
-  useEffect(() => {
+  const scrollLogToBottom = (): void => {
     const el = eventsContainerRef.current
-    if (!el || !stickToBottomRef.current) return
+    if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [events])
+    window.requestAnimationFrame(() => {
+      const next = eventsContainerRef.current
+      if (!next) return
+      next.scrollTop = next.scrollHeight
+      stickToBottomRef.current = true
+    })
+  }
+
+  useLayoutEffect(() => {
+    if (panelCollapsed || !shouldAutoScrollRef.current) return
+    scrollLogToBottom()
+  }, [events, panelCollapsed, status])
 
   useEffect(() => {
     if (!id) {
@@ -448,7 +467,11 @@ export function SessionGeneratingPage(): React.JSX.Element {
         {panelCollapsed ? (
           <button
             type="button"
-            onClick={() => setPanelCollapsed(false)}
+            onClick={() => {
+              shouldAutoScrollRef.current = true
+              stickToBottomRef.current = true
+              setPanelCollapsed(false)
+            }}
             className="app-no-drag absolute right-6 top-[calc(var(--app-titlebar-height)+12px)] z-30 inline-flex items-center gap-2 rounded-xl border border-[#d8ccb5]/75 bg-[#fff9ef]/86 px-3 py-2 text-[#5f7550] shadow-[0_14px_30px_rgba(83,73,57,0.24)] backdrop-blur-sm transition-colors hover:bg-[#fff6e8]"
             aria-label={t('generating.expandLog')}
             title={t('generating.expandLog')}
@@ -489,14 +512,16 @@ export function SessionGeneratingPage(): React.JSX.Element {
             </div>
 
             <ScrollArea
-              className="min-h-0 flex-1"
+              className="min-h-0 flex-1 rounded-lg border border-[#e4d9c3]/55 bg-[#fffaf1]/36"
               viewportRef={eventsContainerRef}
               onViewportScroll={(e) => {
                 const el = e.currentTarget
-                const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-                stickToBottomRef.current = distanceToBottom < 16
+                stickToBottomRef.current = isNearLogBottom(el)
+                if (stickToBottomRef.current) {
+                  shouldAutoScrollRef.current = true
+                }
               }}
-              viewportClassName="pr-2 scroll-smooth"
+              viewportClassName="px-2 py-2"
             >
               <div className="space-y-2">
                 {events.map((event, index) => (

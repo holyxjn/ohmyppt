@@ -8,13 +8,14 @@ import { normalizeSession, normalizeMessage } from './utils'
 import { extractPagesDataFromIndex } from './template'
 import { getStyleDetail, hasStyleSkill } from '../utils/style-skills'
 import type { IpcContext } from './context'
+import { resolveActiveModelConfig } from './model-config-utils'
+import { readAppLocale, uiText } from './locale-utils'
 
 export function registerSessionHandlers(ctx: IpcContext): void {
   const {
     db,
     agentManager,
     resolveStoragePath,
-    decryptApiKey,
     ensureSessionAssets,
     buildSessionGenerationSnapshot,
     getPageSourceUrl
@@ -24,27 +25,29 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     const { topic, styleId, pageCount } = payload
     const referenceDocumentPath =
       typeof payload?.referenceDocumentPath === 'string' ? payload.referenceDocumentPath.trim() : ''
+    const locale = await readAppLocale(ctx)
     const storagePath = await resolveStoragePath()
-    const settings = await db.getAllSettings()
-    const provider = String(settings.provider || '').trim()
-    if (!provider) {
-      throw new Error('创建会话失败：请先前往系统设置选择 provider。')
-    }
-    const model = String(settings[`model_${provider}`] || '').trim()
-    const baseUrl = String(settings[`base_url_${provider}`] || '').trim()
-    const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim()
-    if (!model) {
-      throw new Error('创建会话失败：请先前往系统设置填写 model。')
-    }
-    if (!apiKey) {
-      throw new Error('创建会话失败：请先前往系统设置填写 api_key。')
-    }
+    const activeModel = await resolveActiveModelConfig(ctx)
+    const { provider, model } = activeModel
+    const baseUrl = activeModel.baseUrl
     const normalizedStyleId = typeof styleId === 'string' ? styleId.trim() : ''
     if (!normalizedStyleId) {
-      throw new Error('创建会话失败：styleId 不能为空。')
+      throw new Error(
+        uiText(
+          locale,
+          '创建会话失败：styleId 不能为空。',
+          'Failed to create session: styleId is required.'
+        )
+      )
     }
     if (!hasStyleSkill(normalizedStyleId)) {
-      throw new Error(`创建会话失败：styleId 不存在 ${normalizedStyleId}`)
+      throw new Error(
+        uiText(
+          locale,
+          `创建会话失败：styleId 不存在 ${normalizedStyleId}`,
+          `Failed to create session: styleId does not exist: ${normalizedStyleId}`
+        )
+      )
     }
     let validatedReferenceSourcePath: string | null = null
     if (referenceDocumentPath) {
@@ -53,12 +56,24 @@ export function registerSessionHandlers(ctx: IpcContext): void {
         : path.resolve(storagePath)
       const sourcePath = path.resolve(referenceDocumentPath)
       if (!fs.existsSync(sourcePath)) {
-        throw new Error('解析后的文档不存在，请重新解析文档')
+        throw new Error(
+          uiText(
+            locale,
+            '解析后的文档不存在，请重新解析文档',
+            'The parsed document no longer exists. Parse the document again.'
+          )
+        )
       }
       const sourceRealPath = await fs.promises.realpath(sourcePath)
       const relativeToStorage = path.relative(storageRoot, sourceRealPath)
       if (relativeToStorage.startsWith('..') || path.isAbsolute(relativeToStorage)) {
-        throw new Error('文档路径不在用户配置目录内，请重新解析文档')
+        throw new Error(
+          uiText(
+            locale,
+            '文档路径不在用户配置目录内，请重新解析文档',
+            'The document path is outside the configured storage folder. Parse the document again.'
+          )
+        )
       }
       validatedReferenceSourcePath = sourceRealPath
     }
@@ -123,14 +138,24 @@ export function registerSessionHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('session:updateTitle', async (_event, payload: unknown) => {
-    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const locale = await readAppLocale(ctx)
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
     const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
     const title = typeof record.title === 'string' ? record.title.trim() : ''
-    if (!sessionId) throw new Error('会话 ID 不能为空')
-    if (!title) throw new Error('会话名称不能为空')
-    if (title.length > 120) throw new Error('会话名称不能超过 120 个字符')
+    if (!sessionId) throw new Error(uiText(locale, '会话 ID 不能为空', 'Session ID is required.'))
+    if (!title) throw new Error(uiText(locale, '会话名称不能为空', 'Session title is required.'))
+    if (title.length > 120) {
+      throw new Error(
+        uiText(locale, '会话名称不能超过 120 个字符', 'Session title cannot exceed 120 characters.')
+      )
+    }
     const existingSession = await db.getSession(sessionId)
-    if (!existingSession) throw new Error('会话不存在或已被删除')
+    if (!existingSession) {
+      throw new Error(
+        uiText(locale, '会话不存在或已被删除', 'The session does not exist or has been deleted.')
+      )
+    }
     await db.updateSessionTitle(sessionId, title)
     return { ok: true }
   })

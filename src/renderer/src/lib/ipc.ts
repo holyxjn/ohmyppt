@@ -108,6 +108,18 @@ export interface CreateSessionPayload {
   referenceDocumentPath?: string
 }
 
+export interface ModelConfig {
+  id: string
+  name: string
+  provider: 'anthropic' | 'openai'
+  model: string
+  apiKey: string
+  baseUrl: string
+  active: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 export const ipc = {
   createSession: (payload: CreateSessionPayload) =>
     getIpc().invoke('session:create', payload) as Promise<{ sessionId: string }>,
@@ -170,8 +182,26 @@ export const ipc = {
   exportPptx: (sessionId: string) =>
     getIpc().invoke('export:pptx', { sessionId }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
+  listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
   saveSettings: (settings: Record<string, unknown>) =>
     getIpc().invoke('settings:save', settings) as Promise<{ success: boolean }>,
+  upsertModelConfig: (payload: {
+    id?: string
+    name: string
+    provider: 'anthropic' | 'openai'
+    model: string
+    apiKey: string
+    baseUrl: string
+    active?: boolean
+  }) =>
+    getIpc().invoke('settings:upsertModelConfig', payload) as Promise<{
+      success: boolean
+      id: string
+    }>,
+  setActiveModelConfig: (id: string) =>
+    getIpc().invoke('settings:setActiveModelConfig', id) as Promise<{ success: boolean }>,
+  deleteModelConfig: (id: string) =>
+    getIpc().invoke('settings:deleteModelConfig', id) as Promise<{ success: boolean }>,
   verifyApiKey: (payload: {
     provider: string
     apiKey: string

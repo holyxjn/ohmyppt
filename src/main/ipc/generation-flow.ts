@@ -3,11 +3,7 @@ import type { PPTDatabase } from '../db/database'
 import type { AgentManager } from '../agent'
 import type { GenerateStartPayload, GeneratedPagePayload } from '@shared/generation'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
-import {
-  MODEL_TIMEOUT_PROFILES,
-  resolveModelTimeoutMs,
-  type ModelTimeoutProfile
-} from '@shared/model-timeout'
+import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
@@ -29,6 +25,7 @@ import {
   runDeepAgentEdit
 } from './generate'
 import type { IpcContext } from './context'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
 
 type GenerateMode = 'generate' | 'edit' | 'retry'
 type GenerateChatType = 'main' | 'page'
@@ -104,7 +101,6 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     resolveStoragePath,
     formatImagePathsForPrompt,
     assertPathInAllowedRoots,
-    decryptApiKey,
     ensureSessionAssets,
     scaffoldProjectFiles,
     emitGenerateChunk,
@@ -284,28 +280,10 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
 
     const settings = await db.getAllSettings()
     const appLocale = settings.locale === 'en' ? 'en' : 'zh'
-    const provider = String(settings.provider || '').trim()
-    if (!provider) {
-      throw new Error('请先前往系统设置选择 provider。')
-    }
-    const settingsModel = String(settings[`model_${provider}`] || '').trim()
-    const model = settingsModel
-    const providerBaseUrl = String(settings[`base_url_${provider}`] || '').trim()
-    const modelTimeouts = Object.fromEntries(
-      MODEL_TIMEOUT_PROFILES.map((profile) => [
-        profile,
-        resolveModelTimeoutMs(
-          settings[`timeout_ms_${provider}_${profile}`] ??
-            ((profile === 'agent' || profile === 'document')
-              ? settings[`timeout_ms_${provider}`]
-              : undefined),
-          profile
-        )
-      ])
-    ) as Record<ModelTimeoutProfile, number>
-    if (!model) {
-      throw new Error('请先前往系统设置填写 model。')
-    }
+    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+    const { provider, model, apiKey } = activeModel
+    const providerBaseUrl = activeModel.baseUrl
 
     agentManager.ensureSession({
       sessionId,
@@ -323,7 +301,6 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     const userProvidedOutlineTitles = extractOutlineTitles(rawUserMessage)
     const totalPages = Number(sessionRecord.page_count ?? sessionRecord.pageCount)
 
-    const apiKey = decryptApiKey(settings[`api_key_${provider}`]).trim()
     const projectId =
       existingProject?.id ??
       (await db.createProject({
@@ -367,7 +344,6 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       styleKey: styleDetail.styleKey,
       styleLabel: styleDetail.label,
       provider,
-      settingsModel,
       model
     })
 
@@ -842,7 +818,9 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
 
     const changedPageIdSet = new Set(changedPageDescriptors.map((page) => page.pageId))
     for (const page of changedPageDescriptors) {
-      const outlineItem = outlineItems.find((_item, index) => pageRefs[index]?.pageId === page.pageId)
+      const outlineItem = outlineItems.find(
+        (_item, index) => pageRefs[index]?.pageId === page.pageId
+      )
       await db.upsertGenerationPage({
         runId: context.runId,
         sessionId: context.sessionId,
@@ -1614,7 +1592,9 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
             pageId: page.page_id,
             title: page.title || page.page_id,
             contentOutline: page.content_outline || '',
-            layoutIntent: page.layout_intent ? normalizeLayoutIntent(page.layout_intent) : undefined,
+            layoutIntent: page.layout_intent
+              ? normalizeLayoutIntent(page.layout_intent)
+              : undefined,
             htmlPath: page.html_path || path.join(context.entry.projectDir, `${page.page_id}.html`),
             retryCount: page.retry_count + 1
           }))

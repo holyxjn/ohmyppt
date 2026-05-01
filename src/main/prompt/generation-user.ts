@@ -56,8 +56,9 @@ export function buildSinglePageGenerationPrompt(args: {
         `- This is retry ${args.retryContext.attempt}/${args.retryContext.maxRetries}.`,
         `- Previous failure: ${args.retryContext.previousError}`,
         "- Output only the page fragment. It must include section[data-page-scaffold] and main[data-block-id=\"content\"][data-role=\"content\"]. Do not output a full document, page shell, or runtime scripts.",
+        "- Before calling the write tool, mentally validate that <section> and <main> are both closed and that no tag is left unfinished at the end.",
         "- If the previous issue was unclosed tags, simplify the structure and ensure every section/div/p/span/li tag is paired.",
-        "- If the previous issue was page shell structure, do not include .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.",
+        "- If the previous issue was page shell structure, do not include .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root anywhere, including CSS selectors, class names, scripts, and comments.",
         "- If the previous issue was animation/chart API usage, use PPT.animate, PPT.createTimeline, PPT.stagger, and PPT.createChart.",
       ]
     : [];
@@ -116,6 +117,8 @@ export function buildSinglePageGenerationPrompt(args: {
     "Single-slide tool constraints:",
     "- Call only update_single_page_file(pageId=target page, content). Do not call update_page_file.",
     "- content must be a page fragment with section[data-page-scaffold] and main[data-block-id=\"content\"][data-role=\"content\"].",
+    "- The content must not contain <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.",
+    "- The content must be complete and balanced: one opening section with one closing </section>, one opening main with one closing </main>, and no unfinished trailing tags.",
     "- Do not modify other slides.",
   ].join("\n");
 }
