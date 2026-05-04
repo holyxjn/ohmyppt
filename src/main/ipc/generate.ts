@@ -1,4 +1,5 @@
 /** Generation orchestration: LLM planning + DeepAgent execution. */
+import fs from 'fs'
 import pLimit from 'p-limit'
 import log from 'electron-log/main.js'
 import type { AgentManager } from '../agent'
@@ -26,6 +27,16 @@ type AppLocale = 'zh' | 'en'
 
 const uiText = (locale: AppLocale | undefined, zh: string, en: string): string =>
   locale === 'en' ? en : zh
+
+const PAGE_PLACEHOLDER_TEXT = '等待模型填充这一页内容'
+
+async function readPageHtmlIfExists(filePath: string): Promise<string> {
+  try {
+    return await fs.promises.readFile(filePath, 'utf-8')
+  } catch {
+    return ''
+  }
+}
 
 const modelCallSignal = (
   timeoutMs: unknown,
@@ -501,9 +512,7 @@ export const planDeckWithLLM = async (args: {
       })
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(String(lastError ?? 'Planning failed'))
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Planning failed'))
 }
 
 export const buildDesignContractWithLLM = async (args: {
@@ -552,7 +561,9 @@ export const buildDesignContractWithLLM = async (args: {
       'chartStyle',
       'shapeLanguage'
     ]
-    const missingKeys = requiredKeys.filter((key) => record[key] === undefined || record[key] === '')
+    const missingKeys = requiredKeys.filter(
+      (key) => record[key] === undefined || record[key] === ''
+    )
     if (missingKeys.length > 0) {
       throw new Error(
         uiText(
@@ -890,6 +901,7 @@ export const runDeepAgentDeckGeneration = async (args: {
     if (!currentPagePath) {
       throw new Error(`pageFileMap 缺少 ${page.pageId} 对应文件路径`)
     }
+    const beforePageHtml = await readPageHtmlIfExists(currentPagePath)
     log.info('[deepagent] page generation context', {
       sessionId: args.sessionId,
       worker: workerLabel,
@@ -1040,6 +1052,20 @@ export const runDeepAgentDeckGeneration = async (args: {
           pageSummaryFromMessage = content.trim()
         }
       })
+
+      const afterPageHtml = await readPageHtmlIfExists(currentPagePath)
+      if (
+        !afterPageHtml ||
+        afterPageHtml === beforePageHtml ||
+        afterPageHtml.includes(PAGE_PLACEHOLDER_TEXT)
+      ) {
+        throw new Error(
+          [
+            `页面未写入 (${page.pageId})：模型没有成功调用 update_single_page_file 写入目标 page 文件。`,
+            `必须调用 update_single_page_file(pageId="${page.pageId}", content=完整页面片段)，不要只在最终回复里描述 HTML。`
+          ].join(' ')
+        )
+      }
 
       await args.onPageCompleted?.({
         pageNumber: page.pageNumber,

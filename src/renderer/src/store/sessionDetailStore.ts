@@ -14,6 +14,7 @@ interface SessionDetailUiStore {
   isExportingPptx: boolean
   inspecting: boolean
   dragEditing: boolean
+  textEditing: boolean
   thumbnailVersions: Record<string, number>
   selectedSelector: string | null
   selectorLabel: string
@@ -33,6 +34,7 @@ interface SessionDetailUiStore {
   setIsExportingPptx: (isExporting: boolean) => void
   setInspecting: (inspecting: boolean) => void
   setDragEditing: (dragEditing: boolean) => void
+  setTextEditing: (textEditing: boolean) => void
   setSelectedElement: (
     selector: string,
     label: string,
@@ -61,6 +63,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isExportingPptx: false,
   inspecting: false,
   dragEditing: false,
+  textEditing: false,
   thumbnailVersions: {},
   selectedSelector: null,
   selectorLabel: '',
@@ -83,6 +86,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   setIsExportingPptx: (isExportingPptx) => set({ isExportingPptx }),
   setInspecting: (inspecting) => set({ inspecting }),
   setDragEditing: (dragEditing) => set({ dragEditing }),
+  setTextEditing: (textEditing) => set({ textEditing }),
   setSelectedElement: (selectedSelector, selectorLabel, elementTag = '', elementText = '') =>
     set({
       selectedSelector,
@@ -120,6 +124,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
     set({
       inspecting: false,
       dragEditing: false,
+      textEditing: false,
       selectedSelector: null,
       selectorLabel: '',
       elementTag: '',
@@ -132,6 +137,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       selectedPageNumber: null,
       inspecting: false,
       dragEditing: false,
+      textEditing: false,
       selectedSelector: null,
       selectorLabel: '',
       elementTag: '',

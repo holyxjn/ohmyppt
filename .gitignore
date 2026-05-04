@@ -15,3 +15,5 @@ out
 logs
 
 docs/*.md
+
+doc/*.md

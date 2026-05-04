@@ -1,12 +1,16 @@
 export const INSPECTOR_CONSOLE_PREFIX = '__PPT_INSPECTOR__:'
 
-export function buildInspectorInjectScript(): string {
+export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-edit' }): string {
+  const mode = options?.mode === 'text-edit' ? 'text-edit' : 'inspect'
   return `
 (() => {
   const STATE_KEY = "__pptInspectorState";
   const STYLE_ID = "ppt-inspector-style";
   const HIGHLIGHT_CLASS = "ppt-inspector-highlight";
   const LOG_PREFIX = "${INSPECTOR_CONSOLE_PREFIX}";
+  const MODE = "${mode}";
+  const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th"]);
+  const BLOCKED_TEXT_TAGS = new Set(["script", "style", "svg", "canvas", "img", "video", "audio", "input", "textarea", "select", "option"]);
   const uiMessage = (zh, en) => {
     try {
       return window.localStorage.getItem("oh-my-ppt:lang") === "en" ? en : zh;
@@ -172,12 +176,27 @@ export function buildInspectorInjectScript(): string {
     return blockId === "content" || role === "content";
   };
 
+  const normalizeText = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+
+  const isEditableTextTarget = (element) => {
+    if (!(element instanceof Element)) return false;
+    const tag = element.tagName ? element.tagName.toLowerCase() : "";
+    if (!tag || BLOCKED_TEXT_TAGS.has(tag)) return false;
+    if (element.closest("svg, canvas, script, style")) return false;
+    if (element.children.length > 0) return false;
+    if (!TEXT_TAGS.has(tag) && !element.getAttribute("data-role")) return false;
+    const text = normalizeText(element.textContent);
+    if (!text || text.length > 500) return false;
+    return true;
+  };
+
   const isUsableTarget = (element) => {
     if (!(element instanceof Element)) return false;
     if (!isInsidePageRoot(element)) return false;
     if (isScaffoldBlock(element)) return false;
     const contentRoot = getContentRoot(element);
     if (!contentRoot || element === contentRoot) return false;
+    if (MODE === "text-edit" && !isEditableTextTarget(element)) return false;
     const rect = element.getBoundingClientRect();
     return rect.width >= 2 && rect.height >= 2;
   };
@@ -197,13 +216,14 @@ export function buildInspectorInjectScript(): string {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID;
+    const highlightColor = MODE === "text-edit" ? "#16a34a" : "#3b82f6";
     style.textContent = \`
       .\${HIGHLIGHT_CLASS} {
-        outline: 2px dashed #3b82f6 !important;
+        outline: 2px dashed \${highlightColor} !important;
         outline-offset: 2px !important;
-        box-shadow: 0 0 0 2px rgba(59,130,246,0.18) !important;
-        background-image: linear-gradient(rgba(59,130,246,0.08), rgba(59,130,246,0.08)) !important;
-        cursor: crosshair !important;
+        box-shadow: 0 0 0 2px \${MODE === "text-edit" ? "rgba(22,163,74,0.18)" : "rgba(59,130,246,0.18)"} !important;
+        background-image: linear-gradient(\${MODE === "text-edit" ? "rgba(22,163,74,0.08)" : "rgba(59,130,246,0.08)"}, \${MODE === "text-edit" ? "rgba(22,163,74,0.08)" : "rgba(59,130,246,0.08)"}) !important;
+        cursor: \${MODE === "text-edit" ? "text" : "crosshair"} !important;
       }
     \`;
     document.head.appendChild(style);
@@ -213,7 +233,7 @@ export function buildInspectorInjectScript(): string {
   const cursorHost = document.body || document.documentElement;
   const previousCursor = cursorHost && cursorHost.style ? cursorHost.style.cursor : "";
   if (cursorHost && cursorHost.style) {
-    cursorHost.style.cursor = "crosshair";
+    cursorHost.style.cursor = MODE === "text-edit" ? "text" : "crosshair";
   }
   ensureStyle();
 
@@ -255,15 +275,33 @@ export function buildInspectorInjectScript(): string {
     }
 
     const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
-    const rawText = (target.textContent || "").replace(/\\s+/g, " ").trim();
+    const rawText = normalizeText(target.textContent);
     const elementText = rawText.length > 80 ? rawText.slice(0, 80) + "…" : rawText;
+    const computed = window.getComputedStyle(target);
+    const rect = target.getBoundingClientRect();
 
     console.log(LOG_PREFIX + JSON.stringify({
       type: "selected",
+      mode: MODE,
       selector,
       label: selector,
       elementTag,
       elementText,
+      text: rawText,
+      style: {
+        color: computed.color || "",
+        fontSize: computed.fontSize || "",
+        fontWeight: computed.fontWeight || "",
+        lineHeight: computed.lineHeight || "",
+        textAlign: computed.textAlign || "",
+        backgroundColor: computed.backgroundColor || ""
+      },
+      bounds: {
+        x: Math.round(rect.left * 10) / 10,
+        y: Math.round(rect.top * 10) / 10,
+        width: Math.round(rect.width * 10) / 10,
+        height: Math.round(rect.height * 10) / 10
+      }
     }));
 
     event.preventDefault();

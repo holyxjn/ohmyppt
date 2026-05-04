@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type { DragEditorMovePayload } from '../components/preview/drag-editor-script'
+import type { TextEditorSelectionPayload } from '../components/preview/text-editor-types'
 import { TooltipProvider } from '../components/ui/Tooltip'
 import { MessagePanel } from '../components/session-detail/MessagePanel'
 import { PageSidebar } from '../components/session-detail/PageSidebar'
 import { PreviewStage } from '../components/session-detail/PreviewStage'
 import { SessionToolbar } from '../components/session-detail/SessionToolbar'
+import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
 import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
 import { useSessionStore, useGenerateStore } from '../store'
 import { useSessionDetailUiStore } from '../store/sessionDetailStore'
@@ -14,6 +16,36 @@ import type { GenerateChunkEvent } from '@shared/generation.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
+
+const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
+  text: '',
+  color: '#34402c',
+  fontSize: '',
+  fontWeight: '400'
+}
+
+function rgbToHex(value: string | undefined): string {
+  const text = String(value || '').trim()
+  if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(text)) return text
+  const match = text.match(/^rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})/i)
+  if (!match) return '#34402c'
+  const toHex = (part: string): string =>
+    Math.max(0, Math.min(255, Number(part) || 0))
+      .toString(16)
+      .padStart(2, '0')
+  return `#${toHex(match[1])}${toHex(match[2])}${toHex(match[3])}`
+}
+
+function fontSizeToNumber(value: string | undefined): string {
+  const parsed = Number(String(value || '').replace(/px$/i, ''))
+  return Number.isFinite(parsed) && parsed > 0 ? String(Math.round(parsed)) : ''
+}
+
+function normalizeFontWeight(value: string | undefined): string {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return value === 'bold' ? '700' : '400'
+  return String(Math.max(300, Math.min(800, Math.round(parsed / 100) * 100)))
+}
 
 export function SessionDetailPage(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
@@ -42,6 +74,9 @@ export function SessionDetailPage(): React.JSX.Element {
     Array<DragEditorMovePayload & { pageId: string; htmlPath: string }>
   >([])
   const [isSavingDragEdits, setIsSavingDragEdits] = useState(false)
+  const [isSavingTextEdit, setIsSavingTextEdit] = useState(false)
+  const [textSelection, setTextSelection] = useState<TextEditorSelectionPayload | null>(null)
+  const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
   const sendingMessageRef = useRef(false)
   const {
@@ -76,6 +111,8 @@ export function SessionDetailPage(): React.JSX.Element {
     resetForPageChange()
     window.setTimeout(() => {
       setPendingDragEdits([])
+      setTextSelection(null)
+      setTextDraft(EMPTY_ELEMENT_DRAFT)
     }, 0)
   }, [resetForPageChange, selectedPage?.pageId])
 
@@ -381,7 +418,10 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const cleanMessageContent = (content: string): string =>
-    content.replace(/[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g, t('sessionDetail.selectorLocated'))
+    content.replace(
+      /[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g,
+      t('sessionDetail.selectorLocated')
+    )
 
   const getPptxExportNotice = (warnings?: string[]): string | null => {
     const items = (warnings || []).filter(Boolean)
@@ -581,6 +621,70 @@ export function SessionDetailPage(): React.JSX.Element {
     if (hadPending) toastInfo(t('sessionDetail.discardedAdjustments'))
   }
 
+  const handleTextSelected = (payload: TextEditorSelectionPayload): void => {
+    setTextSelection(payload)
+    setTextDraft({
+      text: payload.text,
+      color: rgbToHex(payload.style.color),
+      fontSize: fontSizeToNumber(payload.style.fontSize),
+      fontWeight: normalizeFontWeight(payload.style.fontWeight)
+    })
+  }
+
+  const handleCancelTextEdit = (): void => {
+    setTextSelection(null)
+    setTextDraft(EMPTY_ELEMENT_DRAFT)
+  }
+
+  const handleSaveTextEdit = async (): Promise<void> => {
+    if (!id || !selectedPage?.htmlPath || !selectedPage.pageId || !textSelection) return
+    const nextText = textDraft.text.trim()
+    if (!nextText) {
+      setPreviewRefreshKey((key) => key + 1)
+      toastError(t('sessionDetail.textSaveEmpty'))
+      return
+    }
+    setIsSavingTextEdit(true)
+    try {
+      const result = await ipc.updateElementProperties({
+        sessionId: id,
+        htmlPath: selectedPage.htmlPath,
+        pageId: selectedPage.pageId,
+        selector: textSelection.selector,
+        patch: {
+          text: nextText,
+          style: {
+            color: textDraft.color,
+            fontSize: textDraft.fontSize,
+            fontWeight: textDraft.fontWeight
+          }
+        }
+      })
+      if (!result.success) {
+        throw new Error(t('sessionDetail.textSaveFailed'))
+      }
+      useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
+      setPreviewRefreshKey((key) => key + 1)
+      setTextSelection({
+        ...textSelection,
+        text: nextText,
+        style: {
+          ...textSelection.style,
+          color: textDraft.color,
+          fontSize: textDraft.fontSize ? `${textDraft.fontSize}px` : textSelection.style.fontSize,
+          fontWeight: textDraft.fontWeight
+        }
+      })
+      handleCancelTextEdit()
+      toastSuccess(t('sessionDetail.textSaved'))
+    } catch (error) {
+      setPreviewRefreshKey((key) => key + 1)
+      toastError(error instanceof Error ? error.message : t('sessionDetail.textSaveFailed'))
+    } finally {
+      setIsSavingTextEdit(false)
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={180}>
       <div className="flex h-full min-h-0 flex-col bg-[#f5f1e8] text-foreground">
@@ -621,7 +725,14 @@ export function SessionDetailPage(): React.JSX.Element {
             previewRefreshKey={previewRefreshKey}
             pendingDragCount={selectedPagePendingDragCount}
             isSavingDragEdits={isSavingDragEdits}
+            textSelection={textSelection}
+            textDraft={textDraft}
+            isSavingTextEdit={isSavingTextEdit}
+            onTextDraftChange={setTextDraft}
             onElementMoved={handleElementMoved}
+            onTextSelected={handleTextSelected}
+            onSaveTextEdit={() => void handleSaveTextEdit()}
+            onCancelTextEdit={handleCancelTextEdit}
             onSaveDragEdits={() => void handleSavePendingDragEdits()}
             onCancelDragEdits={handleCancelPendingDragEdits}
           />

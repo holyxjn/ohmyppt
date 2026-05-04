@@ -10,6 +10,7 @@ import {
   DRAG_EDITOR_CONSOLE_PREFIX,
   type DragEditorMovePayload
 } from './drag-editor-script'
+import type { TextEditorSelectionPayload } from './text-editor-types'
 
 export interface PreviewIframeHandle {
   patchPageContent: (pageId: string, newHtml: string) => void
@@ -26,6 +27,7 @@ export const PreviewIframe = forwardRef<
     inspecting?: boolean
     inspectable?: boolean
     dragEditing?: boolean
+    textEditing?: boolean
     onSelectorSelected?: (
       selector: string,
       label: string,
@@ -33,6 +35,7 @@ export const PreviewIframe = forwardRef<
       elementText?: string
     ) => void
     onElementMoved?: (payload: DragEditorMovePayload) => void
+    onTextSelected?: (payload: TextEditorSelectionPayload) => void
     onInspectExit?: () => void
   }
 >(function PreviewIframe(
@@ -44,8 +47,10 @@ export const PreviewIframe = forwardRef<
     inspecting = false,
     inspectable = false,
     dragEditing = false,
+    textEditing = false,
     onSelectorSelected,
     onElementMoved,
+    onTextSelected,
     onInspectExit
   },
   ref
@@ -98,7 +103,7 @@ export const PreviewIframe = forwardRef<
     : src
       ? withPreviewParams(src)
       : undefined
-  const pointerEnabled = inspectable && (inspecting || dragEditing)
+  const pointerEnabled = inspectable && (inspecting || dragEditing || textEditing)
 
   const handleWebviewRef = useCallback((node: Electron.WebviewTag | null): void => {
     webviewRef.current = node
@@ -177,6 +182,27 @@ export const PreviewIframe = forwardRef<
     const webview = webviewElement
     if (!webview || !inspectable) return
 
+    const runTextEditorLifecycle = (): void => {
+      const script = textEditing
+        ? buildInspectorInjectScript({ mode: 'text-edit' })
+        : buildInspectorCleanupScript()
+      safeExecuteJavaScript(webview, script)
+    }
+
+    runTextEditorLifecycle()
+    const handleDomReady = (): void => runTextEditorLifecycle()
+    webview.addEventListener('dom-ready', handleDomReady as EventListener)
+
+    return () => {
+      webview.removeEventListener('dom-ready', handleDomReady as EventListener)
+      safeExecuteJavaScript(webview, buildInspectorCleanupScript())
+    }
+  }, [inspectable, textEditing, webviewSrc, webviewElement])
+
+  useEffect(() => {
+    const webview = webviewElement
+    if (!webview || !inspectable) return
+
     const handleConsoleMessage = (event: Event): void => {
       const payloadText = (event as { message?: unknown }).message
       if (typeof payloadText !== 'string') {
@@ -210,8 +236,30 @@ export const PreviewIframe = forwardRef<
             width?: number
             height?: number
           }>
+          oldText?: string
+          newText?: string
+          mode?: string
+          text?: string
+          style?: TextEditorSelectionPayload['style']
+          bounds?: TextEditorSelectionPayload['bounds']
         }
         if (isInspectorMessage && parsed.type === 'selected' && parsed.selector) {
+          if (parsed.mode === 'text-edit') {
+            onTextSelected?.({
+              selector: parsed.selector,
+              label: parsed.label || parsed.selector,
+              elementTag: parsed.elementTag || '',
+              text:
+                typeof parsed.text === 'string'
+                  ? parsed.text
+                  : typeof parsed.elementText === 'string'
+                    ? parsed.elementText
+                    : '',
+              style: parsed.style || {},
+              bounds: parsed.bounds
+            })
+            return
+          }
           onSelectorSelected?.(
             parsed.selector,
             parsed.label || parsed.selector,
@@ -236,12 +284,18 @@ export const PreviewIframe = forwardRef<
               ? parsed.childUpdates
                   .map((item) => ({
                     path: Array.isArray(item.path)
-                      ? item.path.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 0)
+                      ? item.path
+                          .map((value) => Number(value))
+                          .filter((value) => Number.isInteger(value) && value >= 0)
                       : [],
                     width: item.width === undefined ? undefined : Number(item.width),
                     height: item.height === undefined ? undefined : Number(item.height)
                   }))
-                  .filter((item) => item.path.length > 0 && (item.width !== undefined || item.height !== undefined))
+                  .filter(
+                    (item) =>
+                      item.path.length > 0 &&
+                      (item.width !== undefined || item.height !== undefined)
+                  )
               : undefined
           })
           return
@@ -258,7 +312,14 @@ export const PreviewIframe = forwardRef<
     return () => {
       webview.removeEventListener('console-message', handleConsoleMessage as EventListener)
     }
-  }, [inspectable, onSelectorSelected, onElementMoved, onInspectExit, webviewElement])
+  }, [
+    inspectable,
+    onSelectorSelected,
+    onElementMoved,
+    onTextSelected,
+    onInspectExit,
+    webviewElement
+  ])
 
   useEffect(() => {
     const el = containerRef.current
@@ -291,7 +352,7 @@ export const PreviewIframe = forwardRef<
           title={title}
           className={`absolute left-0 top-0 h-[900px] w-[1600px] origin-top-left ${
             pointerEnabled ? 'pointer-events-auto' : 'pointer-events-none'
-          } ${dragEditing ? 'cursor-move' : inspecting ? 'cursor-crosshair' : ''}`}
+          } ${dragEditing ? 'cursor-move' : textEditing ? 'cursor-text' : inspecting ? 'cursor-crosshair' : ''}`}
           style={{ transform }}
         />
       ) : null}

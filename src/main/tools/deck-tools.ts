@@ -5,7 +5,7 @@ import * as cheerio from "cheerio";
 import log from "electron-log/main.js";
 import type { SessionDeckGenerationContext, ToolStreamConfig } from "./types";
 import { emitToolStatus } from "./types";
-import { validateHtmlContent } from "./html-utils";
+import { validateHtmlContent, validatePersistedPageHtml } from "./html-utils";
 import { buildSessionAssetHeadTags } from "../ipc/page-assets";
 import { progressLabel } from "@shared/progress";
 
@@ -897,6 +897,18 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     });
     const result = await serializedWrite(context.projectDir, async () => {
       const normalized = normalizeAndInjectPageRuntime(content, resolvedPageId);
+      const persistedValidation = validatePersistedPageHtml(normalized, resolvedPageId);
+      if (!persistedValidation.valid) {
+        emitNormalizedToolStatus(config, {
+          label: `落盘校验失败 ${resolvedPageId}`,
+          detail: persistedValidation.errors.join("; "),
+          progress: 60,
+          pageId: resolvedPageId
+        });
+        throw new Error(
+          `HTML 落盘校验失败 (${resolvedPageId}): ${persistedValidation.errors.join("; ")}。请修正页面片段后重试。`
+        );
+      }
       await fs.promises.writeFile(targetPath, normalized, "utf-8");
       return `Updated ${resolvedPageId} in ${targetPath}`;
     });

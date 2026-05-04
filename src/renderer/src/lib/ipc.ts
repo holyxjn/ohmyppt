@@ -101,6 +101,21 @@ export interface UpdateElementLayoutPayload {
   }>
 }
 
+export interface UpdateElementPropertiesPayload {
+  sessionId: string
+  htmlPath: string
+  pageId: string
+  selector: string
+  patch: {
+    text?: string
+    style?: {
+      color?: string
+      fontSize?: string
+      fontWeight?: string
+    }
+  }
+}
+
 export interface CreateSessionPayload {
   topic: string
   styleId: string
@@ -278,6 +293,10 @@ export const ipc = {
     }>,
   updateElementLayout: (payload: UpdateElementLayoutPayload) =>
     getIpc().invoke('drag-editor:update-element-layout', payload) as Promise<{
+      success: boolean
+    }>,
+  updateElementProperties: (payload: UpdateElementPropertiesPayload) =>
+    getIpc().invoke('text-editor:update-element-properties', payload) as Promise<{
       success: boolean
     }>,
   openFile: (filePath: string, sessionId?: string) =>
