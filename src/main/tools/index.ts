@@ -6,4 +6,5 @@ export {
   emitToolStatus,
 } from "./types";
 export type { SessionDeckGenerationContext, DeckToolStatusPayload, ToolStreamConfig } from "./types";
-export { createSessionBoundDeckTools, BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from "./deck-tools";
+export { createSessionBoundDeckTools } from "./deck-tools";
+export { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from "./page-writer";

@@ -1061,7 +1061,7 @@ export const runDeepAgentDeckGeneration = async (args: {
         throw new Error(
           [
             `页面未写入 (${page.pageId})：模型没有成功调用 update_single_page_file 写入目标 page 文件。`,
-            `必须调用 update_single_page_file(pageId="${page.pageId}", content=完整页面片段)，不要只在最终回复里描述 HTML。`
+            `必须调用 update_single_page_file(pageId="${page.pageId}", content=完整创意页面片段)，不要只在最终回复里描述 HTML。`
           ].join(' ')
         )
       }

@@ -52,6 +52,23 @@ const INLINE_TAGS = new Set([
   'sup'
 ])
 
+const htmlWriteLocks = new Map<string, Promise<void>>()
+
+async function withHtmlFileLock<T>(htmlPath: string, fn: () => Promise<T>): Promise<T> {
+  const previous = htmlWriteLocks.get(htmlPath) || Promise.resolve()
+  const run = previous.then(fn, fn)
+  const next = run.then(
+    () => undefined,
+    () => undefined
+  )
+  htmlWriteLocks.set(htmlPath, next)
+  return run.finally(() => {
+    if (htmlWriteLocks.get(htmlPath) === next) {
+      htmlWriteLocks.delete(htmlPath)
+    }
+  })
+}
+
 interface ChildStyleUpdate {
   path: number[]
   width: number | null
@@ -166,17 +183,19 @@ export function registerDragEditorHandlers(ctx: IpcContext): void {
       sessionId,
       htmlOnly: true
     })
-    const html = await fs.promises.readFile(safeHtmlPath, 'utf-8')
-    const nextHtml = patchDraggedElementStyle(
-      html,
-      selector,
-      clampDragValue(record.x),
-      clampDragValue(record.y),
-      clampSizeValue(record.width),
-      clampSizeValue(record.height),
-      normalizeChildStyleUpdates(record.childUpdates)
-    )
-    await fs.promises.writeFile(safeHtmlPath, nextHtml, 'utf-8')
+    await withHtmlFileLock(safeHtmlPath, async () => {
+      const html = await fs.promises.readFile(safeHtmlPath, 'utf-8')
+      const nextHtml = patchDraggedElementStyle(
+        html,
+        selector,
+        clampDragValue(record.x),
+        clampDragValue(record.y),
+        clampSizeValue(record.width),
+        clampSizeValue(record.height),
+        normalizeChildStyleUpdates(record.childUpdates)
+      )
+      await fs.promises.writeFile(safeHtmlPath, nextHtml, 'utf-8')
+    })
     return { success: true }
   })
 }

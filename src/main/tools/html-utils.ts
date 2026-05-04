@@ -137,7 +137,7 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
     errors.push('HTML 内容为空')
     return { valid: false, errors }
   }
-  // Strict new-structure mode: content must be a page fragment only.
+  // Creative fragment mode: content must be a fragment, while write tools add page semantics.
   if (/<!doctype[\s>]/i.test(html)) {
     errors.push('检测到 <!doctype>。请仅传页面片段，不要传完整文档。')
   }
@@ -234,32 +234,12 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
   }
   try {
     const $ = cheerio.load(html, { scriptingEnabled: false })
-    const scaffoldSections = $('section[data-page-scaffold="1"]')
-    if (scaffoldSections.length < 1) {
-      errors.push('缺少 section[data-page-scaffold="1"] 页面片段根节点')
-    } else if (scaffoldSections.length > 1) {
-      errors.push(`section[data-page-scaffold="1"] 只能有 1 个，当前 ${scaffoldSections.length} 个`)
-    }
-    const contentEntrypoints = $('main[data-block-id="content"][data-role="content"]')
-    if (contentEntrypoints.length < 1) {
-      errors.push('缺少 main[data-block-id="content"][data-role="content"] 内容入口')
-    } else if (contentEntrypoints.length > 1) {
-      errors.push(
-        `main[data-block-id="content"][data-role="content"] 只能有 1 个，当前 ${contentEntrypoints.length} 个`
-      )
-    }
-    if ($('[data-role="title"]').length < 1) {
-      errors.push('缺少 data-role="title" 标题语义元素')
-    }
     const blockIds = new Map<string, number>()
     $('[data-block-id]').each((_, node) => {
       const id = ($(node).attr('data-block-id') || '').trim()
       if (!id) return
       blockIds.set(id, (blockIds.get(id) || 0) + 1)
     })
-    if (blockIds.size < 2) {
-      errors.push('data-block-id 可编辑标识过少：至少需要 content 和 1 个内容子块')
-    }
     const duplicatedBlockIds = Array.from(blockIds.entries())
       .filter(([, count]) => count > 1)
       .map(([id]) => id)
@@ -317,15 +297,6 @@ export const validatePersistedPageHtml = (
   const content = $('.ppt-page-content').first()
   if (!content.length) {
     errors.push('缺少 .ppt-page-content')
-  }
-  if ($('[data-role="title"]').length < 1) {
-    errors.push('缺少 data-role="title" 语义区')
-  }
-  if ($('[data-role="content"]').length < 1) {
-    errors.push('缺少 data-role="content" 语义区')
-  }
-  if ($('[data-block-id]').length < 2) {
-    errors.push('data-block-id 可编辑块少于 2 个')
   }
   const blockIds = new Map<string, number>()
   $('[data-block-id]').each((_, node) => {

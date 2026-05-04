@@ -62,11 +62,11 @@ export function buildSinglePageGenerationPrompt(args: {
         'Retry fixes to prioritize:',
         `- This is retry ${args.retryContext.attempt}/${args.retryContext.maxRetries}.`,
         `- Previous failure: ${previousError}`,
-        '- Output only the page fragment. It must include section[data-page-scaffold] and main[data-block-id="content"][data-role="content"]. Do not output a full document, page shell, or runtime scripts.',
+        '- Output only a complete creative page fragment. The write tool will add section/main/content semantics when they are missing. Do not output a full document, page shell, or runtime scripts.',
         shouldMentionWriteToolFix
-          ? '- The previous attempt did not write the target page. You must call update_single_page_file(pageId, content); do not only describe the HTML in the final response.'
+          ? `- The previous attempt did not write the target page. You must call update_single_page_file(pageId="${args.pageId}", content=...) before any final response; do not only describe the HTML in the final response.`
           : '',
-        '- Before calling the write tool, mentally validate that <section> and <main> are both closed and that no tag is left unfinished at the end.',
+        '- Before calling the write tool, mentally validate that the main containers are closed and that no tag is left unfinished at the end.',
         '- If the previous issue was unclosed tags, simplify the structure and ensure every section/div/p/span/li tag is paired.',
         '- If the previous issue was page shell structure, do not include .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root anywhere, including CSS selectors, class names, scripts, and comments.',
         shouldMentionChartOrAnimationFix
@@ -127,10 +127,13 @@ export function buildSinglePageGenerationPrompt(args: {
     '- Prefer visualization-friendly expression. When points involve trends, comparisons, or proportions, use charts or data cards when appropriate.',
     '',
     'Single-slide tool constraints:',
-    '- Call only update_single_page_file(pageId=target page, content). Do not call update_page_file.',
-    '- content must be a page fragment with section[data-page-scaffold] and main[data-block-id="content"][data-role="content"].',
+    `- Required action: call update_single_page_file(pageId="${args.pageId}", content=complete creative page fragment).`,
+    '- This is not optional. A final text response without a successful update_single_page_file tool call means the slide is not generated.',
+    '- Do not call update_page_file. In this single-slide run it is intentionally not available.',
+    '- content must be a complete creative page fragment. The tool will wrap it with section[data-page-scaffold], main[data-role="content"], editable data-block-id attributes, and the runtime page frame when needed.',
     '- The content must not contain <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.',
-    '- The content must be complete and balanced: one opening section with one closing </section>, one opening main with one closing </main>, and no unfinished trailing tags.',
+    '- The content must be complete and balanced: close your main layout containers and leave no unfinished trailing tags.',
+    '- After the tool call succeeds, final response should be a short summary only. Do not paste the HTML in the final response.',
     '- Do not modify other slides.'
   ].join('\n')
 }

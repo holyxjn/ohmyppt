@@ -9,8 +9,9 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
   const HIGHLIGHT_CLASS = "ppt-inspector-highlight";
   const LOG_PREFIX = "${INSPECTOR_CONSOLE_PREFIX}";
   const MODE = "${mode}";
-  const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th"]);
+  const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th", "blockquote", "figcaption"]);
   const BLOCKED_TEXT_TAGS = new Set(["script", "style", "svg", "canvas", "img", "video", "audio", "input", "textarea", "select", "option"]);
+  const SCAFFOLD_BLOCK_IDS = new Set(["content", "page", "root"]);
   const uiMessage = (zh, en) => {
     try {
       return window.localStorage.getItem("oh-my-ppt:lang") === "en" ? en : zh;
@@ -165,6 +166,10 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     return element && (element.closest(".ppt-page-root") !== null || element.closest("[data-ppt-guard-root='1']") !== null);
   };
 
+  const getPageRoot = (element) => {
+    return element && element.closest(".ppt-page-root, [data-ppt-guard-root='1']");
+  };
+
   const getContentRoot = (element) => {
     return element && element.closest('[data-block-id="content"], [data-role="content"]');
   };
@@ -173,18 +178,34 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     if (!(element instanceof Element)) return false;
     const blockId = element.getAttribute("data-block-id");
     const role = element.getAttribute("data-role");
-    return blockId === "content" || role === "content";
+    return (
+      SCAFFOLD_BLOCK_IDS.has(String(blockId || "")) ||
+      role === "content" ||
+      element.classList.contains("ppt-page-root") ||
+      element.classList.contains("ppt-page-fit-scope") ||
+      element.classList.contains("ppt-page-content") ||
+      element.getAttribute("data-ppt-guard-root") === "1" ||
+      element.tagName === "BODY" ||
+      element.tagName === "HTML"
+    );
   };
 
   const normalizeText = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+
+  const hasOnlyEditableTextChildren = (element) => {
+    return Array.from(element.children || []).every((child) => {
+      const tag = child.tagName ? child.tagName.toLowerCase() : "";
+      return tag === "br";
+    });
+  };
 
   const isEditableTextTarget = (element) => {
     if (!(element instanceof Element)) return false;
     const tag = element.tagName ? element.tagName.toLowerCase() : "";
     if (!tag || BLOCKED_TEXT_TAGS.has(tag)) return false;
     if (element.closest("svg, canvas, script, style")) return false;
-    if (element.children.length > 0) return false;
-    if (!TEXT_TAGS.has(tag) && !element.getAttribute("data-role")) return false;
+    if (!hasOnlyEditableTextChildren(element)) return false;
+    if (!TEXT_TAGS.has(tag) && !element.getAttribute("data-role") && !element.getAttribute("data-block-id")) return false;
     const text = normalizeText(element.textContent);
     if (!text || text.length > 500) return false;
     return true;
@@ -194,8 +215,9 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     if (!(element instanceof Element)) return false;
     if (!isInsidePageRoot(element)) return false;
     if (isScaffoldBlock(element)) return false;
-    const contentRoot = getContentRoot(element);
-    if (!contentRoot || element === contentRoot) return false;
+    if (["SCRIPT", "STYLE", "LINK", "META", "TITLE"].includes(element.tagName)) return false;
+    const boundaryRoot = getContentRoot(element) || getPageRoot(element);
+    if (!boundaryRoot || element === boundaryRoot) return false;
     if (MODE === "text-edit" && !isEditableTextTarget(element)) return false;
     const rect = element.getBoundingClientRect();
     return rect.width >= 2 && rect.height >= 2;
@@ -204,8 +226,8 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
   const pickTarget = (origin) => {
     if (!(origin instanceof Element)) return null;
     let candidate = origin;
-    const contentRoot = getContentRoot(origin);
-    while (candidate && candidate !== contentRoot) {
+    const boundaryRoot = getContentRoot(origin) || getPageRoot(origin);
+    while (candidate && candidate !== boundaryRoot) {
       if (isUsableTarget(candidate) && buildStableSelector(candidate)) return candidate;
       candidate = candidate.parentElement;
     }

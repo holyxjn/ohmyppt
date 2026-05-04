@@ -21,7 +21,9 @@ const EDITABLE_TEXT_TAGS = new Set([
   'label',
   'button',
   'td',
-  'th'
+  'th',
+  'blockquote',
+  'figcaption'
 ])
 
 const htmlWriteLocks = new Map<string, Promise<void>>()
@@ -143,10 +145,14 @@ function patchElementProperties(
   const node = target.get(0)
   const tagName = String(node?.tagName || '').toLowerCase()
   const hasRole = Boolean(target.attr('data-role'))
-  if (!EDITABLE_TEXT_TAGS.has(tagName) && !hasRole) {
+  const hasBlockId = Boolean(target.attr('data-block-id'))
+  if (!EDITABLE_TEXT_TAGS.has(tagName) && !hasRole && !hasBlockId) {
     throw new Error(`当前元素暂不支持直接编辑文字：<${tagName || 'unknown'}>`)
   }
-  if (target.children().length > 0) {
+  const nonTextChildren = target.children().filter((_, child) => {
+    return String(child.tagName || '').toLowerCase() !== 'br'
+  })
+  if (nonTextChildren.length > 0) {
     throw new Error('当前元素包含子元素，暂不支持直接编辑；可以选择更内层的文字。')
   }
 
