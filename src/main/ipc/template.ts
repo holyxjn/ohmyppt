@@ -60,7 +60,7 @@ export const buildPageScaffoldHtml = (page: {
     <main class="ppt-page-root p-2" data-ppt-guard-root="1">
       <div class="ppt-page-fit-scope">
         <div class="ppt-page-content">
-          <section class="scaffold-card" data-page-scaffold="1">
+          <section class="scaffold-card" data-page-scaffold="1" data-placeholder-page="1">
             <main data-block-id="content" data-role="content">
               <h1 class="scaffold-title" data-block-id="title" data-role="title">${safeTitle}</h1>
               <div class="scaffold-hint">等待模型填充这一页内容</div>

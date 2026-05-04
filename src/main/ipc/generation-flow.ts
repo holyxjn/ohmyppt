@@ -15,7 +15,7 @@ import {
   hasStyleSkill
 } from '../utils/style-skills'
 import { extractOutlineTitles, sleep } from './utils'
-import { validatePersistedPageHtml } from '../tools/html-utils'
+import { isPlaceholderPageHtml, validatePersistedPageHtml } from '../tools/html-utils'
 import type { DesignContract } from '../tools/types'
 import { buildProjectIndexHtml, type DeckPageFile } from './template'
 import {
@@ -1348,8 +1348,16 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       if (failedPageIdSet.has(pageRef.pageId)) {
         continue
       }
-      if (html.includes('等待模型填充这一页内容')) {
+      if (isPlaceholderPageHtml(html)) {
+        const reason = '页面仍为占位内容，模型没有成功写入真实页面'
         placeholderPages.push(pageRef.pageId)
+        failedPageIdSet.add(pageRef.pageId)
+        failedPages.push({
+          pageId: pageRef.pageId,
+          title: pageRef.title,
+          reason
+        })
+        continue
       }
       const page: GeneratedPagePayload = {
         pageNumber: pageRef.pageNumber,
@@ -1764,7 +1772,11 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       deckTitle: context.deckTitle,
       userMessage:
         context.userMessage ||
-        'Continue generating the unfinished slides in this session. Determine the content language from the existing topic, outline, and source materials; do not infer it from this instruction.',
+        [
+          '继续生成本会话中未完成的页面。页面正文、标题、图表标签必须保持与现有页面相同语言。',
+          'Continue generating the unfinished slides in this session. Keep slide text, titles, and chart labels in the same language as existing slides.',
+          'Determine the content language from the existing topic, outline, source materials, and existing slides; do not infer it from this instruction.'
+        ].join('\n'),
       outlineTitles: retryPages.map((page) => page.title),
       outlineItems: retryPages.map((page) => ({
         title: page.title,

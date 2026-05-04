@@ -17,6 +17,7 @@ import { normalizeLayoutIntent } from '@shared/layout-intent'
 import { resolveModelTimeoutMs, type ModelTimeoutProfile } from '@shared/model-timeout'
 import { progressLabel, progressText } from '@shared/progress'
 import type { DesignContract, OutlineItem } from '../tools/types'
+import { isPlaceholderPageHtml } from '../tools/html-utils'
 import { extractModelText, extractJsonBlock, sleep } from './utils'
 import {
   createReferenceDocumentRetriever,
@@ -27,8 +28,6 @@ type AppLocale = 'zh' | 'en'
 
 const uiText = (locale: AppLocale | undefined, zh: string, en: string): string =>
   locale === 'en' ? en : zh
-
-const PAGE_PLACEHOLDER_TEXT = '等待模型填充这一页内容'
 
 async function readPageHtmlIfExists(filePath: string): Promise<string> {
   try {
@@ -1057,7 +1056,7 @@ export const runDeepAgentDeckGeneration = async (args: {
       if (
         !afterPageHtml ||
         afterPageHtml === beforePageHtml ||
-        afterPageHtml.includes(PAGE_PLACEHOLDER_TEXT)
+        isPlaceholderPageHtml(afterPageHtml)
       ) {
         throw new Error(
           [

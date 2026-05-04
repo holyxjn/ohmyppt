@@ -23,6 +23,7 @@ export type SessionRunState = {
   sessionId: string
   runId: string
   mode: 'generate' | 'edit' | 'retry'
+  previousSessionStatus?: string
   status: 'running' | 'completed' | 'failed'
   progress: number
   totalPages: number
@@ -71,6 +72,7 @@ export interface IpcContext {
     runId: string
     mode: 'generate' | 'edit' | 'retry'
     totalPages: number
+    previousSessionStatus?: string
   }) => void
   trackSessionRunChunk: (sessionId: string, chunk: GenerateChunkEvent) => void
   emitGenerateChunk: (sessionId: string, chunk: GenerateChunkEvent) => void
@@ -379,6 +381,7 @@ export function createIpcContext(
     runId: string
     mode: 'generate' | 'edit' | 'retry'
     totalPages: number
+    previousSessionStatus?: string
   }): void => {
     const now = Date.now()
     pruneFinishedSessionRunStates(now)
@@ -386,6 +389,7 @@ export function createIpcContext(
       sessionId: args.sessionId,
       runId: args.runId,
       mode: args.mode,
+      previousSessionStatus: args.previousSessionStatus,
       status: 'running',
       progress: 0,
       totalPages: Math.max(1, Math.floor(args.totalPages || 1)),
