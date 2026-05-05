@@ -176,13 +176,10 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
     errors.push('内容中包含 iframe 标签，页面内不允许嵌套 iframe')
   }
   const scriptSrcHits = Array.from(html.matchAll(SCRIPT_SRC_RE)).map((m) => (m[1] || '').trim())
-  if (scriptSrcHits.length > 0) {
-    errors.push('检测到 <script src=...>。页面片段禁止引入脚本资源，运行时已预注入。')
-  }
   const disallowedScriptSrc = scriptSrcHits.filter((src) => !isAllowedRuntimeAsset(src))
   if (disallowedScriptSrc.length > 0) {
     const preview = disallowedScriptSrc.slice(0, 3).join(', ')
-    errors.push(`检测到不允许的 script src：${preview}。仅允许系统预注入的本地 ./assets/*.js`)
+    errors.push(`检测到不允许的 script src：${preview}。页面片段禁止引入脚本资源，运行时已预注入。`)
   }
   if (/anime\s*\(\s*\{[\s\S]{0,240}?targets\s*:/im.test(html)) {
     errors.push('检测到旧版 anime({ targets, ... }) 写法，请统一改为 PPT.animate(...)（v4）')

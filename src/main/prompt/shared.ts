@@ -22,11 +22,8 @@ export const PAGE_SEMANTIC_STRUCTURE = [
   '- 竖排仅限 2-6 个中文字符的短标签。',
   '- 标题包含英文、数字、年份、中英混排或长句时必须横排。',
   '- 完整标题优先保证可读性，不要为了装饰牺牲阅读。',
-  '- 不要默认预留 footer/meta；来源、注释、结论等信息若必须出现，应作为 content 内的普通子块呈现',
   '- 如果主动添加 data-block-id，必须保持页面内唯一，例如：overview / metric-1 / list-1 / timeline-1',
-  '- 图表容器、图片、表格、关键文本块、按钮式标签等可被用户点选的元素，建议添加页面内唯一 class，便于检选、拖拽和局部编辑',
-  '- 所有可编辑子块命名采用 kebab-case（如：metric-1、summary、chart-main）；不要再使用 data-block-id="title" 作为固定骨架',
-  '- 不要创建第二层 .ppt-page-content 包裹；不要输出孤立 closing tag'
+  '- 所有可编辑子块命名采用 kebab-case（如：metric-1、summary、chart-main）；不要再使用 data-block-id="title" 作为固定骨架'
 ].join('\n')
 
 export const CONTENT_LANGUAGE_RULES = [
