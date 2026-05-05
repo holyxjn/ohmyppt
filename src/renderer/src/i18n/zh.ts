@@ -126,7 +126,7 @@ export const zh = {
     modelAccess: '模型接入',
     addModel: '添加模型',
     editModel: '编辑模型',
-    modelName: '模型名称',
+    modelName: '模型名称（别名）',
     modelNamePlaceholder: '例如：DeepSeek / 本地 Ollama',
     noModels: '还没有模型配置，请先添加一个模型。',
     currentActiveModel: '默认模型：{name}',

@@ -132,7 +132,7 @@ export const en = {
     modelAccess: 'Model access',
     addModel: 'Add model',
     editModel: 'Edit model',
-    modelName: 'Model name',
+    modelName: 'Model name (alias)',
     modelNamePlaceholder: 'Example: DeepSeek / Local Ollama',
     noModels: 'No model configs yet. Add a model first.',
     currentActiveModel: 'Default model: {name}',

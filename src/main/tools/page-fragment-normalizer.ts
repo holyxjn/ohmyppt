@@ -12,22 +12,12 @@ const EDITABLE_TEXT_SELECTOR = [
   'h6',
   'p',
   'li',
-  'span',
-  'strong',
-  'em',
-  'b',
-  'i',
-  'small',
-  'label',
-  'button',
   'blockquote',
   'figcaption',
   'td',
-  'th',
-  'article',
-  'section',
-  'div'
+  'th'
 ].join(',')
+const INLINE_TEXT_CANDIDATE_SELECTOR = ['span', 'strong', 'em', 'b', 'i', 'small', 'label', 'button'].join(',')
 const VISUAL_BLOCK_SELECTOR = [
   'article',
   'aside',
@@ -190,7 +180,38 @@ export const normalizeCreativePageFragment = (html: string): string => {
       VISUAL_BLOCK_CLASS_PATTERN.test(rawIdentity) ||
       hasVisualChild(el)
     if (!semanticVisualBlock) return
+    // Skip pure layout containers: div/section with many element children and no direct text
+    if ((tagName === 'div' || tagName === 'section') && el.children().length > 3) {
+      const dt = directTextContent(el)
+      if (!dt || dt.replace(/\s+/g, '').length === 0) return
+    }
     el.attr('data-block-id', allocateBlockId(blockIdBaseForVisualElement(tagName, el), usedBlockIds))
+  })
+
+  // Pass 3: inline leaf text nodes — only add block-id to inline elements that are
+  // true leaf text nodes (direct text content, no child elements with text).
+  const BLOCK_TAGS = new Set([
+    'div', 'section', 'article', 'aside', 'header', 'footer', 'nav', 'main',
+    'ul', 'ol', 'dl', 'form', 'fieldset', 'details', 'summary',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'figcaption', 'td', 'th',
+    'figure', 'table', 'pre', 'hr'
+  ])
+  const hasOnlyInlineOrTextChildren = (el: cheerio.Cheerio<AnyNode>): boolean => {
+    const children = el.children().toArray()
+    return children.every((child) => {
+      if (child.type !== 'tag') return true
+      return !BLOCK_TAGS.has((child as { name?: string }).name?.toLowerCase() || '')
+    })
+  }
+  content.find(INLINE_TEXT_CANDIDATE_SELECTOR).each((_, node) => {
+    const el = $(node)
+    if (el.closest('script, style, svg, canvas').length) return
+    if (el.attr('data-block-id')) return
+    const text = directTextContent(el)
+    if (!text || text.replace(/\s+/g, '').length === 0) return
+    if (!hasOnlyInlineOrTextChildren(el)) return
+    const tagName = (node.type === 'tag' ? node.name : '').toLowerCase()
+    el.attr('data-block-id', allocateBlockId(blockIdBaseForTag(tagName, !hasTitleRole), usedBlockIds))
   })
 
   return ($.root().html() || html).trim()

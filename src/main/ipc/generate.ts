@@ -1132,7 +1132,10 @@ export const runDeepAgentDeckGeneration = async (args: {
       } catch (error) {
         lastError = error
         const reason = error instanceof Error ? error.message : String(error)
-        if (attempt >= MAX_PAGE_RETRIES) break
+        // Write/validation errors are not retryable — the model would fail the same way again
+        const isWriteError =
+          /验证失败|落盘校验|禁止的 CDN|远程资源|未知页面|不允许写入/i.test(reason)
+        if (isWriteError || attempt >= MAX_PAGE_RETRIES) break
         const retryAttempt = attempt + 1
         const retryDelayMs = RETRY_DELAY_BASE_MS * retryAttempt
         emitPageStatus({

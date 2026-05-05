@@ -267,6 +267,13 @@ const DEFAULT_MOTION_SCRIPT = `<script id="ppt-default-motion">
 
 const writeLocks = new Map<string, Promise<void>>()
 
+/**
+ * Serializes async writes per lockKey via a promise chain.
+ * `next` swallows both resolve/reject so the chain continues regardless of
+ * success/failure — subsequent callers wait on `next` before executing.
+ * The actual result/error propagates through `run`, which callers receive.
+ * Lock entry is cleaned up in `finally` when the chain tail is still `next`.
+ */
 export function serializedWrite<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
   const chain = writeLocks.get(lockKey) || Promise.resolve()
   const run = chain.then(fn)
@@ -591,10 +598,124 @@ function hasCustomPageAnimation(html: string): boolean {
   )
 }
 
+/**
+ * Merged single-pass cheerio preprocessing: canvas lock styles, chart stabilization,
+ * and unsafe hidden states. Replaces 3 separate cheerio.load calls with one.
+ */
+function preprocessPageHtml(html: string): string {
+  try {
+    const $ = cheerio.load(html.trim(), { scriptingEnabled: false })
+
+    // 1. Strip canvas lock classes and inline sizes
+    $('[class]').each((_, node) => {
+      const classValue = ($(node).attr('class') || '').trim()
+      if (!classValue) return
+      const cleaned = stripCanvasLockClasses(classValue)
+      if (cleaned.length > 0) {
+        $(node).attr('class', cleaned)
+      } else {
+        $(node).removeAttr('class')
+      }
+    })
+    $('[style]').each((_, node) => {
+      const styleValue = ($(node).attr('style') || '').trim()
+      if (!styleValue) return
+      const cleaned = stripCanvasInlineSizes(styleValue)
+      if (cleaned.length > 0) {
+        $(node).attr('style', cleaned)
+      } else {
+        $(node).removeAttr('style')
+      }
+    })
+
+    // 2. Stabilize chart canvases
+    $('canvas').each((_, node) => {
+      const canvas = $(node)
+      const originalCanvasClasses = splitClassNames(canvas.attr('class') || '')
+      const wrapperClasses = originalCanvasClasses.filter(isMarginUtilityClass)
+      const canvasClassSet = new Set(
+        originalCanvasClasses.filter(
+          (cls) => !isChartCanvasLayoutClass(cls) && !isMarginUtilityClass(cls)
+        )
+      )
+      canvasClassSet.add('h-full')
+      canvasClassSet.add('w-full')
+      canvas.attr('class', Array.from(canvasClassSet).join(' '))
+
+      const parent = canvas.parent()
+      if (!parent.length) return
+
+      const parentClassRaw = (parent.attr('class') || '').trim()
+      const parentClassSet = new Set(parentClassRaw.split(/\s+/).filter(Boolean))
+      const parentStyle = parent.attr('style') || ''
+      const hasHeightClass = hasConcreteChartHeightClass(parentClassSet)
+
+      if (!hasHeightClass && !hasConcreteChartHeightStyle(parentStyle)) {
+        parentClassSet.add(CHART_FRAME_DEFAULT_HEIGHT_CLASS)
+      }
+
+      if (!parentClassSet.has('relative')) parentClassSet.add('relative')
+      if (!parentClassSet.has('overflow-hidden')) parentClassSet.add('overflow-hidden')
+      if (wrapperClasses.length > 0) {
+        for (const cls of wrapperClasses) parentClassSet.add(cls)
+      }
+      parent.attr('class', Array.from(parentClassSet).join(' '))
+    })
+
+    // 3. Strip unsafe hidden states (opacity-0, visibility:hidden)
+    $('*').each((_, node) => {
+      const el = $(node)
+
+      const classRaw = (el.attr('class') || '').trim()
+      if (classRaw) {
+        const kept = classRaw
+          .split(/\s+/)
+          .filter(Boolean)
+          .filter((cls) => {
+            const base = cls.split(':').pop() || cls
+            return base !== 'opacity-0' && base !== 'invisible'
+          })
+        if (kept.length > 0) {
+          el.attr('class', kept.join(' '))
+        } else {
+          el.removeAttr('class')
+        }
+      }
+
+      const styleRaw = (el.attr('style') || '').trim()
+      if (styleRaw) {
+        const keptDecls = styleRaw
+          .split(';')
+          .map((decl) => decl.trim())
+          .filter(Boolean)
+          .filter((decl) => {
+            const idx = decl.indexOf(':')
+            if (idx < 0) return true
+            const key = decl.slice(0, idx).trim().toLowerCase()
+            const value = decl
+              .slice(idx + 1)
+              .trim()
+              .toLowerCase()
+            if (key === 'opacity' && /^0(?:\.0+)?$/.test(value)) return false
+            if (key === 'visibility' && value === 'hidden') return false
+            return true
+          })
+        if (keptDecls.length > 0) {
+          el.attr('style', keptDecls.join('; '))
+        } else {
+          el.removeAttr('style')
+        }
+      }
+    })
+
+    return $.html()
+  } catch {
+    return html
+  }
+}
+
 const normalizeAndInjectPageRuntime = (content: string, pageId: string): string => {
-  const fragment = normalizeCreativePageFragment(
-    stripUnsafeHiddenStates(stabilizeChartCanvases(stripCanvasLockStyles(content.trim())))
-  )
+  const fragment = normalizeCreativePageFragment(preprocessPageHtml(content))
   const output = buildScaffoldDocument({
     pageId,
     innerContent: fragment,
