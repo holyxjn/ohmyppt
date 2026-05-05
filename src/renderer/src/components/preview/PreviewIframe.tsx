@@ -10,11 +10,18 @@ import {
   DRAG_EDITOR_CONSOLE_PREFIX,
   type DragEditorMovePayload
 } from './drag-editor-script'
+import {
+  buildTextEditorCleanupScript,
+  buildTextEditorInjectScript,
+  TEXT_EDITOR_CONSOLE_PREFIX
+} from './text-editor-script'
 import type { TextEditorSelectionPayload } from './text-editor-types'
 import { ipc } from '@renderer/lib/ipc'
 
 export interface PreviewIframeHandle {
   patchPageContent: (pageId: string, newHtml: string) => void
+  liveUpdateTextElement: (selector: string, patch: { text?: string; style?: { color?: string; fontSize?: string; fontWeight?: string } }) => void
+  clearTextEditorSelection: () => void
 }
 
 export const PreviewIframe = forwardRef<
@@ -159,27 +166,38 @@ export const PreviewIframe = forwardRef<
         }
       `
         )
+      },
+      liveUpdateTextElement(selector: string, patch: { text?: string; style?: { color?: string; fontSize?: string; fontWeight?: string } }): void {
+        const wv = webviewRef.current
+        if (!wv) return
+        safeExecuteJavaScript(
+          wv,
+          `if (window.__pptTextEditorLiveUpdate) window.__pptTextEditorLiveUpdate(${JSON.stringify(selector)}, ${JSON.stringify(patch)});`
+        )
+      },
+      clearTextEditorSelection(): void {
+        const wv = webviewRef.current
+        if (!wv) return
+        safeExecuteJavaScript(
+          wv,
+          `if (window.__pptTextEditorClearSelection) window.__pptTextEditorClearSelection();`
+        )
       }
     }),
     []
   )
 
-  // Combined inspector effect: handles both inspect and text-edit modes.
-  // textEditing takes priority over inspecting when both would be true.
+  // Inspector effect: handles AI inspect mode only.
   useEffect(() => {
     const webview = webviewElement
     if (!webview || !inspectable) return
 
     const runInspectorLifecycle = (): void => {
-      let script: string
-      if (textEditing) {
-        script = buildInspectorInjectScript({ mode: 'text-edit' })
-      } else if (inspecting) {
-        script = buildInspectorInjectScript()
+      if (inspecting) {
+        safeExecuteJavaScript(webview, buildInspectorInjectScript())
       } else {
-        script = buildInspectorCleanupScript()
+        safeExecuteJavaScript(webview, buildInspectorCleanupScript())
       }
-      safeExecuteJavaScript(webview, script)
     }
 
     runInspectorLifecycle()
@@ -190,7 +208,30 @@ export const PreviewIframe = forwardRef<
       webview.removeEventListener('dom-ready', handleDomReady as EventListener)
       safeExecuteJavaScript(webview, buildInspectorCleanupScript())
     }
-  }, [inspectable, inspecting, textEditing, webviewSrc, webviewElement])
+  }, [inspectable, inspecting, webviewSrc, webviewElement])
+
+  // Text editor effect: handles double-click text editing in edit mode.
+  useEffect(() => {
+    const webview = webviewElement
+    if (!webview || !inspectable) return
+
+    const runTextEditorLifecycle = (): void => {
+      if (textEditing) {
+        safeExecuteJavaScript(webview, buildTextEditorInjectScript())
+      } else {
+        safeExecuteJavaScript(webview, buildTextEditorCleanupScript())
+      }
+    }
+
+    runTextEditorLifecycle()
+    const handleDomReady = (): void => runTextEditorLifecycle()
+    webview.addEventListener('dom-ready', handleDomReady as EventListener)
+
+    return () => {
+      webview.removeEventListener('dom-ready', handleDomReady as EventListener)
+      safeExecuteJavaScript(webview, buildTextEditorCleanupScript())
+    }
+  }, [inspectable, textEditing, webviewSrc, webviewElement])
 
   useEffect(() => {
     const webview = webviewElement
@@ -222,11 +263,14 @@ export const PreviewIframe = forwardRef<
       }
       const isInspectorMessage = payloadText.startsWith(INSPECTOR_CONSOLE_PREFIX)
       const isDragEditorMessage = payloadText.startsWith(DRAG_EDITOR_CONSOLE_PREFIX)
-      if (!isInspectorMessage && !isDragEditorMessage) return
+      const isTextEditorMessage = payloadText.startsWith(TEXT_EDITOR_CONSOLE_PREFIX)
+      if (!isInspectorMessage && !isDragEditorMessage && !isTextEditorMessage) return
 
       const prefixLength = isInspectorMessage
         ? INSPECTOR_CONSOLE_PREFIX.length
-        : DRAG_EDITOR_CONSOLE_PREFIX.length
+        : isDragEditorMessage
+          ? DRAG_EDITOR_CONSOLE_PREFIX.length
+          : TEXT_EDITOR_CONSOLE_PREFIX.length
       const raw = payloadText.slice(prefixLength).trim()
       if (!raw) return
       try {
@@ -255,15 +299,16 @@ export const PreviewIframe = forwardRef<
           style?: TextEditorSelectionPayload['style']
           bounds?: TextEditorSelectionPayload['bounds']
         }
-        if (isInspectorMessage && parsed.type === 'selected' && parsed.selector) {
+        if ((isInspectorMessage || isTextEditorMessage) && parsed.type === 'selected' && parsed.selector) {
           void (async () => {
+            const isTextMode = isTextEditorMessage || parsed.mode === 'text-edit'
             const anchoredSelector = await ensureAnchoredSelector({
               selector: parsed.selector || '',
               elementTag: parsed.elementTag,
               elementText: parsed.elementText,
-              reason: parsed.mode === 'text-edit' ? 'text-edit' : 'inspect'
+              reason: isTextMode ? 'text-edit' : 'inspect'
             })
-          if (parsed.mode === 'text-edit') {
+          if (isTextMode) {
             onTextSelected?.({
               selector: anchoredSelector,
               label: anchoredSelector,

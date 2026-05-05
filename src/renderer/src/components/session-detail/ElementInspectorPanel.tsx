@@ -1,8 +1,8 @@
-import { GripHorizontal, Loader2, Save, X } from 'lucide-react'
+import { GripHorizontal, X } from 'lucide-react'
 import { useRef, type PointerEvent } from 'react'
 import { cn } from '@renderer/lib/utils'
-import { Button } from '../ui/Button'
 import { Input, Textarea } from '../ui/Input'
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../ui/Select'
 import type { TextEditorSelectionPayload } from '../preview/text-editor-types'
 import { useT } from '@renderer/i18n'
 
@@ -21,20 +21,16 @@ export interface InspectorPanelPosition {
 export function ElementInspectorPanel({
   selection,
   draft,
-  isSaving,
   position,
   onDraftChange,
-  onSave,
-  onCancel,
+  onClose,
   onPositionChange
 }: {
   selection: TextEditorSelectionPayload | null
   draft: ElementEditDraft
-  isSaving: boolean
   position: InspectorPanelPosition | null
   onDraftChange: (draft: ElementEditDraft) => void
-  onSave: () => void
-  onCancel: () => void
+  onClose: () => void
   onPositionChange: (position: InspectorPanelPosition) => void
 }): React.JSX.Element {
   const t = useT()
@@ -117,7 +113,7 @@ export function ElementInspectorPanel({
         <button
           type="button"
           onPointerDown={(event) => event.stopPropagation()}
-          onClick={onCancel}
+          onClick={onClose}
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#667257] transition-colors hover:bg-[#e8e0d0]/80 hover:text-[#34402c]"
           aria-label={t('sessionDetail.closeInspector')}
           title={t('sessionDetail.closeInspector')}
@@ -178,49 +174,20 @@ export function ElementInspectorPanel({
           <span className="text-xs font-medium text-[#657058]">
             {t('sessionDetail.fontWeight')}
           </span>
-          <select
-            value={draft.fontWeight}
-            onChange={(event) => onDraftChange({ ...draft, fontWeight: event.target.value })}
-            className={cn(
-              'h-9 w-full rounded-[10px] border border-[#d7cbb7]/80 bg-[#fffdf8]/92 px-2.5 text-xs text-[#34402c]',
-              'focus:outline-none focus:ring-2 focus:ring-[#8fbc8f]/50'
-            )}
-          >
-            <option value="300">300</option>
-            <option value="400">400</option>
-            <option value="500">500</option>
-            <option value="600">600</option>
-            <option value="700">700</option>
-            <option value="800">800</option>
-          </select>
+          <Select value={draft.fontWeight} onValueChange={(value) => onDraftChange({ ...draft, fontWeight: value })}>
+            <SelectTrigger className="h-9 rounded-[10px] border-[#d7cbb7]/80 bg-[#fffdf8]/92 px-2.5 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="300">300</SelectItem>
+              <SelectItem value="400">400</SelectItem>
+              <SelectItem value="500">500</SelectItem>
+              <SelectItem value="600">600</SelectItem>
+              <SelectItem value="700">700</SelectItem>
+              <SelectItem value="800">800</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
-
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="rounded-full border-transparent bg-[#e8e0d0]/80 px-3 text-xs text-[#4f5f42] hover:bg-[#ded3bf]"
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            {t('sessionDetail.cancel')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="rounded-full bg-[#5d6b4d] px-3 text-xs text-white hover:bg-[#3e4a32]"
-            onClick={onSave}
-            disabled={isSaving || !draft.text.trim()}
-          >
-            {isSaving ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            {t('sessionDetail.save')}
-          </Button>
-        </div>
       </div>
     </div>
   )

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, forwardRef } from 'react'
 import { Check, Loader2, Pencil, Sparkles } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { useToastStore } from '@renderer/store/toastStore'
 import { Button } from '../ui/Button'
-import { PreviewIframe } from '../preview/PreviewIframe'
+import { PreviewIframe, type PreviewIframeHandle } from '../preview/PreviewIframe'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import type { DragEditorMovePayload } from '../preview/drag-editor-script'
 import type { TextEditorSelectionPayload } from '../preview/text-editor-types'
@@ -13,43 +13,45 @@ import type { InspectorPanelPosition } from './ElementInspectorPanel'
 import type { SessionPreviewPage } from './types'
 import { useT } from '@renderer/i18n'
 
-export function PreviewStage({
-  selectedPage,
-  sessionTitle,
-  isGenerating,
-  progressLabel,
-  previewRefreshKey = 0,
-  pendingDragCount = 0,
-  isSavingDragEdits = false,
-  textSelection,
-  textDraft,
-  isSavingTextEdit = false,
-  onTextDraftChange,
-  onElementMoved,
-  onTextSelected,
-  onSaveTextEdit,
-  onCancelTextEdit,
-  onSaveDragEdits,
-  onCancelDragEdits
-}: {
-  selectedPage: SessionPreviewPage | null
-  sessionTitle?: string | null
-  isGenerating: boolean
-  progressLabel?: string
-  previewRefreshKey?: number
-  pendingDragCount?: number
-  isSavingDragEdits?: boolean
-  textSelection: TextEditorSelectionPayload | null
-  textDraft: ElementEditDraft
-  isSavingTextEdit?: boolean
-  onTextDraftChange: (draft: ElementEditDraft) => void
-  onElementMoved: (payload: DragEditorMovePayload) => void
-  onTextSelected: (payload: TextEditorSelectionPayload) => void
-  onSaveTextEdit: () => void
-  onCancelTextEdit: () => void
-  onSaveDragEdits: () => void
-  onCancelDragEdits: () => void
-}): React.JSX.Element {
+export const PreviewStage = forwardRef<
+  PreviewIframeHandle,
+  {
+    selectedPage: SessionPreviewPage | null
+    sessionTitle?: string | null
+    isGenerating: boolean
+    progressLabel?: string
+    previewRefreshKey?: number
+    pendingEditCount?: number
+    isSavingEdits?: boolean
+    textSelection: TextEditorSelectionPayload | null
+    textDraft: ElementEditDraft
+    onTextDraftChange: (draft: ElementEditDraft) => void
+    onElementMoved: (payload: DragEditorMovePayload) => void
+    onTextSelected: (payload: TextEditorSelectionPayload) => void
+    onCancelTextEdit: () => void
+    onSaveAllEdits: () => void
+    onDiscardAllEdits: () => void
+  }
+>(function PreviewStage(
+  {
+    selectedPage,
+    sessionTitle,
+    isGenerating,
+    progressLabel,
+    previewRefreshKey = 0,
+    pendingEditCount = 0,
+    isSavingEdits = false,
+    textSelection,
+    textDraft,
+    onTextDraftChange,
+    onElementMoved,
+    onTextSelected,
+    onCancelTextEdit,
+    onSaveAllEdits,
+    onDiscardAllEdits
+  },
+  ref
+) {
   const t = useT()
   const toast = useToastStore()
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
@@ -68,16 +70,17 @@ export function PreviewStage({
     if (interactionMode === 'preview') return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
-        if (isEditing && pendingDragCount > 0) {
-          onCancelDragEdits()
+        if (isEditing) {
+          onDiscardAllEdits()
+        } else {
+          setInteractionMode('preview')
+          onCancelTextEdit()
         }
-        setInteractionMode('preview')
-        onCancelTextEdit()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [interactionMode, isEditing, onCancelDragEdits, onCancelTextEdit, pendingDragCount, setInteractionMode])
+  }, [interactionMode, isEditing, onDiscardAllEdits, onCancelTextEdit, setInteractionMode])
 
   return (
     <main className="flex min-h-0 flex-1 flex-col px-3 py-3">
@@ -97,6 +100,7 @@ export function PreviewStage({
               </TooltipContent>
             </Tooltip>
             <PreviewIframe
+              ref={ref}
               key={`preview-${selectedPage.pageId}-${previewKey}-${previewRefreshKey}`}
               src={selectedPage.sourceUrl}
               htmlPath={selectedPage.htmlPath}
@@ -116,12 +120,12 @@ export function PreviewStage({
             />
             {/* Top-right toolbar */}
             {selectedPage.htmlPath && (
-              <div className="absolute right-5 top-5 z-20">
+              <div className="absolute right-4 top-3 z-20">
                 {interactionMode === 'preview' && (
-                  <div className="flex items-center gap-1 rounded-[10px] border border-[#d9cfbd]/72 bg-[#fffaf1]/90 p-1 shadow-[0_14px_34px_rgba(74,59,42,0.16)] backdrop-blur-xl">
+                  <div className="flex items-center gap-0.5 rounded-[9px] border border-[#d9cfbd]/72 bg-[#fffaf1]/90 p-0.5 shadow-[0_14px_34px_rgba(74,59,42,0.16)] backdrop-blur-xl">
                     <button
                       type="button"
-                      className="inline-flex h-8 min-w-[64px] items-center justify-center rounded-[8px] bg-[#5d6b4d] px-3 text-[11px] font-semibold leading-none text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]"
+                      className="inline-flex h-7 min-w-[52px] items-center justify-center rounded-[7px] bg-[#5d6b4d] px-2 text-[10px] font-semibold leading-none text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]"
                       disabled
                     >
                       {t('sessionDetail.previewMode')}
@@ -129,79 +133,78 @@ export function PreviewStage({
                     <button
                       type="button"
                       className={cn(
-                        'inline-flex h-8 min-w-[64px] items-center justify-center rounded-[8px] px-3 text-[11px] font-semibold leading-none transition-colors',
+                        'inline-flex h-7 min-w-[52px] items-center justify-center rounded-[7px] px-2 text-[10px] font-semibold leading-none transition-colors',
                         'text-[#59664b] hover:bg-[#d4e4c1]/78'
                       )}
-                      onClick={() => setInteractionMode('edit')}
-                      disabled={isGenerating || isSavingDragEdits || isSavingTextEdit}
+                      onClick={() => {
+                        setInteractionMode('edit')
+                        toast.info(t('sessionDetail.editModeToast'))
+                      }}
+                      disabled={isGenerating || isSavingEdits}
                     >
-                      <Pencil className="mr-1 h-3 w-3" />
+                      <Pencil className="mr-0.5 h-2.5 w-2.5" />
                       {t('sessionDetail.editMode')}
                     </button>
                     <button
                       type="button"
                       className={cn(
-                        'inline-flex h-8 min-w-[64px] items-center justify-center rounded-[8px] px-3 text-[11px] font-semibold leading-none transition-colors',
+                        'inline-flex h-7 min-w-[52px] items-center justify-center rounded-[7px] px-2 text-[10px] font-semibold leading-none transition-colors',
                         'text-[#59664b] hover:bg-[#d4e4c1]/78'
                       )}
                       onClick={() => {
                         setInteractionMode('ai-inspect')
                         toast.info(t('sessionDetail.inspectActiveToast'))
                       }}
-                      disabled={isGenerating || isSavingDragEdits}
+                      disabled={isGenerating || isSavingEdits}
                     >
-                      <Sparkles className="mr-1 h-3 w-3" />
+                      <Sparkles className="mr-0.5 h-2.5 w-2.5" />
                       {t('sessionDetail.aiMode')}
                     </button>
                   </div>
                 )}
                 {interactionMode === 'edit' && (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="default"
-                      size="sm"
-                      className="rounded-[8px] bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
-                      onClick={onSaveDragEdits}
-                      disabled={isGenerating || isSavingDragEdits}
-                    >
-                      {isSavingDragEdits ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Check className="mr-1 h-3 w-3" />
-                      )}
-                      {t('sessionDetail.exitAndSave')}
-                    </Button>
+                  <div className="flex items-center gap-1.5">
+                    {pendingEditCount > 0 && (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="h-7 rounded-[7px] bg-[#5d6b4d] px-2 text-[10px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
+                        onClick={onSaveAllEdits}
+                        disabled={isGenerating || isSavingEdits}
+                      >
+                        {isSavingEdits ? (
+                          <Loader2 className="mr-0.5 h-2.5 w-2.5 animate-spin" />
+                        ) : (
+                          <Check className="mr-0.5 h-2.5 w-2.5" />
+                        )}
+                        {t('sessionDetail.exitAndSave')}
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="rounded-[8px] border-transparent bg-[#d4e4c1]/86 px-2.5 text-[11px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
-                      onClick={() => {
-                        if (pendingDragCount > 0) {
-                          onCancelDragEdits()
-                        }
-                        onCancelTextEdit()
-                        setInteractionMode('preview')
-                      }}
-                      disabled={isGenerating || isSavingDragEdits}
+                      className="h-7 rounded-[7px] border-transparent bg-[#d4e4c1]/86 px-2 text-[10px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
+                      onClick={onDiscardAllEdits}
+                      disabled={isGenerating || isSavingEdits}
                     >
                       {t('sessionDetail.exitWithoutSaving')}
                     </Button>
                   </div>
                 )}
                 {interactionMode === 'ai-inspect' && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="rounded-[8px] border-transparent bg-[#d4e4c1]/86 px-2.5 text-[11px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
+                      className="h-7 rounded-[7px] border-transparent bg-[#d4e4c1]/86 px-2 text-[10px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
                       onClick={() => {
                         clearSelectedElement()
                         setInteractionMode('preview')
                       }}
-                      disabled={isGenerating || isSavingDragEdits}
+                      disabled={isGenerating || isSavingEdits}
                     >
                       {t('sessionDetail.exitAiMode')}
                     </Button>
@@ -213,22 +216,15 @@ export function PreviewStage({
               <ElementInspectorPanel
                 selection={textSelection}
                 draft={textDraft}
-                isSaving={isSavingTextEdit}
                 position={inspectorPanelPosition}
                 onDraftChange={onTextDraftChange}
-                onSave={onSaveTextEdit}
-                onCancel={onCancelTextEdit}
+                onClose={onCancelTextEdit}
                 onPositionChange={setInspectorPanelPosition}
               />
             )}
             {selectedPage.status === 'failed' && (
               <div className="absolute bottom-5 left-5 z-20 max-w-[520px] rounded-[1rem] bg-[#fff4ef]/92 px-3 py-2 text-xs text-[#8e5a53] shadow-[0_10px_24px_rgba(142,90,83,0.12)] backdrop-blur-sm">
                 {t('sessionDetail.failedPageHint')}
-              </div>
-            )}
-            {isEditing && !isGenerating && (
-              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#f1faee]/92 px-2.5 py-1.5 text-[11px] leading-none text-[#3f6f34] shadow-[0_8px_18px_rgba(63,111,52,0.12)] backdrop-blur-sm">
-                {t('sessionDetail.clickTextToEdit')}
               </div>
             )}
             {isGenerating && (
@@ -260,4 +256,4 @@ export function PreviewStage({
       </div>
     </main>
   )
-}
+})

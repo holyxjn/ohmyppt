@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type { DragEditorMovePayload } from '../components/preview/drag-editor-script'
 import type { TextEditorSelectionPayload } from '../components/preview/text-editor-types'
+import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
 import { MessagePanel } from '../components/session-detail/MessagePanel'
 import { PageSidebar } from '../components/session-detail/PageSidebar'
@@ -73,11 +74,14 @@ export function SessionDetailPage(): React.JSX.Element {
   const [pendingDragEdits, setPendingDragEdits] = useState<
     Array<DragEditorMovePayload & { pageId: string; htmlPath: string }>
   >([])
-  const [isSavingDragEdits, setIsSavingDragEdits] = useState(false)
-  const [isSavingTextEdit, setIsSavingTextEdit] = useState(false)
+  const [pendingTextEdits, setPendingTextEdits] = useState<
+    Array<{ pageId: string; htmlPath: string; selector: string; patch: { text: string; style: { color: string; fontSize: string; fontWeight: string } } }>
+  >([])
+  const [isSavingEdits, setIsSavingEdits] = useState(false)
   const [textSelection, setTextSelection] = useState<TextEditorSelectionPayload | null>(null)
   const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
+  const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
   const {
     success: toastSuccess,
@@ -111,6 +115,7 @@ export function SessionDetailPage(): React.JSX.Element {
     resetForPageChange()
     window.setTimeout(() => {
       setPendingDragEdits([])
+      setPendingTextEdits([])
       setTextSelection(null)
       setTextDraft(EMPTY_ELEMENT_DRAFT)
     }, 0)
@@ -580,13 +585,18 @@ export function SessionDetailPage(): React.JSX.Element {
     })
   }
 
-  const handleSavePendingDragEdits = async (): Promise<void> => {
+  // Unified save: persist both drag edits and text edits for the current page
+  const handleSaveAllEdits = async (): Promise<void> => {
     if (!id || !selectedPage?.pageId) return
-    const edits = pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId)
-    if (edits.length === 0) return
-    setIsSavingDragEdits(true)
+    const dragEdits = pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId)
+    const textEdits = pendingTextEdits.filter((item) => item.pageId === selectedPage.pageId)
+    if (dragEdits.length === 0 && textEdits.length === 0) {
+      useSessionDetailUiStore.getState().setInteractionMode('preview')
+      return
+    }
+    setIsSavingEdits(true)
     try {
-      for (const edit of edits) {
+      for (const edit of dragEdits) {
         const result = await ipc.updateElementLayout({
           sessionId: id,
           htmlPath: edit.htmlPath,
@@ -602,26 +612,51 @@ export function SessionDetailPage(): React.JSX.Element {
           throw new Error(t('sessionDetail.layoutSaveFailed'))
         }
       }
+      for (const edit of textEdits) {
+        const result = await ipc.updateElementProperties({
+          sessionId: id,
+          htmlPath: edit.htmlPath,
+          pageId: edit.pageId,
+          selector: edit.selector,
+          patch: edit.patch
+        })
+        if (!result.success) {
+          throw new Error(t('sessionDetail.textSaveFailed'))
+        }
+      }
       setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+      setPendingTextEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+      previewIframeRef.current?.clearTextEditorSelection()
+      setTextSelection(null)
+      setTextDraft(EMPTY_ELEMENT_DRAFT)
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       useSessionDetailUiStore.getState().setInteractionMode('preview')
-      toastSuccess(t('sessionDetail.adjustmentsSaved', { count: edits.length }))
+      const totalCount = dragEdits.length + textEdits.length
+      toastSuccess(t('sessionDetail.adjustmentsSaved', { count: totalCount }))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('sessionDetail.layoutSaveFailed'))
     } finally {
-      setIsSavingDragEdits(false)
+      setIsSavingEdits(false)
     }
   }
 
-  const handleCancelPendingDragEdits = (): void => {
+  const handleDiscardAllEdits = (): void => {
     if (!selectedPage?.pageId) return
-    const hadPending = pendingDragEdits.some((item) => item.pageId === selectedPage.pageId)
+    const hadDragPending = pendingDragEdits.some((item) => item.pageId === selectedPage.pageId)
+    const hadTextPending = pendingTextEdits.some((item) => item.pageId === selectedPage.pageId)
     setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+    setPendingTextEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+    previewIframeRef.current?.clearTextEditorSelection()
+    setTextSelection(null)
+    setTextDraft(EMPTY_ELEMENT_DRAFT)
     setPreviewRefreshKey((key) => key + 1)
-    if (hadPending) toastInfo(t('sessionDetail.discardedAdjustments'))
+    useSessionDetailUiStore.getState().setInteractionMode('preview')
+    if (hadDragPending || hadTextPending) toastInfo(t('sessionDetail.discardedAdjustments'))
   }
 
   const handleTextSelected = (payload: TextEditorSelectionPayload): void => {
+    // Commit previous edit before switching to new element
+    commitCurrentTextEdit()
     setTextSelection(payload)
     setTextDraft({
       text: payload.text,
@@ -631,58 +666,62 @@ export function SessionDetailPage(): React.JSX.Element {
     })
   }
 
-  const handleCancelTextEdit = (): void => {
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+  const handleTextDraftChange = (draft: ElementEditDraft): void => {
+    setTextDraft(draft)
+    // Live preview in iframe
+    if (textSelection && selectedPage?.pageId) {
+      previewIframeRef.current?.liveUpdateTextElement(textSelection.selector, {
+        text: draft.text,
+        style: {
+          color: draft.color,
+          fontSize: draft.fontSize ? `${draft.fontSize}px` : undefined,
+          fontWeight: draft.fontWeight
+        }
+      })
+    }
   }
 
-  const handleSaveTextEdit = async (): Promise<void> => {
-    if (!id || !selectedPage?.htmlPath || !selectedPage.pageId || !textSelection) return
+  // When user starts editing a new element, save the previous text edit as pending
+  const commitCurrentTextEdit = (): void => {
+    if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
     const nextText = textDraft.text.trim()
-    if (!nextText) {
-      setPreviewRefreshKey((key) => key + 1)
-      toastError(t('sessionDetail.textSaveEmpty'))
-      return
-    }
-    setIsSavingTextEdit(true)
-    try {
-      const result = await ipc.updateElementProperties({
-        sessionId: id,
-        htmlPath: selectedPage.htmlPath,
-        pageId: selectedPage.pageId,
-        selector: textSelection.selector,
-        patch: {
-          text: nextText,
-          style: {
-            color: textDraft.color,
-            fontSize: textDraft.fontSize,
-            fontWeight: textDraft.fontWeight
-          }
-        }
-      })
-      if (!result.success) {
-        throw new Error(t('sessionDetail.textSaveFailed'))
+    if (!nextText) return
+    // Skip if nothing actually changed
+    if (
+      nextText === textSelection.text &&
+      textDraft.color === rgbToHex(textSelection.style.color) &&
+      textDraft.fontSize === fontSizeToNumber(textSelection.style.fontSize) &&
+      textDraft.fontWeight === normalizeFontWeight(textSelection.style.fontWeight)
+    ) return
+    const patch = {
+      text: nextText,
+      style: {
+        color: textDraft.color,
+        fontSize: textDraft.fontSize,
+        fontWeight: textDraft.fontWeight
       }
-      useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
-      setPreviewRefreshKey((key) => key + 1)
-      setTextSelection({
-        ...textSelection,
-        text: nextText,
-        style: {
-          ...textSelection.style,
-          color: textDraft.color,
-          fontSize: textDraft.fontSize ? `${textDraft.fontSize}px` : textSelection.style.fontSize,
-          fontWeight: textDraft.fontWeight
-        }
-      })
-      handleCancelTextEdit()
-      toastSuccess(t('sessionDetail.textSaved'))
-    } catch (error) {
-      setPreviewRefreshKey((key) => key + 1)
-      toastError(error instanceof Error ? error.message : t('sessionDetail.textSaveFailed'))
-    } finally {
-      setIsSavingTextEdit(false)
     }
+    const entry = {
+      pageId: selectedPage.pageId,
+      htmlPath: selectedPage.htmlPath,
+      selector: textSelection.selector,
+      patch
+    }
+    setPendingTextEdits((items) => {
+      const existingIndex = items.findIndex(
+        (item) => item.pageId === entry.pageId && item.selector === entry.selector
+      )
+      if (existingIndex < 0) return [...items, entry]
+      return items.map((item, index) => (index === existingIndex ? entry : item))
+    })
+  }
+
+  const handleCancelTextEdit = (): void => {
+    // Commit current text edit before closing panel
+    commitCurrentTextEdit()
+    previewIframeRef.current?.clearTextEditorSelection()
+    setTextSelection(null)
+    setTextDraft(EMPTY_ELEMENT_DRAFT)
   }
 
   return (
@@ -718,23 +757,22 @@ export function SessionDetailPage(): React.JSX.Element {
           <PageSidebar pages={normalizedOrderedPages} />
 
           <PreviewStage
+            ref={previewIframeRef}
             selectedPage={selectedPage}
             sessionTitle={currentSession?.title}
             isGenerating={isGenerating}
             progressLabel={progress?.label}
             previewRefreshKey={previewRefreshKey}
-            pendingDragCount={selectedPagePendingDragCount}
-            isSavingDragEdits={isSavingDragEdits}
+            pendingEditCount={selectedPagePendingDragCount + pendingTextEdits.filter((item) => item.pageId === selectedPage?.pageId).length}
+            isSavingEdits={isSavingEdits}
             textSelection={textSelection}
             textDraft={textDraft}
-            isSavingTextEdit={isSavingTextEdit}
-            onTextDraftChange={setTextDraft}
+            onTextDraftChange={handleTextDraftChange}
             onElementMoved={handleElementMoved}
             onTextSelected={handleTextSelected}
-            onSaveTextEdit={() => void handleSaveTextEdit()}
             onCancelTextEdit={handleCancelTextEdit}
-            onSaveDragEdits={() => void handleSavePendingDragEdits()}
-            onCancelDragEdits={handleCancelPendingDragEdits}
+            onSaveAllEdits={() => void handleSaveAllEdits()}
+            onDiscardAllEdits={handleDiscardAllEdits}
           />
 
           {interactionMode === 'ai-inspect' && (

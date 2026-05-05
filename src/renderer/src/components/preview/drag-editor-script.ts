@@ -36,6 +36,33 @@ export function buildDragEditorInjectScript(): string {
     }
   };
   const SCAFFOLD_BLOCK_IDS = new Set(["content"]);
+  const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th", "blockquote", "figcaption"]);
+  const BLOCKED_TEXT_TAGS = new Set(["script", "style", "svg", "canvas", "img", "video", "audio", "input", "textarea", "select", "option"]);
+
+  const normalizeText = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+
+  const hasOnlyEditableTextChildren = (element) => {
+    return Array.from(element.children || []).every((child) => {
+      const tag = child.tagName ? child.tagName.toLowerCase() : "";
+      return tag === "br";
+    });
+  };
+
+  const isEditableTextElement = (element) => {
+    if (!(element instanceof Element)) return false;
+    const tag = element.tagName ? element.tagName.toLowerCase() : "";
+    if (!tag || BLOCKED_TEXT_TAGS.has(tag)) return false;
+    if (element.closest("svg, canvas, script, style")) return false;
+    if (!hasOnlyEditableTextChildren(element)) return false;
+    if (!TEXT_TAGS.has(tag) && !element.getAttribute("data-role") && !element.getAttribute("data-block-id")) return false;
+    const text = normalizeText(element.textContent);
+    if (!text || text.length > 500) return false;
+    return true;
+  };
+
+  // Deferred drag state for text elements: don't start drag on pointerdown,
+  // only start when pointer moves beyond threshold. This preserves dblclick events.
+  let textPendingState = null;
 
   const existing = window[STATE_KEY];
   if (existing && existing.active) return;
@@ -457,6 +484,7 @@ export function buildDragEditorInjectScript(): string {
   let pendingClientY = 0;
   let frameId = 0;
   let overlayElement = null;
+  let overlayResizeObserver = null;
   const resolveDragAnchor = window.__pptResolveDragAnchor = function(result) {
     if (!pendingAnchorState) return;
     const stableSelector = (result && result.selector) || pendingAnchorState.tempSelector;
@@ -540,11 +568,19 @@ export function buildDragEditorInjectScript(): string {
   const setActive = (target) => {
     if (activeElement === target) return;
     if (activeElement) activeElement.classList.remove(ACTIVE_CLASS);
+    // Disconnect previous observer
+    if (overlayResizeObserver) {
+      overlayResizeObserver.disconnect();
+      overlayResizeObserver = null;
+    }
     activeElement = target;
     if (activeElement) {
       activeElement.classList.remove(HOVER_CLASS);
       activeElement.classList.add(ACTIVE_CLASS);
       updateOverlay();
+      // Watch activeElement for size changes (e.g. text content edits)
+      overlayResizeObserver = new ResizeObserver(() => updateOverlay());
+      overlayResizeObserver.observe(activeElement);
     } else {
       updateOverlay();
     }
@@ -555,6 +591,10 @@ export function buildDragEditorInjectScript(): string {
     if (activeElement) activeElement.classList.remove(ACTIVE_CLASS);
     hoverElement = null;
     activeElement = null;
+    if (overlayResizeObserver) {
+      overlayResizeObserver.disconnect();
+      overlayResizeObserver = null;
+    }
     if (overlayElement) overlayElement.remove();
     overlayElement = null;
   };
@@ -611,6 +651,51 @@ export function buildDragEditorInjectScript(): string {
     if (pendingAnchorState) {
       pendingClientX = event.clientX;
       pendingClientY = event.clientY;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    // Deferred text drag: only activate when pointer moves beyond threshold
+    if (textPendingState) {
+      const dx = event.clientX - textPendingState.startClientX;
+      const dy = event.clientY - textPendingState.startClientY;
+      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      // Threshold exceeded — convert to real drag
+      const s = textPendingState;
+      textPendingState = null;
+      ensureDragTranslate(s.target);
+      if (rootHost && rootHost.style) rootHost.style.cursor = "move";
+      if (cursorHost && cursorHost.style) cursorHost.style.cursor = "move";
+      pendingClientX = event.clientX;
+      pendingClientY = event.clientY;
+      if (s.selector.indexOf('[data-block-id=') !== -1) {
+        setActive(s.target);
+        dragState = {
+          target: s.target,
+          selector: s.selector,
+          elementTag: s.elementTag,
+          startClientX: s.startClientX,
+          startClientY: s.startClientY,
+          baseX: s.baseX,
+          baseY: s.baseY,
+        };
+      } else {
+        pendingAnchorState = {
+          mode: 'drag',
+          target: s.target,
+          tempSelector: s.selector,
+          elementTag: s.elementTag,
+          startClientX: s.startClientX,
+          startClientY: s.startClientY,
+          baseX: s.baseX,
+          baseY: s.baseY,
+        };
+        console.log(LOG_PREFIX + JSON.stringify({ type: "pre-anchor", selector: s.selector, elementTag: s.elementTag }));
+      }
+      try {
+        s.target.setPointerCapture?.(event.pointerId);
+      } catch (_error) {}
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -697,7 +782,35 @@ export function buildDragEditorInjectScript(): string {
 
     const target = pickTarget(event.target, event.clientX, event.clientY);
     if (!target) return;
+
     const selector = buildStableSelector(target);
+    if (!selector) {
+      console.log(LOG_PREFIX + JSON.stringify({
+        type: "invalid",
+        message: uiMessage("请拖拽页面内可见元素", "Drag a visible element inside the page"),
+      }));
+      return;
+    }
+
+    // Text elements use deferred drag: don't preventDefault / setPointerCapture
+    // so that click/dblclick events can fire for the text editor.
+    // Drag only activates on significant pointer movement.
+    if (isEditableTextElement(target)) {
+      const computed = getComputedStyle(target);
+      const baseX = parsePx(target.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
+      const baseY = parsePx(target.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
+      const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
+      textPendingState = {
+        target,
+        selector,
+        elementTag,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        baseX,
+        baseY,
+      };
+      return;
+    }
     if (!selector) {
       console.log(LOG_PREFIX + JSON.stringify({
         type: "invalid",
@@ -747,6 +860,12 @@ export function buildDragEditorInjectScript(): string {
   };
 
   const finishDrag = (event) => {
+    // Clear deferred text drag on pointerup — no movement means it was just a click/dblclick
+    if (textPendingState) {
+      textPendingState = null;
+      return;
+    }
+
     if (pendingAnchorState) {
       try {
         event.target?.releasePointerCapture?.(event.pointerId);
@@ -861,6 +980,10 @@ export function buildDragEditorInjectScript(): string {
     document.removeEventListener("pointercancel", finishDrag, true);
     document.removeEventListener("keydown", onKeyDown, true);
     clearVisualState();
+    if (overlayResizeObserver) {
+      overlayResizeObserver.disconnect();
+      overlayResizeObserver = null;
+    }
     if (frameId) {
       cancelAnimationFrame(frameId);
       frameId = 0;
@@ -869,6 +992,7 @@ export function buildDragEditorInjectScript(): string {
     overlayElement = null;
     resizeState = null;
     pendingAnchorState = null;
+    textPendingState = null;
     delete window.__pptResolveDragAnchor;
     const style = document.getElementById(STYLE_ID);
     if (style) style.remove();
