@@ -754,7 +754,7 @@ export function SessionDetailPage(): React.JSX.Element {
         </header>
 
         <div className="flex min-h-0 flex-1 bg-[#f5f1e8]">
-          <PageSidebar pages={normalizedOrderedPages} />
+          <PageSidebar pages={normalizedOrderedPages} disabled={interactionMode === 'ai-inspect' && isGenerating} />
 
           <PreviewStage
             ref={previewIframeRef}
