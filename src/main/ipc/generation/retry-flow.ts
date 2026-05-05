@@ -8,6 +8,7 @@ import fs from 'fs'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
+import { parseSessionMetadata } from './session-metadata'
 import { buildDesignContractWithLLM, runDeepAgentDeckGeneration } from '../generate'
 
 export async function executeRetryFailedPages(
@@ -38,22 +39,14 @@ export async function executeRetryFailedPages(
   let metadataGeneratedPageCount = 0
   let metadataFailedPages: Array<Record<string, unknown>> = []
   if (typeof sessionRecord.metadata === 'string' && sessionRecord.metadata.trim().length > 0) {
-    try {
-      const metadata = JSON.parse(sessionRecord.metadata) as {
-        generatedPages?: Array<Record<string, unknown>>
-        failedPages?: Array<Record<string, unknown>>
-      }
-      metadataGeneratedPageCount = Array.isArray(metadata.generatedPages)
-        ? metadata.generatedPages.length
-        : 0
-      metadataFailedPages =
-        incompleteSnapshotRecords.length === 0 && Array.isArray(metadata.failedPages)
-          ? metadata.failedPages
-          : []
-    } catch {
-      metadataGeneratedPageCount = 0
-      metadataFailedPages = []
-    }
+    const metadata = parseSessionMetadata(sessionRecord.metadata)
+    metadataGeneratedPageCount = Array.isArray(metadata.generatedPages)
+      ? metadata.generatedPages.length
+      : 0
+    metadataFailedPages =
+      incompleteSnapshotRecords.length === 0 && Array.isArray(metadata.failedPages)
+        ? metadata.failedPages as Array<Record<string, unknown>>
+        : []
   }
   if (incompleteSnapshotRecords.length === 0 && metadataFailedPages.length === 0) {
     throw new Error('当前会话没有可继续生成的页面。')
@@ -413,50 +406,38 @@ export async function executeRetryFailedPages(
     html: string
   }> = []
   if (context.session?.metadata) {
-    try {
-      const metadata = JSON.parse(context.session.metadata) as {
-        generatedPages?: Array<{
-          pageNumber: number
-          title: string
-          pageId?: string
-          htmlPath?: string
-          html?: string
-        }>
-      }
-      const restoredPages = await Promise.all(
-        (metadata.generatedPages || [])
-          .filter((page) => !retryPageIdSet.has(page.pageId || `page-${page.pageNumber}`))
-          .map(async (page) => {
-            const pageId = page.pageId || `page-${page.pageNumber}`
-            const htmlPath =
-              page.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
-            const html = fs.existsSync(htmlPath)
-              ? await fs.promises.readFile(htmlPath, 'utf-8')
-              : page.html || ''
-            if (!html.trim()) return null
-            return {
-              pageNumber: page.pageNumber,
-              title: page.title,
-              pageId,
-              htmlPath,
-              html
-            }
-          })
-      )
-      previousGeneratedPages = restoredPages.filter(
-        (
-          page
-        ): page is {
-          pageNumber: number
-          title: string
-          pageId: string
-          htmlPath: string
-          html: string
-        } => Boolean(page)
-      )
-    } catch {
-      previousGeneratedPages = []
-    }
+    const metadata = parseSessionMetadata(context.session.metadata)
+    const restoredPages = await Promise.all(
+      (metadata.generatedPages || [])
+        .filter((page) => !retryPageIdSet.has(page.pageId || `page-${page.pageNumber}`))
+        .map(async (page) => {
+          const pageId = page.pageId || `page-${page.pageNumber}`
+          const htmlPath =
+            page.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
+          const html = fs.existsSync(htmlPath)
+            ? await fs.promises.readFile(htmlPath, 'utf-8')
+            : ''
+          if (!html.trim()) return null
+          return {
+            pageNumber: page.pageNumber,
+            title: page.title,
+            pageId,
+            htmlPath,
+            html
+          }
+        })
+    )
+    previousGeneratedPages = restoredPages.filter(
+      (
+        page
+      ): page is {
+        pageNumber: number
+        title: string
+        pageId: string
+        htmlPath: string
+        html: string
+      } => Boolean(page)
+    )
   }
   const mergedGeneratedPages = [...previousGeneratedPages, ...retrySuccessPages].sort(
     (a, b) => a.pageNumber - b.pageNumber

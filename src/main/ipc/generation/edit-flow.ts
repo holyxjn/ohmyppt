@@ -8,6 +8,7 @@ import fs from 'fs'
 import { normalizeLayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
+import { parseSessionMetadata } from './session-metadata'
 import { runDeepAgentEdit } from '../generate'
 import type { GeneratedPagePayload } from '@shared/generation'
 
@@ -50,38 +51,26 @@ export async function executeEditGeneration(
   let savedDesignContract: DesignContract | undefined
   let metadataFailedPages: Array<{ pageId: string; title: string; reason: string }> = []
   if (context.session?.metadata) {
-    try {
-      const metadata = JSON.parse(context.session.metadata) as {
-        generatedPages?: Array<{
-          pageNumber: number
-          title: string
-          pageId?: string
-          htmlPath?: string
-        }>
-        failedPages?: Array<{ pageId?: string; title?: string; reason?: string }>
-      }
-      if (outlineTitles.length === 0) {
-        outlineTitles = (metadata.generatedPages || []).map((p) => p.title)
-      }
-      metadataFailedPages = (metadata.failedPages || [])
-        .map((page) => ({
-          pageId: typeof page.pageId === 'string' ? page.pageId.trim() : '',
-          title: typeof page.title === 'string' ? page.title.trim() : '',
-          reason: typeof page.reason === 'string' ? page.reason.trim() : ''
-        }))
-        .filter((page) => page.pageId.length > 0)
-      pageRefs = (metadata.generatedPages || []).map((p, index) => {
-        const pageId = p.pageId || `page-${p.pageNumber || index + 1}`
-        return {
-          pageNumber: p.pageNumber || index + 1,
-          title: p.title || `第${index + 1}页`,
-          pageId,
-          htmlPath: p.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
-        }
-      })
-    } catch {
-      // ignore malformed metadata
+    const metadata = parseSessionMetadata(context.session.metadata)
+    if (outlineTitles.length === 0) {
+      outlineTitles = (metadata.generatedPages || []).map((p) => p.title)
     }
+    metadataFailedPages = (metadata.failedPages || [])
+      .map((page) => ({
+        pageId: typeof page.pageId === 'string' ? page.pageId.trim() : '',
+        title: typeof page.title === 'string' ? page.title.trim() : '',
+        reason: typeof page.reason === 'string' ? page.reason.trim() : ''
+      }))
+      .filter((page) => page.pageId.length > 0)
+    pageRefs = (metadata.generatedPages || []).map((p, index) => {
+      const pageId = p.pageId || `page-${p.pageNumber || index + 1}`
+      return {
+        pageNumber: p.pageNumber || index + 1,
+        title: p.title || `第${index + 1}页`,
+        pageId,
+        htmlPath: p.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
+      }
+    })
   }
   const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
   const pageRefById = new Map(pageRefs.map((ref) => [ref.pageId, ref]))
