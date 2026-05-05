@@ -391,8 +391,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         pageId: page.pageId,
-        htmlPath: page.htmlPath,
-        html: page.html
+        htmlPath: page.htmlPath
       })),
       indexPath,
       projectId: context.projectId
@@ -880,8 +879,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
         pageNumber: page.pageNumber,
         title: page.title,
         pageId: page.pageId,
-        htmlPath: page.htmlPath,
-        html: page.html
+        htmlPath: page.htmlPath
       })),
       failedPages: remainingFailedPages,
       indexPath,
@@ -1461,8 +1459,7 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
           pageNumber: page.pageNumber,
           title: page.title,
           pageId: page.pageId,
-          htmlPath: page.htmlPath,
-          html: page.html
+          htmlPath: page.htmlPath
         })),
         failedPages: failedPages.map((page) => ({
           pageId: page.pageId,
@@ -1963,7 +1960,12 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
     await db.updateSessionMetadata(context.sessionId, {
       lastRunId: context.runId,
       entryMode: 'multi_page',
-      generatedPages: mergedGeneratedPages,
+      generatedPages: mergedGeneratedPages.map((page) => ({
+        pageNumber: page.pageNumber,
+        title: page.title,
+        pageId: page.pageId,
+        htmlPath: page.htmlPath
+      })),
       failedPages: retryFailures.map((page) => ({
         pageId: page.pageId,
         title: page.title,

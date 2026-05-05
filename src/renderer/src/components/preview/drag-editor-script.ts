@@ -452,10 +452,43 @@ export function buildDragEditorInjectScript(): string {
   let activeElement = null;
   let dragState = null;
   let resizeState = null;
+  let pendingAnchorState = null;
   let pendingClientX = 0;
   let pendingClientY = 0;
   let frameId = 0;
   let overlayElement = null;
+  const resolveDragAnchor = window.__pptResolveDragAnchor = function(result) {
+    if (!pendingAnchorState) return;
+    const stableSelector = (result && result.selector) || pendingAnchorState.tempSelector;
+    if (pendingAnchorState.mode === 'drag') {
+      dragState = {
+        target: pendingAnchorState.target,
+        selector: stableSelector,
+        elementTag: pendingAnchorState.elementTag,
+        startClientX: pendingAnchorState.startClientX,
+        startClientY: pendingAnchorState.startClientY,
+        baseX: pendingAnchorState.baseX,
+        baseY: pendingAnchorState.baseY,
+      };
+      setActive(pendingAnchorState.target);
+    } else {
+      resizeState = {
+        target: pendingAnchorState.target,
+        selector: stableSelector,
+        elementTag: pendingAnchorState.elementTag,
+        dir: pendingAnchorState.dir,
+        startClientX: pendingAnchorState.startClientX,
+        startClientY: pendingAnchorState.startClientY,
+        baseX: pendingAnchorState.baseX,
+        baseY: pendingAnchorState.baseY,
+        baseWidth: pendingAnchorState.baseWidth,
+        baseHeight: pendingAnchorState.baseHeight,
+        childItems: pendingAnchorState.childItems,
+      };
+    }
+    pendingAnchorState = null;
+  };
+
   const cursorHost = document.body || document.documentElement;
   const rootHost = document.documentElement;
   const previousCursor = cursorHost && cursorHost.style ? cursorHost.style.cursor : "";
@@ -575,6 +608,14 @@ export function buildDragEditorInjectScript(): string {
   };
 
   const onPointerMove = (event) => {
+    if (pendingAnchorState) {
+      pendingClientX = event.clientX;
+      pendingClientY = event.clientY;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     if (resizeState) {
       pendingClientX = event.clientX;
       pendingClientY = event.clientY;
@@ -614,19 +655,38 @@ export function buildDragEditorInjectScript(): string {
       ensureDragTranslate(activeElement);
       pendingClientX = event.clientX;
       pendingClientY = event.clientY;
-      resizeState = {
-        target: activeElement,
-        selector,
-        elementTag: activeElement.tagName ? activeElement.tagName.toLowerCase() : "",
-        dir: handle.getAttribute("data-dir") || "se",
-        startClientX: event.clientX,
-        startClientY: event.clientY,
-        baseX,
-        baseY,
-        baseWidth: Math.max(1, rect.width),
-        baseHeight: Math.max(1, rect.height),
-        childItems: collectResizableChildren(activeElement),
-      };
+      const elementTag = activeElement.tagName ? activeElement.tagName.toLowerCase() : "";
+      if (selector.indexOf('[data-block-id=') !== -1) {
+        resizeState = {
+          target: activeElement,
+          selector,
+          elementTag,
+          dir: handle.getAttribute("data-dir") || "se",
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          baseX,
+          baseY,
+          baseWidth: Math.max(1, rect.width),
+          baseHeight: Math.max(1, rect.height),
+          childItems: collectResizableChildren(activeElement),
+        };
+      } else {
+        pendingAnchorState = {
+          mode: 'resize',
+          target: activeElement,
+          tempSelector: selector,
+          elementTag,
+          dir: handle.getAttribute("data-dir") || "se",
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          baseX,
+          baseY,
+          baseWidth: Math.max(1, rect.width),
+          baseHeight: Math.max(1, rect.height),
+          childItems: collectResizableChildren(activeElement),
+        };
+        console.log(LOG_PREFIX + JSON.stringify({ type: "pre-anchor", selector, elementTag }));
+      }
       try {
         handle.setPointerCapture?.(event.pointerId);
       } catch (_error) {}
@@ -650,20 +710,35 @@ export function buildDragEditorInjectScript(): string {
     const baseX = parsePx(target.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
     const baseY = parsePx(target.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
     ensureDragTranslate(target);
-    setActive(target);
     if (rootHost && rootHost.style) rootHost.style.cursor = "move";
     if (cursorHost && cursorHost.style) cursorHost.style.cursor = "move";
     pendingClientX = event.clientX;
     pendingClientY = event.clientY;
-    dragState = {
-      target,
-      selector,
-      elementTag: target.tagName ? target.tagName.toLowerCase() : "",
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      baseX,
-      baseY,
-    };
+    const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
+    if (selector.indexOf('[data-block-id=') !== -1) {
+      setActive(target);
+      dragState = {
+        target,
+        selector,
+        elementTag,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        baseX,
+        baseY,
+      };
+    } else {
+      pendingAnchorState = {
+        mode: 'drag',
+        target,
+        tempSelector: selector,
+        elementTag,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        baseX,
+        baseY,
+      };
+      console.log(LOG_PREFIX + JSON.stringify({ type: "pre-anchor", selector, elementTag }));
+    }
     try {
       target.setPointerCapture?.(event.pointerId);
     } catch (_error) {}
@@ -672,6 +747,16 @@ export function buildDragEditorInjectScript(): string {
   };
 
   const finishDrag = (event) => {
+    if (pendingAnchorState) {
+      try {
+        event.target?.releasePointerCapture?.(event.pointerId);
+      } catch (_error) {}
+      pendingAnchorState = null;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     if (resizeState) {
       if (frameId) {
         cancelAnimationFrame(frameId);
@@ -783,6 +868,8 @@ export function buildDragEditorInjectScript(): string {
     if (overlayElement) overlayElement.remove();
     overlayElement = null;
     resizeState = null;
+    pendingAnchorState = null;
+    delete window.__pptResolveDragAnchor;
     const style = document.getElementById(STYLE_ID);
     if (style) style.remove();
     if (cursorHost && cursorHost.style) {

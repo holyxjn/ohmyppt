@@ -38,24 +38,6 @@ const VISUAL_BLOCK_SELECTOR = [
 ].join(',')
 const VISUAL_BLOCK_CLASS_PATTERN =
   /(?:^|[-_\s])(card|panel|chart|graph|plot|metric|stat|timeline|diagram|visual|figure|image|media|table|ranking|rank|top|list|item|tile|badge|kpi|summary|callout)(?:$|[-_\s])/i
-const BLOCK_ID_EXCLUDED_TAGS = new Set([
-  'html',
-  'head',
-  'body',
-  'script',
-  'style',
-  'link',
-  'meta',
-  'title',
-  'br',
-  'defs',
-  'lineargradient',
-  'radialgradient',
-  'clippath',
-  'mask',
-  'pattern'
-])
-
 const mergeClassNames = (current: string | undefined, additions: string[]): string => {
   const classes = new Set((current || '').split(/\s+/).filter(Boolean))
   additions.forEach((item) => classes.add(item))
@@ -209,15 +191,6 @@ export const normalizeCreativePageFragment = (html: string): string => {
       hasVisualChild(el)
     if (!semanticVisualBlock) return
     el.attr('data-block-id', allocateBlockId(blockIdBaseForVisualElement(tagName, el), usedBlockIds))
-  })
-
-  content.find('*').each((_, node) => {
-    const el = $(node)
-    if (el.attr('data-block-id')) return
-    if (el.attr('data-role') === 'content') return
-    const tagName = (node.type === 'tag' ? node.name : '').toLowerCase()
-    if (!tagName || BLOCK_ID_EXCLUDED_TAGS.has(tagName)) return
-    el.attr('data-block-id', allocateBlockId(tagName, usedBlockIds))
   })
 
   return ($.root().html() || html).trim()

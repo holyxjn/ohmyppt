@@ -77,6 +77,23 @@ export interface ExportDeckResult {
   pageCount?: number
 }
 
+export interface EnsureElementAnchorPayload {
+  sessionId?: string
+  htmlPath: string
+  pageId: string
+  selector: string
+  elementTag?: string
+  elementText?: string
+  reason?: 'inspect' | 'drag' | 'text-edit'
+}
+
+export interface EnsureElementAnchorResult {
+  success: boolean
+  selector: string
+  blockId: string
+  changed: boolean
+}
+
 export interface UploadAssetsPayload {
   sessionId: string
   files: Array<{
@@ -295,6 +312,8 @@ export const ipc = {
     getIpc().invoke('drag-editor:update-element-layout', payload) as Promise<{
       success: boolean
     }>,
+  ensureElementAnchor: (payload: EnsureElementAnchorPayload) =>
+    getIpc().invoke('element-anchor:ensure', payload) as Promise<EnsureElementAnchorResult>,
   updateElementProperties: (payload: UpdateElementPropertiesPayload) =>
     getIpc().invoke('text-editor:update-element-properties', payload) as Promise<{
       success: boolean

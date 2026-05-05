@@ -11,6 +11,7 @@ import {
   type DragEditorMovePayload
 } from './drag-editor-script'
 import type { TextEditorSelectionPayload } from './text-editor-types'
+import { ipc } from '@renderer/lib/ipc'
 
 export interface PreviewIframeHandle {
   patchPageContent: (pageId: string, newHtml: string) => void
@@ -104,6 +105,29 @@ export const PreviewIframe = forwardRef<
       ? withPreviewParams(src)
       : undefined
   const pointerEnabled = inspectable && (inspecting || dragEditing || textEditing)
+
+  const ensureAnchoredSelector = async (args: {
+    selector: string
+    elementTag?: string
+    elementText?: string
+    reason: 'inspect' | 'drag' | 'text-edit'
+  }): Promise<string> => {
+    if (!pageHtmlPath || !pageId) return args.selector
+    if (/\[data-block-id=/.test(args.selector)) return args.selector
+    try {
+      const result = await ipc.ensureElementAnchor({
+        htmlPath: pageHtmlPath,
+        pageId,
+        selector: args.selector,
+        elementTag: args.elementTag,
+        elementText: args.elementText,
+        reason: args.reason
+      })
+      return result.selector || args.selector
+    } catch {
+      return args.selector
+    }
+  }
 
   const handleWebviewRef = useCallback((node: Electron.WebviewTag | null): void => {
     webviewRef.current = node
@@ -244,10 +268,17 @@ export const PreviewIframe = forwardRef<
           bounds?: TextEditorSelectionPayload['bounds']
         }
         if (isInspectorMessage && parsed.type === 'selected' && parsed.selector) {
+          void (async () => {
+            const anchoredSelector = await ensureAnchoredSelector({
+              selector: parsed.selector || '',
+              elementTag: parsed.elementTag,
+              elementText: parsed.elementText,
+              reason: parsed.mode === 'text-edit' ? 'text-edit' : 'inspect'
+            })
           if (parsed.mode === 'text-edit') {
             onTextSelected?.({
-              selector: parsed.selector,
-              label: parsed.label || parsed.selector,
+              selector: anchoredSelector,
+              label: anchoredSelector,
               elementTag: parsed.elementTag || '',
               text:
                 typeof parsed.text === 'string'
@@ -261,17 +292,44 @@ export const PreviewIframe = forwardRef<
             return
           }
           onSelectorSelected?.(
-            parsed.selector,
-            parsed.label || parsed.selector,
+            anchoredSelector,
+            anchoredSelector,
             parsed.elementTag,
             parsed.elementText
           )
+          })().catch(() => {})
+          return
+        }
+        if (isDragEditorMessage && parsed.type === 'pre-anchor' && parsed.selector) {
+          void (async () => {
+            let anchorResult: string = parsed.selector || ''
+            try {
+              anchorResult = await ensureAnchoredSelector({
+                selector: parsed.selector || '',
+                elementTag: parsed.elementTag,
+                reason: 'drag'
+              })
+            } catch { /* fallback to temp selector */ }
+            const wv = webviewRef.current
+            if (wv) {
+              safeExecuteJavaScript(
+                wv,
+                `if (window.__pptResolveDragAnchor) window.__pptResolveDragAnchor(${JSON.stringify({ selector: anchorResult })});`
+              )
+            }
+          })().catch(() => {})
           return
         }
         if (isDragEditorMessage && parsed.type === 'moved' && parsed.selector) {
-          onElementMoved?.({
-            selector: parsed.selector,
-            label: parsed.label || parsed.selector,
+          void (async () => {
+            const anchoredSelector = await ensureAnchoredSelector({
+              selector: parsed.selector || '',
+              elementTag: parsed.elementTag,
+              reason: 'drag'
+            })
+            onElementMoved?.({
+            selector: anchoredSelector,
+            label: anchoredSelector,
             elementTag: parsed.elementTag || '',
             x: Number(parsed.x || 0),
             y: Number(parsed.y || 0),
@@ -297,7 +355,8 @@ export const PreviewIframe = forwardRef<
                       (item.width !== undefined || item.height !== undefined)
                   )
               : undefined
-          })
+            })
+          })().catch(() => {})
           return
         }
         if (parsed.type === 'exit') {
@@ -318,6 +377,8 @@ export const PreviewIframe = forwardRef<
     onElementMoved,
     onTextSelected,
     onInspectExit,
+    pageHtmlPath,
+    pageId,
     webviewElement
   ])
 
