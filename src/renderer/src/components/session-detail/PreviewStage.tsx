@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Crosshair, Loader2, Move, Sparkles, Type } from 'lucide-react'
+import { Check, Crosshair, Loader2, Pencil, Sparkles } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { Button } from '../ui/Button'
@@ -51,41 +51,31 @@ export function PreviewStage({
 }): React.JSX.Element {
   const t = useT()
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
-  const inspecting = useSessionDetailUiStore((state) => state.inspecting)
-  const dragEditing = useSessionDetailUiStore((state) => state.dragEditing)
-  const textEditing = useSessionDetailUiStore((state) => state.textEditing)
-  const setInspecting = useSessionDetailUiStore((state) => state.setInspecting)
-  const setDragEditing = useSessionDetailUiStore((state) => state.setDragEditing)
-  const setTextEditing = useSessionDetailUiStore((state) => state.setTextEditing)
+  const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
+  const setInteractionMode = useSessionDetailUiStore((state) => state.setInteractionMode)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
   const [inspectorPanelPosition, setInspectorPanelPosition] =
     useState<InspectorPanelPosition | null>(null)
+  const [aiInspectActive, setAiInspectActive] = useState(true)
   const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
 
+  const isEditing = interactionMode === 'edit'
+  const isInspecting = interactionMode === 'ai-inspect' && aiInspectActive
+
   useEffect(() => {
-    if (!inspecting && !dragEditing && !textEditing) return
+    if (interactionMode === 'preview') return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
-        setInspecting(false)
-        if (dragEditing && pendingDragCount > 0) {
+        if (isEditing && pendingDragCount > 0) {
           onCancelDragEdits()
         }
-        setDragEditing(false)
-        setTextEditing(false)
+        setInteractionMode('preview')
+        onCancelTextEdit()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [
-    dragEditing,
-    inspecting,
-    onCancelDragEdits,
-    pendingDragCount,
-    setDragEditing,
-    setInspecting,
-    setTextEditing,
-    textEditing
-  ])
+  }, [interactionMode, isEditing, onCancelDragEdits, onCancelTextEdit, pendingDragCount, setInteractionMode])
 
   return (
     <main className="flex min-h-0 flex-1 flex-col px-3 py-3">
@@ -111,138 +101,129 @@ export function PreviewStage({
               pageId={selectedPage.pageId}
               title={`preview-page-${selectedPage.pageNumber}`}
               inspectable
-              inspecting={inspecting}
-              dragEditing={dragEditing}
-              textEditing={textEditing}
+              inspecting={isInspecting}
+              dragEditing={isEditing}
+              textEditing={isEditing}
               onSelectorSelected={setSelectedElement}
               onElementMoved={onElementMoved}
               onTextSelected={onTextSelected}
               onInspectExit={() => {
-                setInspecting(false)
-                setDragEditing(false)
-                setTextEditing(false)
+                setInteractionMode('preview')
                 onCancelTextEdit()
               }}
             />
+            {/* Top-right toolbar */}
             {selectedPage.htmlPath && (
-              <div className="absolute right-5 top-5 z-20 flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant={dragEditing ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
-                    dragEditing
-                      ? 'bg-[#5d6b4d] text-white'
-                      : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
-                  )}
-                  onClick={() => {
-                    if (dragEditing && pendingDragCount > 0) {
-                      onCancelDragEdits()
-                    }
-                    setDragEditing(!dragEditing)
-                    setInspecting(false)
-                    setTextEditing(false)
-                  }}
-                  disabled={isGenerating || isSavingDragEdits}
-                >
-                  <Move className="mr-1 h-3 w-3" />
-                  {dragEditing
-                    ? pendingDragCount > 0
-                      ? t('sessionDetail.exitWithoutSaving')
-                      : t('sessionDetail.exitAdjust')
-                    : t('sessionDetail.adjustLayout')}
-                </Button>
-                {dragEditing && pendingDragCount > 0 && (
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    className="rounded-[8px] bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
-                    onClick={onSaveDragEdits}
-                    disabled={isGenerating || isSavingDragEdits}
-                  >
-                    {isSavingDragEdits ? (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    ) : (
-                      <Check className="mr-1 h-3 w-3" />
-                    )}
-                    {t('sessionDetail.saveAdjustments')}
-                  </Button>
+              <div className="absolute right-5 top-5 z-20">
+                {interactionMode === 'preview' && (
+                  <div className="flex items-center gap-1 rounded-[10px] border border-[#d9cfbd]/72 bg-[#fffaf1]/90 p-1 shadow-[0_14px_34px_rgba(74,59,42,0.16)] backdrop-blur-xl">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 min-w-[64px] items-center justify-center rounded-[8px] bg-[#5d6b4d] px-3 text-[11px] font-semibold leading-none text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]"
+                      disabled
+                    >
+                      {t('sessionDetail.previewMode')}
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        'inline-flex h-8 min-w-[64px] items-center justify-center rounded-[8px] px-3 text-[11px] font-semibold leading-none transition-colors',
+                        'text-[#59664b] hover:bg-[#d4e4c1]/78'
+                      )}
+                      onClick={() => setInteractionMode('edit')}
+                      disabled={isGenerating || isSavingDragEdits || isSavingTextEdit}
+                    >
+                      <Pencil className="mr-1 h-3 w-3" />
+                      {t('sessionDetail.editMode')}
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        'inline-flex h-8 min-w-[64px] items-center justify-center rounded-[8px] px-3 text-[11px] font-semibold leading-none transition-colors',
+                        'text-[#59664b] hover:bg-[#d4e4c1]/78'
+                      )}
+                      onClick={() => {
+                        setInteractionMode('ai-inspect')
+                        setAiInspectActive(true)
+                      }}
+                      disabled={isGenerating || isSavingDragEdits}
+                    >
+                      <Sparkles className="mr-1 h-3 w-3" />
+                      {t('sessionDetail.aiMode')}
+                    </button>
+                  </div>
                 )}
-                <Button
-                  type="button"
-                  variant={inspecting ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
-                    inspecting
-                      ? 'bg-[#5d6b4d] text-white'
-                      : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
-                  )}
-                  onClick={() => {
-                    setInspecting(!inspecting)
-                    if (dragEditing && pendingDragCount > 0) {
-                      onCancelDragEdits()
-                    }
-                    setDragEditing(false)
-                    setTextEditing(false)
-                  }}
-                  disabled={isGenerating || isSavingDragEdits}
-                >
-                  <Crosshair className="mr-1 h-3 w-3" />
-                  {inspecting ? t('sessionDetail.exitInspect') : t('sessionDetail.inspectElement')}
-                </Button>
+                {interactionMode === 'edit' && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="rounded-[8px] bg-[#5d6b4d] px-2.5 text-[11px] leading-none text-white shadow-[0_8px_20px_rgba(93,107,77,0.16)]"
+                      onClick={onSaveDragEdits}
+                      disabled={isGenerating || isSavingDragEdits}
+                    >
+                      {isSavingDragEdits ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Check className="mr-1 h-3 w-3" />
+                      )}
+                      {t('sessionDetail.exitAndSave')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-[8px] border-transparent bg-[#d4e4c1]/86 px-2.5 text-[11px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
+                      onClick={() => {
+                        if (pendingDragCount > 0) {
+                          onCancelDragEdits()
+                        }
+                        onCancelTextEdit()
+                        setInteractionMode('preview')
+                      }}
+                      disabled={isGenerating || isSavingDragEdits}
+                    >
+                      {t('sessionDetail.exitWithoutSaving')}
+                    </Button>
+                  </div>
+                )}
+                {interactionMode === 'ai-inspect' && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={isInspecting ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
+                        isInspecting
+                          ? 'bg-[#5d6b4d] text-white'
+                          : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
+                      )}
+                      onClick={() => setAiInspectActive(!aiInspectActive)}
+                      disabled={isGenerating || isSavingDragEdits}
+                    >
+                      <Crosshair className="mr-1 h-3 w-3" />
+                      {isInspecting ? t('sessionDetail.exitInspect') : t('sessionDetail.inspectElement')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-[8px] border-transparent bg-[#d4e4c1]/86 px-2.5 text-[11px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
+                      onClick={() => {
+                        setAiInspectActive(true)
+                        setInteractionMode('preview')
+                      }}
+                      disabled={isGenerating || isSavingDragEdits}
+                    >
+                      {t('sessionDetail.exitAiMode')}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
-            {selectedPage.htmlPath && (
-              <div className="absolute bottom-5 right-5 z-20 rounded-[12px] border border-[#d9cfbd]/72 bg-[#fffaf1]/90 p-1 shadow-[0_14px_34px_rgba(74,59,42,0.16)] backdrop-blur-xl">
-                <div className="grid grid-cols-2 gap-1">
-                  <button
-                    type="button"
-                    className={cn(
-                      'inline-flex h-9 min-w-[86px] items-center justify-center rounded-[9px] px-3 text-xs font-semibold transition-colors',
-                      !textEditing
-                        ? 'bg-[#5d6b4d] text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]'
-                        : 'text-[#59664b] hover:bg-[#e8e0d0]/74'
-                    )}
-                    onClick={() => {
-                      setTextEditing(false)
-                      onCancelTextEdit()
-                    }}
-                    disabled={isGenerating || isSavingDragEdits || isSavingTextEdit}
-                    aria-pressed={!textEditing}
-                  >
-                    {t('sessionDetail.previewMode')}
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'inline-flex h-9 min-w-[104px] items-center justify-center rounded-[9px] px-3 text-xs font-semibold transition-colors',
-                      textEditing
-                        ? 'bg-[#5d6b4d] text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]'
-                        : 'text-[#59664b] hover:bg-[#d4e4c1]/78'
-                    )}
-                    onClick={() => {
-                      const nextTextEditing = !textEditing
-                      setTextEditing(nextTextEditing)
-                      setInspecting(false)
-                      if (dragEditing && pendingDragCount > 0) {
-                        onCancelDragEdits()
-                      }
-                      setDragEditing(false)
-                      if (!nextTextEditing) onCancelTextEdit()
-                    }}
-                    disabled={isGenerating || isSavingDragEdits || isSavingTextEdit}
-                    aria-pressed={textEditing}
-                  >
-                    <Type className="mr-1.5 h-3.5 w-3.5" />
-                    {textEditing ? t('sessionDetail.exitEditMode') : t('sessionDetail.editMode')}
-                  </button>
-                </div>
-              </div>
-            )}
-            {textEditing && textSelection && (
+            {isEditing && textSelection && (
               <ElementInspectorPanel
                 selection={textSelection}
                 draft={textDraft}
@@ -259,12 +240,12 @@ export function PreviewStage({
                 {t('sessionDetail.failedPageHint')}
               </div>
             )}
-            {inspecting && (
+            {isInspecting && (
               <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-2.5 py-1.5 text-[11px] leading-none text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
                 {t('sessionDetail.clickToSelect')}
               </div>
             )}
-            {textEditing && (
+            {isEditing && !isGenerating && (
               <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#f1faee]/92 px-2.5 py-1.5 text-[11px] leading-none text-[#3f6f34] shadow-[0_8px_18px_rgba(63,111,52,0.12)] backdrop-blur-sm">
                 {t('sessionDetail.clickTextToEdit')}
               </div>

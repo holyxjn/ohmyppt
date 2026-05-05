@@ -350,6 +350,9 @@ export const zh = {
     saveAdjustments: '保存调整',
     exitInspect: '退出检选',
     inspectElement: '检选元素',
+    aiMode: 'AI 模式',
+    exitAiMode: '退出AI模式',
+    exitAndSave: '退出保存',
     clickTextToEdit: '点击文字以编辑',
     failedPageHint:
       '这一页上次生成失败，当前展示的是可恢复的页面文件。请保持“当前页”上下文，直接描述如何修复或重新生成这一页。',

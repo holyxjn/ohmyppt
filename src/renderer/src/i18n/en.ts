@@ -365,6 +365,9 @@ export const en = {
     saveAdjustments: 'Save adjustments',
     exitInspect: 'Exit inspect',
     inspectElement: 'Inspect element',
+    aiMode: 'AI',
+    exitAiMode: 'Exit AI',
+    exitAndSave: 'Save & exit',
     clickTextToEdit: 'Click text to edit',
     failedPageHint:
       'This page failed last time and is showing a recoverable file. Keep the Current page context and describe how to fix or regenerate it.',

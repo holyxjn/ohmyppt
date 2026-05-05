@@ -164,12 +164,21 @@ export const PreviewIframe = forwardRef<
     []
   )
 
+  // Combined inspector effect: handles both inspect and text-edit modes.
+  // textEditing takes priority over inspecting when both would be true.
   useEffect(() => {
     const webview = webviewElement
     if (!webview || !inspectable) return
 
     const runInspectorLifecycle = (): void => {
-      const script = inspecting ? buildInspectorInjectScript() : buildInspectorCleanupScript()
+      let script: string
+      if (textEditing) {
+        script = buildInspectorInjectScript({ mode: 'text-edit' })
+      } else if (inspecting) {
+        script = buildInspectorInjectScript()
+      } else {
+        script = buildInspectorCleanupScript()
+      }
       safeExecuteJavaScript(webview, script)
     }
 
@@ -181,7 +190,7 @@ export const PreviewIframe = forwardRef<
       webview.removeEventListener('dom-ready', handleDomReady as EventListener)
       safeExecuteJavaScript(webview, buildInspectorCleanupScript())
     }
-  }, [inspectable, inspecting, webviewSrc, webviewElement])
+  }, [inspectable, inspecting, textEditing, webviewSrc, webviewElement])
 
   useEffect(() => {
     const webview = webviewElement
@@ -201,27 +210,6 @@ export const PreviewIframe = forwardRef<
       safeExecuteJavaScript(webview, buildDragEditorCleanupScript())
     }
   }, [inspectable, dragEditing, webviewSrc, webviewElement])
-
-  useEffect(() => {
-    const webview = webviewElement
-    if (!webview || !inspectable) return
-
-    const runTextEditorLifecycle = (): void => {
-      const script = textEditing
-        ? buildInspectorInjectScript({ mode: 'text-edit' })
-        : buildInspectorCleanupScript()
-      safeExecuteJavaScript(webview, script)
-    }
-
-    runTextEditorLifecycle()
-    const handleDomReady = (): void => runTextEditorLifecycle()
-    webview.addEventListener('dom-ready', handleDomReady as EventListener)
-
-    return () => {
-      webview.removeEventListener('dom-ready', handleDomReady as EventListener)
-      safeExecuteJavaScript(webview, buildInspectorCleanupScript())
-    }
-  }, [inspectable, textEditing, webviewSrc, webviewElement])
 
   useEffect(() => {
     const webview = webviewElement

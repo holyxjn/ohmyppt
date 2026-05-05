@@ -64,7 +64,7 @@ export function SessionDetailPage(): React.JSX.Element {
     useGenerateStore()
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const selectedPageNumber = useSessionDetailUiStore((state) => state.selectedPageNumber)
-  const consoleOpen = useSessionDetailUiStore((state) => state.consoleOpen)
+  const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const setSelectedPageNumber = useSessionDetailUiStore((state) => state.setSelectedPageNumber)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
@@ -604,7 +604,7 @@ export function SessionDetailPage(): React.JSX.Element {
       }
       setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
-      useSessionDetailUiStore.getState().setDragEditing(false)
+      useSessionDetailUiStore.getState().setInteractionMode('preview')
       toastSuccess(t('sessionDetail.adjustmentsSaved', { count: edits.length }))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('sessionDetail.layoutSaveFailed'))
@@ -737,7 +737,7 @@ export function SessionDetailPage(): React.JSX.Element {
             onCancelDragEdits={handleCancelPendingDragEdits}
           />
 
-          {consoleOpen && (
+          {interactionMode === 'ai-inspect' && (
             <MessagePanel
               selectedPageExists={Boolean(selectedPage?.pageId)}
               selectedPageNumber={selectedPage?.pageNumber}
