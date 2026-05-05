@@ -390,6 +390,7 @@ export const zh = {
     discardedAdjustments: '已放弃未保存调整',
     textSaved: '文字已保存',
     textSaveFailed: '文字保存失败',
-    textSaveEmpty: '文字不能为空'
+    textSaveEmpty: '文字不能为空',
+    inspectActiveToast: '已进入AI模式，可以在界面检选元素让AI修改'
   }
 } as const

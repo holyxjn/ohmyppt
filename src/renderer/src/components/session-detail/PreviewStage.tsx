@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Check, Crosshair, Loader2, Pencil, Sparkles } from 'lucide-react'
+import { Check, Loader2, Pencil, Sparkles } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { useToastStore } from '@renderer/store/toastStore'
 import { Button } from '../ui/Button'
 import { PreviewIframe } from '../preview/PreviewIframe'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
@@ -50,17 +51,18 @@ export function PreviewStage({
   onCancelDragEdits: () => void
 }): React.JSX.Element {
   const t = useT()
+  const toast = useToastStore()
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setInteractionMode = useSessionDetailUiStore((state) => state.setInteractionMode)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
+  const clearSelectedElement = useSessionDetailUiStore((state) => state.clearSelectedElement)
   const [inspectorPanelPosition, setInspectorPanelPosition] =
     useState<InspectorPanelPosition | null>(null)
-  const [aiInspectActive, setAiInspectActive] = useState(true)
   const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
 
   const isEditing = interactionMode === 'edit'
-  const isInspecting = interactionMode === 'ai-inspect' && aiInspectActive
+  const isInspecting = interactionMode === 'ai-inspect'
 
   useEffect(() => {
     if (interactionMode === 'preview') return
@@ -144,7 +146,7 @@ export function PreviewStage({
                       )}
                       onClick={() => {
                         setInteractionMode('ai-inspect')
-                        setAiInspectActive(true)
+                        toast.info(t('sessionDetail.inspectActiveToast'))
                       }}
                       disabled={isGenerating || isSavingDragEdits}
                     >
@@ -192,27 +194,11 @@ export function PreviewStage({
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
-                      variant={isInspecting ? 'default' : 'outline'}
-                      size="sm"
-                      className={cn(
-                        'rounded-[8px] px-2.5 text-[11px] leading-none shadow-[0_8px_20px_rgba(93,107,77,0.14)]',
-                        isInspecting
-                          ? 'bg-[#5d6b4d] text-white'
-                          : 'border-transparent bg-[#d4e4c1]/86 text-[#3e4a32] hover:bg-[#c8ddb2]'
-                      )}
-                      onClick={() => setAiInspectActive(!aiInspectActive)}
-                      disabled={isGenerating || isSavingDragEdits}
-                    >
-                      <Crosshair className="mr-1 h-3 w-3" />
-                      {isInspecting ? t('sessionDetail.exitInspect') : t('sessionDetail.inspectElement')}
-                    </Button>
-                    <Button
-                      type="button"
                       variant="outline"
                       size="sm"
                       className="rounded-[8px] border-transparent bg-[#d4e4c1]/86 px-2.5 text-[11px] leading-none text-[#3e4a32] shadow-[0_8px_20px_rgba(93,107,77,0.14)] hover:bg-[#c8ddb2]"
                       onClick={() => {
-                        setAiInspectActive(true)
+                        clearSelectedElement()
                         setInteractionMode('preview')
                       }}
                       disabled={isGenerating || isSavingDragEdits}
@@ -238,11 +224,6 @@ export function PreviewStage({
             {selectedPage.status === 'failed' && (
               <div className="absolute bottom-5 left-5 z-20 max-w-[520px] rounded-[1rem] bg-[#fff4ef]/92 px-3 py-2 text-xs text-[#8e5a53] shadow-[0_10px_24px_rgba(142,90,83,0.12)] backdrop-blur-sm">
                 {t('sessionDetail.failedPageHint')}
-              </div>
-            )}
-            {isInspecting && (
-              <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2 rounded-full bg-[#eff5ff]/90 px-2.5 py-1.5 text-[11px] leading-none text-[#375f97] shadow-[0_8px_18px_rgba(55,95,151,0.12)] backdrop-blur-sm">
-                {t('sessionDetail.clickToSelect')}
               </div>
             )}
             {isEditing && !isGenerating && (

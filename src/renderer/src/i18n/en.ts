@@ -409,6 +409,7 @@ export const en = {
     discardedAdjustments: 'Discarded unsaved adjustments',
     textSaved: 'Text saved',
     textSaveFailed: 'Failed to save text',
-    textSaveEmpty: 'Text cannot be empty'
+    textSaveEmpty: 'Text cannot be empty',
+    inspectActiveToast: 'AI mode active — select elements on the page for AI to modify'
   }
 } satisfies DeepStringShape<typeof zh>
