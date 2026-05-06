@@ -560,7 +560,21 @@ export function SessionGeneratingPage(): React.JSX.Element {
                   ? t('generating.interrupted')
                   : t('generating.progress')}
             </span>
-            <span className="font-semibold">{displayProgress}%</span>
+            <div className="flex items-center gap-2">
+              {status === 'running' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!id) return
+                    void ipc.cancelGenerate(id)
+                  }}
+                  className="inline-flex h-6 cursor-pointer items-center rounded-md border border-[#d7b5ae]/80 bg-[#fbf1ee]/80 px-2 text-[10px] font-semibold text-[#93564f] transition-colors hover:bg-[#f5e0db] hover:text-[#7a3e38]"
+                >
+                  {t('generating.cancelGeneration')}
+                </button>
+              )}
+              <span className="font-semibold">{displayProgress}%</span>
+            </div>
           </div>
           <div className="h-2.5 overflow-hidden rounded-full border border-[#d8ccb5]/80 bg-[#fff9ef]/75 shadow-[inset_0_1px_2px_rgba(74,58,40,0.12)]">
             <div

@@ -300,6 +300,7 @@ export const en = {
     growing: 'Generating pages',
     eyebrow: 'Generating',
     interrupted: 'Interrupted',
+    cancelGeneration: 'Cancel',
     failedRetry: 'Generation failed. Please retry.',
     continueRemaining: 'Continue remaining pages',
     backToSessions: 'Back to sessions',

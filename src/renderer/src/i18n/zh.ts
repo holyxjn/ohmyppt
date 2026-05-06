@@ -288,6 +288,7 @@ export const zh = {
     growing: '生成页面',
     eyebrow: '生成中',
     interrupted: '已中断',
+    cancelGeneration: '取消生成',
     failedRetry: '生成失败，请重试。',
     continueRemaining: '继续生成剩余页',
     backToSessions: '返回会话列表',
