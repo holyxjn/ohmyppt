@@ -86,9 +86,8 @@ export function buildDeckAgentSystemPrompt(
     CONTENT_WRITING_RULES,
     '',
     '## Hard failure avoidance',
-    '- Page write tools reject system shell markup. Never include .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root in generated content, CSS selectors, scripts, or comments.',
     '- Page write tools reject truncated fragments. Before every write call, ensure your main layout containers are closed and the HTML does not end inside an unfinished tag.',
-    '- If a tool reports HTML validation failure, simplify the fragment and retry only that page with balanced tags and no system shell classes.',
+    '- If a tool reports HTML validation failure, simplify the fragment and retry only that page with balanced tags.',
     '- 动画逻辑如需添加，直接写在页面内容中（<script> 标签），写入工具会自动去重和注入运行时。',
     '- 不要在回复中贴大段 HTML；你的任务是通过工具把文件改好',
     isSinglePageTask

@@ -3,11 +3,10 @@ import { formatLayoutIntentPrompt } from '@shared/layout-intent'
 import type { DesignContract, SessionDeckGenerationContext } from '../tools/types'
 
 export const PAGE_SEMANTIC_STRUCTURE = [
-  '## 页面语义结构（推荐，系统会自动补齐）',
-  '- 你可以直接输出完整创意页面片段；系统会自动包裹 section[data-page-scaffold]、main[data-role="content"] 和标准 page frame。',
-  '- 如果你愿意手写结构，建议使用 <section data-page-scaffold="1"> 包住整页内容，但不是硬性要求。',
+  '## 页面语义结构',
+  '- 直接输出完整创意页面片段；系统会自动包裹 section[data-page-scaffold]、main[data-role="content"] 和标准 page frame。',
   '- 如果页面有明确标题，可以给第一个标题元素添加 data-role="title"；没有传统标题时不要为了校验硬造标题。',
-  '- 主要文本块可以添加唯一 data-block-id 和语义 class；未添加时系统会自动给可编辑文本块补 data-block-id。',
+  '- 主动添加 data-block-id 时保持页面内唯一（kebab-case：metric-1、summary、chart-main）；未添加时系统会自动补齐。',
   '',
   '布局决策：',
   '- 先判断本页叙事重心：数据展示、概念解释、信息对比、流程时间线、结论收束、封面/章节页。',
@@ -21,9 +20,7 @@ export const PAGE_SEMANTIC_STRUCTURE = [
   '标题可读性底线：',
   '- 竖排仅限 2-6 个中文字符的短标签。',
   '- 标题包含英文、数字、年份、中英混排或长句时必须横排。',
-  '- 完整标题优先保证可读性，不要为了装饰牺牲阅读。',
-  '- 如果主动添加 data-block-id，必须保持页面内唯一，例如：overview / metric-1 / list-1 / timeline-1',
-  '- 所有可编辑子块命名采用 kebab-case（如：metric-1、summary、chart-main）；不要再使用 data-block-id="title" 作为固定骨架'
+  '- 完整标题优先保证可读性，不要为了装饰牺牲阅读。'
 ].join('\n')
 
 export const CONTENT_LANGUAGE_RULES = [
@@ -73,7 +70,6 @@ export const FRONTEND_CAPABILITIES = [
   '',
   '### 其他硬校验禁区（违反即失败）',
   '- 禁止 opacity-0 / invisible / visibility:hidden（初始态必须可见）',
-  '- 禁止 w-[1600px] / h-[900px] / 100vw / 100vh（禁止画布锁定）',
   '- 数学公式用 \\( \\) 或 $$ $$，不用单 $',
   '- 动画仅做轻量入场增强（opacity/translate/scale，300-700ms），禁止无限循环'
 ].join('\n')
