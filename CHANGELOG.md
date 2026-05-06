@@ -1,5 +1,32 @@
 # 更新日志 / Changelog
 
+## 2026-05-06
+
+### 中文
+
+- 新增文字编辑：双击选中页面文字后可直接修改内容和样式，修改结果实时同步到页面。
+- 新增生成取消：创意生成过程中可随时取消。
+- 优化检选模式：选中元素后的操作更精准，修改体验更顺畅。
+- 优化编辑模式：完善单页编辑流程，编辑结果更稳定。
+- 优化生成进度：底部新增阶段指示（准备 → 规划 → 生成 → 校验），实时显示页面完成进度。
+- 优化生成日志：日志更简洁，只保留关键进度和结果，减少刷屏。
+- 优化生成速度和稳定性：整体生成速度提升约 20%-40%，提升模型的生成成功率，单页编辑响应更快。
+- 优化会话列表：显示每次生成的耗时，方便对比不同配置的生成效果。
+
+### English
+
+- Added text editing: select text on a slide to edit content and styling directly, with changes synced in real time.
+- Improved element selection: selecting and modifying elements is more precise and fluid.
+- Improved editing mode: refined the single-slide editing workflow for more reliable results.
+- Improved generation progress: a new step indicator (Prepare → Plan → Generate → Validate) shows the current stage and real-time page count.
+- Improved generation logs: cleaner log output showing only key milestones and results.
+- Improved generation speed: overall generation is approximately 20–40% faster, with quicker single-slide edits.
+- Improved generation reliability: enhanced page-write validation with automatic retries on failure.
+- Added generation cancellation: cancel an in-progress generation at any time.
+- Improved session list: generation duration is shown for each session.
+
+---
+
 ## 2026-05-01
 
 ### 中文
