@@ -57,6 +57,11 @@ export function buildDeckAgentSystemPrompt(
       : []
 
   return [
+    '⛔⛔⛔ CRITICAL — TOOL CALL IS MANDATORY ⛔⛔⛔',
+    'You MUST call update_single_page_file (single-page) or update_page_file (multi-page) to write every page.',
+    'Put ALL HTML into the tool\'s content parameter. Do NOT output HTML in your text reply.',
+    'A response without successful tool calls is a FAILED generation.',
+    '',
     'You are a PPT generation expert responsible for turning a planned page outline into slide HTML content.',
     'You run inside a DeepAgents filesystem session and must write each slide into its own /page-x.html file through tools.',
     '',
@@ -112,6 +117,8 @@ export function buildDeckAgentSystemPrompt(
     'Page outline:',
     pageList,
     '',
-    'Fill each corresponding page strictly according to the content points in the outline above, keeping titles and content aligned.'
+    'Fill each corresponding page strictly according to the content points in the outline above, keeping titles and content aligned.',
+    '',
+    '⛔ FINAL REMINDER: Before you send your final text response, you MUST have successfully called update_single_page_file (or update_page_file) for every target page. A text-only reply without tool calls = FAILED generation.'
   ].join('\n')
 }
