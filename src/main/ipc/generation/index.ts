@@ -5,7 +5,6 @@ import { finalizeGenerationFailure } from './finalize'
 import { executeDeckGeneration } from './deck-flow'
 import { executeEditGeneration } from './edit-flow'
 import { executeRetryFailedPages } from './retry-flow'
-import { executeAddPageGeneration } from './add-page-flow'
 import { createEmitAssistantMessage } from './helpers'
 
 export type { GenerationContext, GenerationService } from './types'
@@ -26,7 +25,6 @@ export function createGenerationService(ctx: IpcContext): GenerationService {
       resolveGenerationContext(ctx, _event, payload, options),
     finalizeGenerationFailure: (context, error) => finalizeGenerationFailure(ctx, context, error),
     executeGeneration,
-    executeRetryFailedPages: (context) => executeRetryFailedPages(ctx, emitAssistant, context),
-    executeAddPageGeneration: (context) => executeAddPageGeneration(ctx, emitAssistant, context)
+    executeRetryFailedPages: (context) => executeRetryFailedPages(ctx, emitAssistant, context)
   }
 }

@@ -138,6 +138,11 @@ export function SessionDetailPage(): React.JSX.Element {
     useGenerateStore.getState().setPages([])
     resetForSessionChange()
     void loadSession(id)
+    // Cleanup on unmount (leaving session-detail)
+    return () => {
+      useGenerateStore.getState().reset()
+      useSessionDetailUiStore.getState().resetForSessionChange()
+    }
   }, [id, loadSession, resetForSessionChange, setMessages])
 
   useEffect(() => {
@@ -146,6 +151,8 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     if (!id || !currentSession) return
+    // Don't redirect during addPage — we're already on the editor page
+    if (useSessionDetailUiStore.getState().isAddingPage) return
     if (!isFullyGenerated) {
       navigate(`/sessions/${id}/generating`, { replace: true })
     }
@@ -162,6 +169,9 @@ export function SessionDetailPage(): React.JSX.Element {
   }, [id, setSelectedPageNumber])
 
   useEffect(() => {
+    // Skip auto-select during addPage — handleAddPage manages selection explicitly
+    if (useSessionDetailUiStore.getState().isAddingPage) return
+
     if (normalizedOrderedPages.length === 0) {
       setSelectedPageNumber(null)
       return
@@ -238,10 +248,6 @@ export function SessionDetailPage(): React.JSX.Element {
               currentPage: payload.currentPage,
               totalPages: payload.totalPages
             })
-            // Remember the new page number so we can select it after reload
-            if (payload.pageNumber) {
-              useSessionDetailUiStore.getState().setPendingSelectPageNumber(payload.pageNumber)
-            }
             return
           }
           const store = useGenerateStore.getState()
@@ -301,24 +307,12 @@ export function SessionDetailPage(): React.JSX.Element {
           created_at: Number.isFinite(createdAt) ? createdAt : Math.floor(Date.now() / 1000)
         })
       } else if (type === 'run_completed') {
-        useGenerateStore.getState().finishGeneration()
-        if (useSessionDetailUiStore.getState().isAddingPage) {
-          useSessionDetailUiStore.getState().setIsAddingPage(false)
-          // Reload session to get renumbered pages from backend
-          if (id) {
-            void loadSession(id).then(() => {
-              const pending = useSessionDetailUiStore.getState().pendingSelectPageNumber
-              if (pending) {
-                useSessionDetailUiStore.getState().setSelectedPageNumber(pending)
-                useSessionDetailUiStore.getState().setPendingSelectPageNumber(null)
-              }
-            })
-          }
+        if (!useSessionDetailUiStore.getState().isAddingPage) {
+          useGenerateStore.getState().finishGeneration()
         }
       } else if (type === 'run_error') {
-        useGenerateStore.getState().setError(payload.message)
-        if (useSessionDetailUiStore.getState().isAddingPage) {
-          useSessionDetailUiStore.getState().setIsAddingPage(false)
+        if (!useSessionDetailUiStore.getState().isAddingPage) {
+          useGenerateStore.getState().setError(payload.message)
         }
       }
     }
@@ -469,17 +463,30 @@ export function SessionDetailPage(): React.JSX.Element {
     setAddPageDialogOpen(false)
     setAddPageInput('')
     setIsAddingPage(true)
+    const insertAfter = selectedPageNumber ?? normalizedOrderedPages.length
+    const targetPageNumber = insertAfter + 1
+    useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+
     try {
       await ipc.addPage({
         sessionId: id,
         userMessage: description,
-        insertAfterPageNumber: selectedPageNumber ?? normalizedOrderedPages.length
+        insertAfterPageNumber: insertAfter
       })
+      // IPC resolved — backend generation complete, all events processed.
+      // Reload session to get the full renumbered page list, then select the new page.
+      await loadSession(id)
+      // Sync pages to generateStore immediately so auto-select effect sees the new list
+      useGenerateStore.getState().setPages(
+        useSessionStore.getState().currentGeneratedPages
+      )
+      setSelectedPageNumber(targetPageNumber)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
       toastError(message)
     } finally {
       setIsAddingPage(false)
+      useGenerateStore.getState().finishGeneration()
     }
   }
 
@@ -900,14 +907,22 @@ export function SessionDetailPage(): React.JSX.Element {
           </div>
         )}
 
-        {/* Add Page Loading Overlay */}
+        {/* Add Page Progress Overlay */}
         {isAddingPage && (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
+            <div className="flex w-[360px] flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#d4e4c1] border-t-[#5d6b4d]" />
-              <p className="text-sm font-medium text-[#3e4a32]">
-                {t('sessionDetail.addPageGenerating')}
-              </p>
+              <div className="flex w-full flex-col items-center gap-2">
+                <p className="text-sm font-medium text-[#3e4a32]">
+                  {progress?.label || t('sessionDetail.addPageGenerating')}
+                </p>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e8e0d0]">
+                  <div
+                    className="h-full rounded-full bg-[#5d6b4d] transition-all duration-300 ease-out"
+                    style={{ width: `${Math.min(100, Math.max(0, progress?.progress ?? 0))}%` }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )}

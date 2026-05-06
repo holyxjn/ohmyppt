@@ -1,6 +1,6 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import type { GenerationContext, FinalizeGenerationArgs } from './types'
+import type { FinalizeContext, FinalizeGenerationArgs } from './types'
 
 export async function finalizeGenerationSuccess(
   ctx: IpcContext,
@@ -41,7 +41,7 @@ export async function finalizeGenerationSuccess(
 
 export async function finalizeGenerationFailure(
   ctx: IpcContext,
-  context: GenerationContext,
+  context: FinalizeContext,
   error: unknown
 ): Promise<void> {
   const { db, emitGenerateChunk } = ctx

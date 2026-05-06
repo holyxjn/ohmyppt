@@ -10,7 +10,8 @@ import {
   buildEditUserPrompt,
   buildPlanningSystemPrompt,
   buildPlanningUserPrompt,
-  buildSinglePageGenerationPrompt
+  buildSinglePageGenerationPrompt,
+  CONTENT_LANGUAGE_RULES
 } from '../prompt'
 import type { GenerateChunkEvent } from '@shared/generation'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
@@ -523,6 +524,8 @@ export const planNewPage = async (args: {
   appLocale?: AppLocale
   modelTimeoutMs?: number
   userDescription: string
+  topic?: string
+  existingTitles?: string[]
   signal?: AbortSignal
 }): Promise<{ title: string; contentOutline: string; layoutIntent: LayoutIntent }> => {
   const client = resolveModel(
@@ -535,6 +538,13 @@ export const planNewPage = async (args: {
   const systemPrompt = [
     'You are a PPT slide planner. The user wants to add ONE new slide to an existing deck.',
     'Generate a title, concise key points (1-4 items), and a layout intent for this single slide.',
+    '',
+    CONTENT_LANGUAGE_RULES,
+    '',
+    'The new slide must fit naturally into the existing deck:',
+    '- The title language and style must match existing slide titles.',
+    '- Do NOT duplicate or closely paraphrase any existing slide title.',
+    args.topic ? `- Deck topic: ${args.topic}` : '',
     '',
     'Assign layoutIntent based on the slide content type:',
     '  - data-focus: metrics, KPIs, trends, or quantitative results',
@@ -549,11 +559,16 @@ export const planNewPage = async (args: {
     'Return only a JSON object with exactly these fields: title, keyPoints, layoutIntent.',
     'Do not add explanations, Markdown, or extra text.',
     'keyPoints must contain 1-4 short phrases.'
-  ].join('\n')
-  const userPrompt = [
-    'User request for the new slide:',
-    args.userDescription
-  ].join('\n')
+  ].filter(Boolean).join('\n')
+  const contextParts: string[] = []
+  if (args.existingTitles && args.existingTitles.length > 0) {
+    contextParts.push('Existing slide titles (do NOT duplicate these):')
+    args.existingTitles.forEach((t, i) => contextParts.push(`  ${i + 1}. ${t}`))
+    contextParts.push('')
+  }
+  contextParts.push('User request for the new slide:')
+  contextParts.push(args.userDescription)
+  const userPrompt = contextParts.join('\n')
 
   const combinedSignal = args.modelTimeoutMs
     ? AbortSignal.any([

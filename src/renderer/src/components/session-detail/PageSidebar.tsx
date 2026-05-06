@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { Home, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
@@ -23,6 +23,17 @@ export const PageSidebar = memo(function PageSidebar({
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const thumbnailVersions = useSessionDetailUiStore((state) => state.thumbnailVersions)
   const setSelectedPageNumber = useSessionDetailUiStore((state) => state.setSelectedPageNumber)
+  const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
+  const wasAddingRef = useRef(false)
+  const viewportRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to bottom when add-page completes (isAddingPage: true → false)
+  useEffect(() => {
+    if (wasAddingRef.current && !isAddingPage && viewportRef.current) {
+      viewportRef.current.scrollTop = viewportRef.current.scrollHeight
+    }
+    wasAddingRef.current = isAddingPage
+  }, [isAddingPage])
 
   return (
     <aside className="flex min-h-0 w-[220px] shrink-0 flex-col bg-[#f5f1e8] px-2.5 pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)]">
@@ -45,7 +56,7 @@ export const PageSidebar = memo(function PageSidebar({
           {t('sessionDetail.pagesCount', { count: pages.length })}
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2" viewportRef={viewportRef}>
         {pages.length === 0 ? (
           <div className="flex min-h-[96px] items-center justify-center rounded-[1.25rem] bg-[#e8e0d0]/54 text-xs text-[#8a9a7b]">
             {t('sessionDetail.pagesEmpty')}

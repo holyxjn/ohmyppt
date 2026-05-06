@@ -7,6 +7,19 @@ import { loadStyleSkill } from '../../utils/style-skills'
 export type GenerateMode = 'generate' | 'edit' | 'retry' | 'addPage'
 export type GenerateChatType = 'main' | 'page'
 
+// Minimal context needed by finalize functions.
+// Both GenerationContext and AddPageContext satisfy this interface.
+export type FinalizeContext = {
+  sessionId: string
+  runId: string
+  styleId: string
+  previousSessionStatus: string
+  effectiveMode: GenerateMode
+  messageScope: GenerateChatType
+  messagePageId?: string
+  projectId: string
+}
+
 export type GenerationContext = {
   sessionId: string
   userMessage: string
@@ -42,7 +55,7 @@ export type GenerationContext = {
 }
 
 export type FinalizeGenerationArgs = {
-  context: GenerationContext
+  context: FinalizeContext
   indexPath: string
   totalPages: number
   generatedPages: Array<{
@@ -64,7 +77,6 @@ export interface GenerationService {
   finalizeGenerationFailure: (context: GenerationContext, error: unknown) => Promise<void>
   executeGeneration: (context: GenerationContext) => Promise<void>
   executeRetryFailedPages: (context: GenerationContext) => Promise<void>
-  executeAddPageGeneration: (context: GenerationContext) => Promise<void>
 }
 
 export type EmitAssistantFn = (context: GenerationContext, content: string) => Promise<void>

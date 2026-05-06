@@ -3,6 +3,8 @@ import log from 'electron-log/main.js'
 import type { IpcContext } from './context'
 import type { GenerationContext, GenerationService } from './generation-flow'
 import type { SessionStatus } from '../db/schema'
+import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from './generation/add-page-flow'
+import { finalizeGenerationFailure as finalizeAddPageFailure } from './generation/finalize'
 
 function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
   return status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'
@@ -24,8 +26,7 @@ export function registerGenerationHandlers(
     resolveGenerationContext,
     finalizeGenerationFailure,
     executeGeneration,
-    executeRetryFailedPages,
-    executeAddPageGeneration
+    executeRetryFailedPages
   } = generationService
   const startingSessionIds = new Set<string>()
 
@@ -199,15 +200,21 @@ export function registerGenerationHandlers(
     }
   })
 
-  ipcMain.handle('generate:addPage', async (event, payload) => {
+  ipcMain.handle('generate:addPage', async (_event, payload) => {
     pruneFinishedSessionRunStates()
+    const addPagePayload =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
     const requestedSessionId =
-      payload &&
-      typeof payload === 'object' &&
-      typeof (payload as { sessionId?: unknown }).sessionId === 'string'
-        ? String((payload as { sessionId?: string }).sessionId).trim()
-        : ''
-    if (requestedSessionId) {
+      typeof addPagePayload.sessionId === 'string' ? addPagePayload.sessionId.trim() : ''
+    if (!requestedSessionId) {
+      throw new Error('sessionId 不能为空')
+    }
+    const userMsg = typeof addPagePayload.userMessage === 'string' ? addPagePayload.userMessage.trim() : ''
+    if (!userMsg) {
+      throw new Error('userMessage is required for addPage')
+    }
+
+    {
       const runningState = sessionRunStates.get(requestedSessionId)
       if (runningState?.status === 'running') {
         log.info('[generate:addPage] attach to existing run', {
@@ -225,49 +232,42 @@ export function registerGenerationHandlers(
       startingSessionIds.add(requestedSessionId)
     }
 
-    let context: GenerationContext | null = null
+    let addPageCtx: AddPageContext | null = null
     try {
-      const addPagePayload =
-        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
-      const userMsg = typeof addPagePayload.userMessage === 'string' ? addPagePayload.userMessage.trim() : ''
-      if (!userMsg) {
-        throw new Error('userMessage is required for addPage')
-      }
       const insertAfter = Number(addPagePayload.insertAfterPageNumber) || 0
-      // Encode insertAfterPageNumber as a prefix so the flow can parse it out
-      const flowUserMessage = `[addPage:insertAfter=${insertAfter}]${userMsg}`
-      context = await resolveGenerationContext(event, {
-        sessionId: requestedSessionId,
-        type: 'deck',
-        userMessage: flowUserMessage
-      }, { persistUserMessage: false, mode: 'addPage' })
-      // Persist the clean user message separately
-      await db.addMessage(context.sessionId, {
+
+      // Resolve context independently — no shared resolveGenerationContext
+      addPageCtx = await resolveAddPageContext(ctx, requestedSessionId, userMsg, insertAfter)
+
+      // Persist user message
+      await db.addMessage(addPageCtx.sessionId, {
         role: 'user',
         content: userMsg,
         type: 'text',
         chat_scope: 'main' as const
       })
+
       beginSessionRunState({
-        sessionId: context.sessionId,
-        runId: context.runId,
+        sessionId: addPageCtx.sessionId,
+        runId: addPageCtx.runId,
         mode: 'addPage',
-        previousSessionStatus: context.previousSessionStatus,
-        totalPages: context.totalPages + 1
+        previousSessionStatus: addPageCtx.previousSessionStatus,
+        totalPages: 1
       })
-      await executeAddPageGeneration(context)
-      return { success: true, runId: context.runId }
+
+      await executeAddPageGeneration(ctx, addPageCtx)
+      return { success: true, runId: addPageCtx.runId }
     } catch (error) {
-      if (context) {
-        await finalizeGenerationFailure(context, error)
+      if (addPageCtx) {
+        await finalizeAddPageFailure(ctx, addPageCtx, error)
       }
       throw error
     } finally {
       if (requestedSessionId) {
         startingSessionIds.delete(requestedSessionId)
       }
-      if (context) {
-        agentManager.removeSession(context.sessionId)
+      if (addPageCtx) {
+        agentManager.removeSession(addPageCtx.sessionId)
       }
     }
   })

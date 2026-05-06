@@ -1,21 +1,160 @@
+import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import type { GenerationContext, EmitAssistantFn } from './types'
 import { uiText } from './helpers'
 import { finalizeGenerationSuccess } from './finalize'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import { type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../template'
 import { planNewPage, runDeepAgentDeckGeneration } from '../generate'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../model-config-utils'
+import {
+  loadStyleSkill,
+  listStyleCatalog,
+  hasStyleSkill
+} from '../../utils/style-skills'
+import type { ModelTimeoutProfile } from '@shared/model-timeout'
+
+// ── Independent AddPage context (not shared with generation/retry/edit) ──
+
+export type AddPageContext = {
+  sessionId: string
+  runId: string
+  userDescription: string
+  insertAfterPageNumber: number
+  provider: string
+  apiKey: string
+  model: string
+  providerBaseUrl: string
+  modelTimeouts: Record<ModelTimeoutProfile, number>
+  projectDir: string
+  abortSignal: AbortSignal
+  styleId: string
+  styleSkillPrompt: string
+  topic: string
+  deckTitle: string
+  appLocale: 'zh' | 'en'
+  sessionRecord: Record<string, unknown>
+  previousSessionStatus: string
+  messageScope: 'main' | 'page'
+  messagePageId?: string
+  projectId: string
+  effectiveMode: 'addPage'
+}
+
+export async function resolveAddPageContext(
+  ctx: IpcContext,
+  sessionId: string,
+  userDescription: string,
+  insertAfterPageNumber: number
+): Promise<AddPageContext> {
+  const { db, agentManager, resolveStoragePath, ensureSessionAssets } = ctx
+
+  log.info('[generate:addPage] resolving context', { sessionId, insertAfterPageNumber })
+
+  const session = await db.getSession(sessionId)
+  if (!session) throw new Error('Session not found')
+  const sessionRecord = session as unknown as Record<string, unknown>
+  const previousSessionStatus = String(sessionRecord.status || 'active')
+
+  // Model config
+  const activeModel = await resolveActiveModelConfig(ctx)
+  const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+
+  // Style
+  const styleCatalog = listStyleCatalog()
+  const defaultStyleId =
+    styleCatalog.find((item) => item.styleKey === 'minimal-white')?.id ??
+    styleCatalog[0]?.id ??
+    ''
+  const styleIdRaw =
+    typeof sessionRecord.styleId === 'string' ? String(sessionRecord.styleId).trim() : ''
+  const styleId = styleIdRaw || defaultStyleId
+  if (!styleId || !hasStyleSkill(styleId)) {
+    throw new Error(`styleId 不存在或不可用：${styleId}`)
+  }
+  const styleSkill = loadStyleSkill(styleId)
+
+  // Project dir
+  const existingProject = await db.getProject(sessionId)
+  const storagePath = await resolveStoragePath()
+  const projectDir = existingProject?.output_path || path.join(storagePath, sessionId)
+  if (!fs.existsSync(projectDir)) {
+    fs.mkdirSync(projectDir, { recursive: true })
+  }
+  await ensureSessionAssets(projectDir)
+
+  // Agent
+  agentManager.ensureSession({
+    sessionId,
+    provider: activeModel.provider,
+    model: activeModel.model,
+    baseUrl: activeModel.baseUrl,
+    projectDir
+  })
+  const entry = agentManager.beginRun(sessionId)
+  if (!entry) throw new Error('Session not found')
+
+  // Locale
+  const settings = await db.getAllSettings()
+  const appLocale: 'zh' | 'en' = settings.locale === 'en' ? 'en' : 'zh'
+
+  const topic = String(sessionRecord.topic || '当前主题')
+  const deckTitle = String(sessionRecord.title || 'OpenPPT Preview')
+
+  const projectId =
+    existingProject?.id ??
+    await db.createProject({
+      session_id: sessionId,
+      title: String(sessionRecord.title || 'Untitled'),
+      output_path: entry.projectDir
+    })
+
+  log.info('[generate:addPage] context resolved', {
+    sessionId,
+    projectDir: entry.projectDir,
+    styleId,
+    provider: activeModel.provider,
+    model: activeModel.model,
+    insertAfterPageNumber
+  })
+
+  return {
+    sessionId,
+    runId: crypto.randomUUID(),
+    userDescription,
+    insertAfterPageNumber,
+    provider: activeModel.provider,
+    apiKey: activeModel.apiKey,
+    model: activeModel.model,
+    providerBaseUrl: activeModel.baseUrl,
+    modelTimeouts,
+    projectDir: entry.projectDir,
+    abortSignal: entry.abortController.signal,
+    styleId,
+    styleSkillPrompt: styleSkill.prompt,
+    topic,
+    deckTitle,
+    appLocale,
+    sessionRecord,
+    previousSessionStatus,
+    messageScope: 'main' as const,
+    messagePageId: undefined,
+    projectId,
+    effectiveMode: 'addPage' as const
+  }
+}
+
+// ── Execute the full add-page generation ──
 
 export async function executeAddPageGeneration(
   ctx: IpcContext,
-  emitAssistant: EmitAssistantFn,
-  context: GenerationContext
+  context: AddPageContext
 ): Promise<void> {
   const {
     db,
@@ -31,8 +170,8 @@ export async function executeAddPageGeneration(
   }
 
   const emitChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
-  const sessionRecord = context.sessionRecord as Record<string, unknown>
-  const indexPath = path.join(context.entry.projectDir, 'index.html')
+  const sessionRecord = context.sessionRecord
+  const indexPath = path.join(context.projectDir, 'index.html')
 
   // ── Step 1: Read designContract from session independent field ──
   let designContract: DesignContract | undefined
@@ -62,16 +201,8 @@ export async function executeAddPageGeneration(
     throw new Error('当前会话没有已完成的页面，无法新增。请先完成首次生成。')
   }
 
-  // Parse insertAfterPageNumber from the encoded prefix
-  const prefixMatch = context.userMessage.match(/^\[addPage:insertAfter=(\d+)\]/)
-  const insertAfterPageNumber = prefixMatch
-    ? Number(prefixMatch[1]) || existingPages[existingPages.length - 1].pageNumber
-    : existingPages[existingPages.length - 1].pageNumber
-
-  // Extract the real user description (after the prefix)
-  const userDescription = prefixMatch
-    ? context.userMessage.slice(prefixMatch[0].length).trim()
-    : context.userMessage.trim()
+  const insertAfterPageNumber = context.insertAfterPageNumber
+  const userDescription = context.userDescription
 
   // ── Step 3: Plan new page ──
   emitChunk({
@@ -87,7 +218,9 @@ export async function executeAddPageGeneration(
 
   const newPageNumber = Math.max(...existingPages.map((p) => p.pageNumber)) + 1
   const newPageId = `page-${newPageNumber}`
-  const newHtmlPath = path.join(context.entry.projectDir, `${newPageId}.html`)
+  const newHtmlPath = path.join(context.projectDir, `${newPageId}.html`)
+
+  const existingTitles = existingPages.map((p) => p.title).filter(Boolean)
 
   let planResult: { title: string; contentOutline: string; layoutIntent: LayoutIntent }
   try {
@@ -100,7 +233,9 @@ export async function executeAddPageGeneration(
       temperature: DESIGN_CONTRACT_TEMPERATURE,
       appLocale: context.appLocale,
       userDescription,
-      signal: context.entry.abortController.signal
+      topic: context.topic,
+      existingTitles,
+      signal: context.abortSignal
     })
   } catch (planError) {
     // Retry plan once
@@ -114,7 +249,9 @@ export async function executeAddPageGeneration(
         temperature: DESIGN_CONTRACT_TEMPERATURE,
         appLocale: context.appLocale,
         userDescription,
-        signal: context.entry.abortController.signal
+        topic: context.topic,
+        existingTitles,
+        signal: context.abortSignal
       })
     } catch {
       throw new Error(
@@ -181,14 +318,14 @@ export async function executeAddPageGeneration(
     modelTimeoutMs: context.modelTimeouts.agent,
     temperature: PAGE_GENERATION_TEMPERATURE,
     styleId: context.styleId,
-    styleSkillPrompt: context.styleSkill.prompt,
+    styleSkillPrompt: context.styleSkillPrompt,
     appLocale: context.appLocale,
     topic: context.topic,
     deckTitle: context.deckTitle,
     userMessage: userDescription,
     outlineTitles: [planResult.title],
     outlineItems: [planResult],
-    sourceDocumentPaths: context.sourceDocumentPaths,
+    sourceDocumentPaths: [],
     generationMode: 'generate',
     pageTasks: [
       {
@@ -200,7 +337,7 @@ export async function executeAddPageGeneration(
       }
     ],
     designContract,
-    projectDir: context.entry.projectDir,
+    projectDir: context.projectDir,
     indexPath,
     pageFileMap,
     agentManager,
@@ -241,7 +378,7 @@ export async function executeAddPageGeneration(
       })
     },
     runId: context.runId,
-    signal: context.entry.abortController.signal
+    signal: context.abortSignal
   }).catch((err) => {
     generationError = err
     return { failedPages: [{ pageId: newPageId, title: planResult.title, reason: String(err) }] }
@@ -274,14 +411,14 @@ export async function executeAddPageGeneration(
       modelTimeoutMs: context.modelTimeouts.agent,
       temperature: PAGE_GENERATION_TEMPERATURE,
       styleId: context.styleId,
-      styleSkillPrompt: context.styleSkill.prompt,
+      styleSkillPrompt: context.styleSkillPrompt,
       appLocale: context.appLocale,
       topic: context.topic,
       deckTitle: context.deckTitle,
       userMessage: userDescription,
       outlineTitles: [planResult.title],
       outlineItems: [planResult],
-      sourceDocumentPaths: context.sourceDocumentPaths,
+      sourceDocumentPaths: [],
       generationMode: 'generate',
       pageTasks: [
         {
@@ -293,7 +430,7 @@ export async function executeAddPageGeneration(
         }
       ],
       designContract,
-      projectDir: context.entry.projectDir,
+      projectDir: context.projectDir,
       indexPath,
       pageFileMap,
       agentManager,
@@ -334,7 +471,7 @@ export async function executeAddPageGeneration(
         })
       },
       runId: context.runId,
-      signal: context.entry.abortController.signal
+      signal: context.abortSignal
     })
     if (retryResult.failedPages.length > 0) {
       generationError = new Error(
@@ -372,7 +509,7 @@ export async function executeAddPageGeneration(
   const existingPageDescriptors = await Promise.all(
     existingPages.map(async (page) => {
       const pageId = page.pageId || `page-${page.pageNumber}`
-      const htmlPath = page.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
+      const htmlPath = page.htmlPath || path.join(context.projectDir, `${pageId}.html`)
       const html = fs.existsSync(htmlPath)
         ? await fs.promises.readFile(htmlPath, 'utf-8')
         : ''
@@ -443,14 +580,27 @@ export async function executeAddPageGeneration(
   })
 
   // ── Step 10: Finalize ──
-  await emitAssistant(
-    context,
-    uiText(
-      context.appLocale,
-      `已新增页面「${planResult.title}」并插入到第 ${insertAfterPageNumber} 页之后。`,
-      `Added page "${planResult.title}" after page ${insertAfterPageNumber}.`
-    )
+  // Persist assistant message
+  const assistantContent = uiText(
+    context.appLocale,
+    `已新增页面「${planResult.title}」并插入到第 ${insertAfterPageNumber} 页之后。`,
+    `Added page "${planResult.title}" after page ${insertAfterPageNumber}.`
   )
+  await db.addMessage(context.sessionId, {
+    role: 'assistant',
+    content: assistantContent,
+    type: 'text',
+    chat_scope: 'main' as const
+  })
+  emitChunk({
+    type: 'assistant_message',
+    payload: {
+      runId: context.runId,
+      content: assistantContent,
+      chatType: 'main',
+      pageId: undefined
+    }
+  })
 
   await finalizeGenerationSuccess(ctx, {
     context,
