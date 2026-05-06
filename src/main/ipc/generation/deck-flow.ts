@@ -421,12 +421,12 @@ export async function executeDeckGeneration(
     type: 'llm_status',
     payload: {
       runId: context.runId,
-      stage: 'rendering',
+      stage: 'validation',
       label: progressText(
         context.appLocale,
         postValidationErrors.length > 0 ? 'failed' : 'checking'
       ),
-      progress: 90,
+      progress: 92,
       totalPages: outlineTitles.length,
       detail:
         postValidationErrors.length > 0

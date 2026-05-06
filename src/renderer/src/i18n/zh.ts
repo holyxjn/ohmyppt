@@ -259,9 +259,10 @@ export const zh = {
   },
   generating: {
     stages: {
-      preflight: '理解需求',
-      planning: '规划结构',
-      rendering: '生成页面'
+      preflight: '准备',
+      planning: '规划',
+      rendering: '生成',
+      validation: '校验'
     },
     created: '理解需求',
     currentSession: '当前会话',

@@ -270,9 +270,10 @@ export const en = {
   },
   generating: {
     stages: {
-      preflight: 'Understanding request',
-      planning: 'Planning structure',
-      rendering: 'Generating pages'
+      preflight: 'Prepare',
+      planning: 'Plan',
+      rendering: 'Generate',
+      validation: 'Validate'
     },
     created: 'Understanding request',
     currentSession: 'Current session',
