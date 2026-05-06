@@ -1,27 +1,18 @@
-export const INSPECTOR_CONSOLE_PREFIX = '__PPT_INSPECTOR__:'
+export const TEXT_EDITOR_CONSOLE_PREFIX = '__PPT_TEXT_EDITOR__:'
 
-export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-edit' }): string {
-  const mode = options?.mode === 'text-edit' ? 'text-edit' : 'inspect'
+export function buildTextEditorInjectScript(): string {
   return `
 (() => {
-  const STATE_KEY = "__pptInspectorState";
-  const STYLE_ID = "ppt-inspector-style";
-  const HIGHLIGHT_CLASS = "ppt-inspector-highlight";
-  const LOG_PREFIX = "${INSPECTOR_CONSOLE_PREFIX}";
-  const MODE = "${mode}";
+  const STATE_KEY = "__pptTextEditorState";
+  const STYLE_ID = "ppt-text-editor-style";
+  const HIGHLIGHT_CLASS = "ppt-text-editor-highlight";
+  const SELECTED_CLASS = "ppt-text-editor-selected";
+  const LOG_PREFIX = "${TEXT_EDITOR_CONSOLE_PREFIX}";
   const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th", "blockquote", "figcaption"]);
   const BLOCKED_TEXT_TAGS = new Set(["script", "style", "svg", "canvas", "img", "video", "audio", "input", "textarea", "select", "option"]);
-  const SCAFFOLD_BLOCK_IDS = new Set(["content", "page", "root"]);
-  const uiMessage = (zh, en) => {
-    try {
-      return window.localStorage.getItem("oh-my-ppt:lang") === "en" ? en : zh;
-    } catch (_error) {
-      return zh;
-    }
-  };
 
-  const state = window[STATE_KEY];
-  if (state && state.active) return;
+  const existing = window[STATE_KEY];
+  if (existing && existing.active) return;
 
   const cssEscape = (value) => {
     if (window.CSS && typeof window.CSS.escape === "function") {
@@ -54,7 +45,7 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
 
   const getClassList = (el) =>
     Array.from(el.classList || [])
-      .filter((item) => item && !item.startsWith("ppt-inspector-") && !item.includes(":"))
+      .filter((item) => item && !item.startsWith("ppt-text-editor-") && !item.includes(":"))
       .slice(0, 3);
 
   const buildSegment = (el) => {
@@ -110,8 +101,7 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
 
     const blockId = el.getAttribute("data-block-id");
     if (blockId) {
-      const selector = scope + ' [data-block-id="' + attrEscape(blockId) + '"]';
-      return selector;
+      return scope + ' [data-block-id="' + attrEscape(blockId) + '"]';
     }
 
     const role = el.getAttribute("data-role");
@@ -179,7 +169,7 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     const blockId = element.getAttribute("data-block-id");
     const role = element.getAttribute("data-role");
     return (
-      SCAFFOLD_BLOCK_IDS.has(String(blockId || "")) ||
+      (blockId && new Set(["content", "page", "root"]).has(String(blockId))) ||
       role === "content" ||
       element.classList.contains("ppt-page-root") ||
       element.classList.contains("ppt-page-fit-scope") ||
@@ -218,7 +208,7 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     if (["SCRIPT", "STYLE", "LINK", "META", "TITLE"].includes(element.tagName)) return false;
     const boundaryRoot = getContentRoot(element) || getPageRoot(element);
     if (!boundaryRoot || element === boundaryRoot) return false;
-    if (MODE === "text-edit" && !isEditableTextTarget(element)) return false;
+    if (!isEditableTextTarget(element)) return false;
     const rect = element.getBoundingClientRect();
     return rect.width >= 2 && rect.height >= 2;
   };
@@ -238,24 +228,45 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID;
-    const highlightColor = MODE === "text-edit" ? "#16a34a" : "#3b82f6";
     style.textContent = \`
       .\${HIGHLIGHT_CLASS} {
-        outline: 2px dashed \${highlightColor} !important;
+        outline: 2px dashed #16a34a !important;
         outline-offset: 2px !important;
-        box-shadow: 0 0 0 2px \${MODE === "text-edit" ? "rgba(22,163,74,0.18)" : "rgba(59,130,246,0.18)"} !important;
-        background-image: linear-gradient(\${MODE === "text-edit" ? "rgba(22,163,74,0.08)" : "rgba(59,130,246,0.08)"}, \${MODE === "text-edit" ? "rgba(22,163,74,0.08)" : "rgba(59,130,246,0.08)"}) !important;
-        cursor: \${MODE === "text-edit" ? "text" : "crosshair"} !important;
+        box-shadow: 0 0 0 2px rgba(22,163,74,0.18) !important;
+        background-image: linear-gradient(rgba(22,163,74,0.08), rgba(22,163,74,0.08)) !important;
+        cursor: text !important;
+      }
+      .\${SELECTED_CLASS} {
+        outline: 2px solid #16a34a !important;
+        outline-offset: 2px !important;
+        box-shadow: 0 0 0 2px rgba(22,163,74,0.25) !important;
+        background-image: linear-gradient(rgba(22,163,74,0.12), rgba(22,163,74,0.12)) !important;
+        cursor: text !important;
       }
     \`;
     document.head.appendChild(style);
   };
 
   let activeElement = null;
+  let selectedElement = null;
+
+  const setSelected = (el) => {
+    if (selectedElement === el) return;
+    if (selectedElement) selectedElement.classList.remove(SELECTED_CLASS);
+    selectedElement = el;
+    if (selectedElement) selectedElement.classList.add(SELECTED_CLASS);
+  };
+
+  const clearSelected = () => {
+    if (selectedElement) {
+      selectedElement.classList.remove(SELECTED_CLASS);
+      selectedElement = null;
+    }
+  };
   const cursorHost = document.body || document.documentElement;
   const previousCursor = cursorHost && cursorHost.style ? cursorHost.style.cursor : "";
   if (cursorHost && cursorHost.style) {
-    cursorHost.style.cursor = MODE === "text-edit" ? "text" : "crosshair";
+    cursorHost.style.cursor = "text";
   }
   ensureStyle();
 
@@ -282,19 +293,13 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     setActive(target);
   };
 
-  const onClick = (event) => {
+  const onDblClick = (event) => {
     const target = pickTarget(event.target);
     if (!target) return;
     const selector = buildStableSelector(target);
-    if (!selector) {
-      console.log(LOG_PREFIX + JSON.stringify({
-        type: "invalid",
-        message: uiMessage("无法为该元素生成稳定选择器，请点击 content 内的可见元素", "Could not build a stable selector for this element. Click a visible element inside content."),
-      }));
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
+    if (!selector) return;
+
+    setSelected(target);
 
     const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
     const rawText = normalizeText(target.textContent);
@@ -304,7 +309,6 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
 
     console.log(LOG_PREFIX + JSON.stringify({
       type: "selected",
-      mode: MODE,
       selector,
       label: selector,
       elementTag,
@@ -330,40 +334,56 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     event.stopPropagation();
   };
 
-  const onKeyDown = (event) => {
-    if (event.key === "Escape") {
-      console.log(LOG_PREFIX + JSON.stringify({ type: "exit" }));
-      event.preventDefault();
-      event.stopPropagation();
-    }
+  /**
+   * Live preview: apply style/text changes to the element inside the iframe
+   * without persisting to disk. The host calls this via executeJavaScript.
+   */
+  window.__pptTextEditorLiveUpdate = (selector, patch) => {
+    try {
+      const el = document.querySelector(selector);
+      if (!el) return;
+      if (typeof patch.text === "string") {
+        el.textContent = patch.text;
+      }
+      if (patch.style) {
+        if (patch.style.color) el.style.setProperty("color", patch.style.color, "important");
+        if (patch.style.fontSize) el.style.setProperty("font-size", patch.style.fontSize, "important");
+        if (patch.style.fontWeight) el.style.setProperty("font-weight", patch.style.fontWeight, "important");
+      }
+    } catch (_error) {}
+  };
+
+  window.__pptTextEditorClearSelection = () => {
+    clearSelected();
   };
 
   const cleanup = () => {
     document.removeEventListener("mousemove", onMouseMove, true);
-    document.removeEventListener("click", onClick, true);
-    document.removeEventListener("keydown", onKeyDown, true);
+    document.removeEventListener("dblclick", onDblClick, true);
     clearActive();
+    clearSelected();
     const style = document.getElementById(STYLE_ID);
     if (style) style.remove();
     if (cursorHost && cursorHost.style) {
       cursorHost.style.cursor = previousCursor || "";
     }
+    delete window.__pptTextEditorLiveUpdate;
+    delete window.__pptTextEditorClearSelection;
     delete window[STATE_KEY];
   };
 
   document.addEventListener("mousemove", onMouseMove, true);
-  document.addEventListener("click", onClick, true);
-  document.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("dblclick", onDblClick, true);
 
   window[STATE_KEY] = { active: true, cleanup };
 })();
-  `
+`
 }
 
-export function buildInspectorCleanupScript(): string {
+export function buildTextEditorCleanupScript(): string {
   return `
 (() => {
-  const STATE_KEY = "__pptInspectorState";
+  const STATE_KEY = "__pptTextEditorState";
   const state = window[STATE_KEY];
   if (state && typeof state.cleanup === "function") {
     state.cleanup();
@@ -371,5 +391,5 @@ export function buildInspectorCleanupScript(): string {
     delete window[STATE_KEY];
   }
 })();
-  `
+`
 }

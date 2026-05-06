@@ -12,6 +12,8 @@ export const normalizeSession = (session: Record<string, unknown> | null | undef
       session.reference_document_path ?? session.referenceDocumentPath ?? null,
     created_at: session.created_at ?? session.createdAt ?? null,
     updated_at: session.updated_at ?? session.updatedAt ?? null,
+    generation_duration_sec:
+      session.generation_duration_sec ?? session.generationDurationSec ?? null,
   };
 };
 

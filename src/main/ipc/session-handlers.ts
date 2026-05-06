@@ -10,6 +10,7 @@ import { getStyleDetail, hasStyleSkill } from '../utils/style-skills'
 import type { IpcContext } from './context'
 import { resolveActiveModelConfig } from './model-config-utils'
 import { readAppLocale, uiText } from './locale-utils'
+import { parseSessionMetadata } from './generation/session-metadata'
 
 export function registerSessionHandlers(ctx: IpcContext): void {
   const {
@@ -129,7 +130,12 @@ export function registerSessionHandlers(ctx: IpcContext): void {
             includeHtml: false
           }
         )
-        return snapshot.session || (session as unknown as Record<string, unknown>)
+        const enriched = snapshot.session || (session as unknown as Record<string, unknown>)
+        const run = await db.getLatestGenerationRun(session.id)
+        if (run && run.updated_at > run.created_at) {
+          enriched.generation_duration_sec = run.updated_at - run.created_at
+        }
+        return enriched
       })
     )
     return enrichedSessions.map((session) =>
@@ -173,14 +179,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       status?: string
       error?: string | null
     }> = []
-    const metadataForSnapshot = (() => {
-      if (!session?.metadata) return {} as Record<string, unknown>
-      try {
-        return JSON.parse(session.metadata) as Record<string, unknown>
-      } catch {
-        return {} as Record<string, unknown>
-      }
-    })()
+    const metadataForSnapshot = parseSessionMetadata(session?.metadata)
 
     if (session?.metadata) {
       try {

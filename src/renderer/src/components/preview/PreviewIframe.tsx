@@ -10,9 +10,18 @@ import {
   DRAG_EDITOR_CONSOLE_PREFIX,
   type DragEditorMovePayload
 } from './drag-editor-script'
+import {
+  buildTextEditorCleanupScript,
+  buildTextEditorInjectScript,
+  TEXT_EDITOR_CONSOLE_PREFIX
+} from './text-editor-script'
+import type { TextEditorSelectionPayload } from './text-editor-types'
+import { ipc } from '@renderer/lib/ipc'
 
 export interface PreviewIframeHandle {
   patchPageContent: (pageId: string, newHtml: string) => void
+  liveUpdateTextElement: (selector: string, patch: { text?: string; style?: { color?: string; fontSize?: string; fontWeight?: string } }) => void
+  clearTextEditorSelection: () => void
 }
 
 export const PreviewIframe = forwardRef<
@@ -26,6 +35,7 @@ export const PreviewIframe = forwardRef<
     inspecting?: boolean
     inspectable?: boolean
     dragEditing?: boolean
+    textEditing?: boolean
     onSelectorSelected?: (
       selector: string,
       label: string,
@@ -33,6 +43,7 @@ export const PreviewIframe = forwardRef<
       elementText?: string
     ) => void
     onElementMoved?: (payload: DragEditorMovePayload) => void
+    onTextSelected?: (payload: TextEditorSelectionPayload) => void
     onInspectExit?: () => void
   }
 >(function PreviewIframe(
@@ -44,8 +55,10 @@ export const PreviewIframe = forwardRef<
     inspecting = false,
     inspectable = false,
     dragEditing = false,
+    textEditing = false,
     onSelectorSelected,
     onElementMoved,
+    onTextSelected,
     onInspectExit
   },
   ref
@@ -98,7 +111,30 @@ export const PreviewIframe = forwardRef<
     : src
       ? withPreviewParams(src)
       : undefined
-  const pointerEnabled = inspectable && (inspecting || dragEditing)
+  const pointerEnabled = inspectable && (inspecting || dragEditing || textEditing)
+
+  const ensureAnchoredSelector = async (args: {
+    selector: string
+    elementTag?: string
+    elementText?: string
+    reason: 'inspect' | 'drag' | 'text-edit'
+  }): Promise<string> => {
+    if (!pageHtmlPath || !pageId) return args.selector
+    if (/\[data-block-id=/.test(args.selector)) return args.selector
+    try {
+      const result = await ipc.ensureElementAnchor({
+        htmlPath: pageHtmlPath,
+        pageId,
+        selector: args.selector,
+        elementTag: args.elementTag,
+        elementText: args.elementText,
+        reason: args.reason
+      })
+      return result.selector || args.selector
+    } catch {
+      return args.selector
+    }
+  }
 
   const handleWebviewRef = useCallback((node: Electron.WebviewTag | null): void => {
     webviewRef.current = node
@@ -130,18 +166,38 @@ export const PreviewIframe = forwardRef<
         }
       `
         )
+      },
+      liveUpdateTextElement(selector: string, patch: { text?: string; style?: { color?: string; fontSize?: string; fontWeight?: string } }): void {
+        const wv = webviewRef.current
+        if (!wv) return
+        safeExecuteJavaScript(
+          wv,
+          `if (window.__pptTextEditorLiveUpdate) window.__pptTextEditorLiveUpdate(${JSON.stringify(selector)}, ${JSON.stringify(patch)});`
+        )
+      },
+      clearTextEditorSelection(): void {
+        const wv = webviewRef.current
+        if (!wv) return
+        safeExecuteJavaScript(
+          wv,
+          `if (window.__pptTextEditorClearSelection) window.__pptTextEditorClearSelection();`
+        )
       }
     }),
     []
   )
 
+  // Inspector effect: handles AI inspect mode only.
   useEffect(() => {
     const webview = webviewElement
     if (!webview || !inspectable) return
 
     const runInspectorLifecycle = (): void => {
-      const script = inspecting ? buildInspectorInjectScript() : buildInspectorCleanupScript()
-      safeExecuteJavaScript(webview, script)
+      if (inspecting) {
+        safeExecuteJavaScript(webview, buildInspectorInjectScript())
+      } else {
+        safeExecuteJavaScript(webview, buildInspectorCleanupScript())
+      }
     }
 
     runInspectorLifecycle()
@@ -153,6 +209,29 @@ export const PreviewIframe = forwardRef<
       safeExecuteJavaScript(webview, buildInspectorCleanupScript())
     }
   }, [inspectable, inspecting, webviewSrc, webviewElement])
+
+  // Text editor effect: handles double-click text editing in edit mode.
+  useEffect(() => {
+    const webview = webviewElement
+    if (!webview || !inspectable) return
+
+    const runTextEditorLifecycle = (): void => {
+      if (textEditing) {
+        safeExecuteJavaScript(webview, buildTextEditorInjectScript())
+      } else {
+        safeExecuteJavaScript(webview, buildTextEditorCleanupScript())
+      }
+    }
+
+    runTextEditorLifecycle()
+    const handleDomReady = (): void => runTextEditorLifecycle()
+    webview.addEventListener('dom-ready', handleDomReady as EventListener)
+
+    return () => {
+      webview.removeEventListener('dom-ready', handleDomReady as EventListener)
+      safeExecuteJavaScript(webview, buildTextEditorCleanupScript())
+    }
+  }, [inspectable, textEditing, webviewSrc, webviewElement])
 
   useEffect(() => {
     const webview = webviewElement
@@ -184,11 +263,14 @@ export const PreviewIframe = forwardRef<
       }
       const isInspectorMessage = payloadText.startsWith(INSPECTOR_CONSOLE_PREFIX)
       const isDragEditorMessage = payloadText.startsWith(DRAG_EDITOR_CONSOLE_PREFIX)
-      if (!isInspectorMessage && !isDragEditorMessage) return
+      const isTextEditorMessage = payloadText.startsWith(TEXT_EDITOR_CONSOLE_PREFIX)
+      if (!isInspectorMessage && !isDragEditorMessage && !isTextEditorMessage) return
 
       const prefixLength = isInspectorMessage
         ? INSPECTOR_CONSOLE_PREFIX.length
-        : DRAG_EDITOR_CONSOLE_PREFIX.length
+        : isDragEditorMessage
+          ? DRAG_EDITOR_CONSOLE_PREFIX.length
+          : TEXT_EDITOR_CONSOLE_PREFIX.length
       const raw = payloadText.slice(prefixLength).trim()
       if (!raw) return
       try {
@@ -210,20 +292,77 @@ export const PreviewIframe = forwardRef<
             width?: number
             height?: number
           }>
+          oldText?: string
+          newText?: string
+          mode?: string
+          text?: string
+          style?: TextEditorSelectionPayload['style']
+          bounds?: TextEditorSelectionPayload['bounds']
         }
-        if (isInspectorMessage && parsed.type === 'selected' && parsed.selector) {
+        if ((isInspectorMessage || isTextEditorMessage) && parsed.type === 'selected' && parsed.selector) {
+          void (async () => {
+            const isTextMode = isTextEditorMessage || parsed.mode === 'text-edit'
+            const anchoredSelector = await ensureAnchoredSelector({
+              selector: parsed.selector || '',
+              elementTag: parsed.elementTag,
+              elementText: parsed.elementText,
+              reason: isTextMode ? 'text-edit' : 'inspect'
+            })
+          if (isTextMode) {
+            onTextSelected?.({
+              selector: anchoredSelector,
+              label: anchoredSelector,
+              elementTag: parsed.elementTag || '',
+              text:
+                typeof parsed.text === 'string'
+                  ? parsed.text
+                  : typeof parsed.elementText === 'string'
+                    ? parsed.elementText
+                    : '',
+              style: parsed.style || {},
+              bounds: parsed.bounds
+            })
+            return
+          }
           onSelectorSelected?.(
-            parsed.selector,
-            parsed.label || parsed.selector,
+            anchoredSelector,
+            anchoredSelector,
             parsed.elementTag,
             parsed.elementText
           )
+          })().catch(() => {})
+          return
+        }
+        if (isDragEditorMessage && parsed.type === 'pre-anchor' && parsed.selector) {
+          void (async () => {
+            let anchorResult: string = parsed.selector || ''
+            try {
+              anchorResult = await ensureAnchoredSelector({
+                selector: parsed.selector || '',
+                elementTag: parsed.elementTag,
+                reason: 'drag'
+              })
+            } catch { /* fallback to temp selector */ }
+            const wv = webviewRef.current
+            if (wv) {
+              safeExecuteJavaScript(
+                wv,
+                `if (window.__pptResolveDragAnchor) window.__pptResolveDragAnchor(${JSON.stringify({ selector: anchorResult })});`
+              )
+            }
+          })().catch(() => {})
           return
         }
         if (isDragEditorMessage && parsed.type === 'moved' && parsed.selector) {
-          onElementMoved?.({
-            selector: parsed.selector,
-            label: parsed.label || parsed.selector,
+          void (async () => {
+            const anchoredSelector = await ensureAnchoredSelector({
+              selector: parsed.selector || '',
+              elementTag: parsed.elementTag,
+              reason: 'drag'
+            })
+            onElementMoved?.({
+            selector: anchoredSelector,
+            label: anchoredSelector,
             elementTag: parsed.elementTag || '',
             x: Number(parsed.x || 0),
             y: Number(parsed.y || 0),
@@ -236,14 +375,21 @@ export const PreviewIframe = forwardRef<
               ? parsed.childUpdates
                   .map((item) => ({
                     path: Array.isArray(item.path)
-                      ? item.path.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 0)
+                      ? item.path
+                          .map((value) => Number(value))
+                          .filter((value) => Number.isInteger(value) && value >= 0)
                       : [],
                     width: item.width === undefined ? undefined : Number(item.width),
                     height: item.height === undefined ? undefined : Number(item.height)
                   }))
-                  .filter((item) => item.path.length > 0 && (item.width !== undefined || item.height !== undefined))
+                  .filter(
+                    (item) =>
+                      item.path.length > 0 &&
+                      (item.width !== undefined || item.height !== undefined)
+                  )
               : undefined
-          })
+            })
+          })().catch(() => {})
           return
         }
         if (parsed.type === 'exit') {
@@ -258,7 +404,16 @@ export const PreviewIframe = forwardRef<
     return () => {
       webview.removeEventListener('console-message', handleConsoleMessage as EventListener)
     }
-  }, [inspectable, onSelectorSelected, onElementMoved, onInspectExit, webviewElement])
+  }, [
+    inspectable,
+    onSelectorSelected,
+    onElementMoved,
+    onTextSelected,
+    onInspectExit,
+    pageHtmlPath,
+    pageId,
+    webviewElement
+  ])
 
   useEffect(() => {
     const el = containerRef.current
@@ -291,7 +446,7 @@ export const PreviewIframe = forwardRef<
           title={title}
           className={`absolute left-0 top-0 h-[900px] w-[1600px] origin-top-left ${
             pointerEnabled ? 'pointer-events-auto' : 'pointer-events-none'
-          } ${dragEditing ? 'cursor-move' : inspecting ? 'cursor-crosshair' : ''}`}
+          } ${dragEditing ? 'cursor-move' : textEditing ? 'cursor-text' : inspecting ? 'cursor-crosshair' : ''}`}
           style={{ transform }}
         />
       ) : null}

@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { UploadedAsset } from '@shared/generation.js'
 
 export type SessionDetailChatType = 'main' | 'page'
+export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
+export type EditSubMode = 'layout' | 'text'
 
 interface SessionDetailUiStore {
   input: string
@@ -12,8 +14,8 @@ interface SessionDetailUiStore {
   isExportingPdf: boolean
   isExportingPng: boolean
   isExportingPptx: boolean
-  inspecting: boolean
-  dragEditing: boolean
+  interactionMode: InteractionMode
+  editSubMode: EditSubMode
   thumbnailVersions: Record<string, number>
   selectedSelector: string | null
   selectorLabel: string
@@ -31,8 +33,8 @@ interface SessionDetailUiStore {
   setIsExportingPdf: (isExporting: boolean) => void
   setIsExportingPng: (isExporting: boolean) => void
   setIsExportingPptx: (isExporting: boolean) => void
-  setInspecting: (inspecting: boolean) => void
-  setDragEditing: (dragEditing: boolean) => void
+  setInteractionMode: (mode: InteractionMode) => void
+  setEditSubMode: (sub: EditSubMode) => void
   setSelectedElement: (
     selector: string,
     label: string,
@@ -59,8 +61,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isExportingPdf: false,
   isExportingPng: false,
   isExportingPptx: false,
-  inspecting: false,
-  dragEditing: false,
+  interactionMode: 'preview' as InteractionMode,
+  editSubMode: 'layout' as EditSubMode,
   thumbnailVersions: {},
   selectedSelector: null,
   selectorLabel: '',
@@ -81,16 +83,18 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   setIsExportingPdf: (isExportingPdf) => set({ isExportingPdf }),
   setIsExportingPng: (isExportingPng) => set({ isExportingPng }),
   setIsExportingPptx: (isExportingPptx) => set({ isExportingPptx }),
-  setInspecting: (inspecting) => set({ inspecting }),
-  setDragEditing: (dragEditing) => set({ dragEditing }),
+  setInteractionMode: (interactionMode) => set({ interactionMode }),
+  setEditSubMode: (editSubMode) => set({ editSubMode }),
   setSelectedElement: (selectedSelector, selectorLabel, elementTag = '', elementText = '') =>
-    set({
+    set((state) => ({
       selectedSelector,
       selectorLabel,
       elementTag,
       elementText,
-      inspecting: false
-    }),
+      interactionMode: state.interactionMode === 'ai-inspect'
+        ? 'ai-inspect'
+        : ('preview' as InteractionMode)
+    })),
   clearSelectedElement: () =>
     set({
       selectedSelector: null,
@@ -118,8 +122,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
     })),
   resetForPageChange: () =>
     set({
-      inspecting: false,
-      dragEditing: false,
+      interactionMode: 'preview' as InteractionMode,
+      editSubMode: 'layout' as EditSubMode,
       selectedSelector: null,
       selectorLabel: '',
       elementTag: '',
@@ -130,8 +134,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       input: '',
       chatType: 'page',
       selectedPageNumber: null,
-      inspecting: false,
-      dragEditing: false,
+      interactionMode: 'preview' as InteractionMode,
+      editSubMode: 'layout' as EditSubMode,
       selectedSelector: null,
       selectorLabel: '',
       elementTag: '',

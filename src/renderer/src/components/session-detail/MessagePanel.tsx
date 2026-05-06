@@ -78,9 +78,14 @@ export function MessagePanel({
       : chatType === 'page'
         ? t('sessionDetail.pagePlaceholder')
         : t('sessionDetail.mainDisabledPlaceholder')
+  const displayLabel = (() => {
+    const raw = selectorLabel || selectedSelector || ''
+    const last = raw.split(/\s+/).pop() || raw
+    return last
+  })()
   const selectorSummary = selectedSelector
     ? [
-        selectorLabel || selectedSelector,
+        displayLabel,
         elementTag ? `<${elementTag}>${elementText ? ` ${elementText}` : ''}` : ''
       ]
         .filter(Boolean)

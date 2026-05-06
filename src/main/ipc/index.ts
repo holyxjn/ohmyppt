@@ -12,6 +12,8 @@ import { registerSettingsHandlers } from './settings-handlers'
 import { registerPreviewHandlers } from './preview-handlers'
 import { registerFileHandlers } from './file-handlers'
 import { registerDragEditorHandlers } from './drag-editor-handlers'
+import { registerTextEditorHandlers } from './text-editor-handlers'
+import { registerElementAnchorHandlers } from './element-anchor-handlers'
 import { registerDocumentParseHandlers } from './document-parse-handlers'
 import { registerPptxImportHandlers } from './pptx-import-handlers'
 
@@ -31,7 +33,9 @@ export function setupIPC(
   registerSettingsHandlers(context)
   registerPreviewHandlers(context)
   registerFileHandlers(context)
+  registerElementAnchorHandlers(context)
   registerDragEditorHandlers(context)
+  registerTextEditorHandlers(context)
   registerDocumentParseHandlers(context)
   registerPptxImportHandlers(context)
 }

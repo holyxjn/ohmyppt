@@ -11,12 +11,10 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!**/*.map'
   - '!**/*.tsbuildinfo'
-  - '!{docs,logs,ohmyppt.dev.db}'
+  - '!{docs,logs,ohmyppt.dev.db,doc}'
+  - '!thumb.png'
   - '!node_modules/tiktoken'
   - '!node_modules/web-streams-polyfill'
-  - '!thumb.png'
-  - '!docs/images/*'
-  - '!docs/video/*'
 asarUnpack:
   - resources/**
   - node_modules/@node-rs/**/*.node

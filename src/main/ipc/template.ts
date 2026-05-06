@@ -1,14 +1,14 @@
 /** HTML template builders for multi-page preview architecture. */
-import { escapeHtml } from "./utils";
-import * as cheerio from "cheerio";
-import { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from "../tools";
-import { buildSessionAssetHeadTags } from "./page-assets";
+import { escapeHtml } from './utils'
+import * as cheerio from 'cheerio'
+import { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from '../tools'
+import { buildSessionAssetHeadTags } from './page-assets'
 
 export interface DeckPageFile {
-  pageNumber: number;
-  pageId: string;
-  title: string;
-  htmlPath: string;
+  pageNumber: number
+  pageId: string
+  title: string
+  htmlPath: string
 }
 
 export {
@@ -18,14 +18,14 @@ export {
   SESSION_ASSET_SCRIPT_SRCS,
   SESSION_ASSET_STYLE_HREFS,
   buildSessionAssetHeadTags
-} from "./page-assets";
+} from './page-assets'
 
 export const buildPageScaffoldHtml = (page: {
-  pageNumber: number;
-  pageId: string;
-  title: string;
+  pageNumber: number
+  pageId: string
+  title: string
 }): string => {
-  const safeTitle = escapeHtml(page.title || `第 ${page.pageNumber} 页`);
+  const safeTitle = escapeHtml(page.title || `第 ${page.pageNumber} 页`)
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -60,31 +60,30 @@ export const buildPageScaffoldHtml = (page: {
     <main class="ppt-page-root p-2" data-ppt-guard-root="1">
       <div class="ppt-page-fit-scope">
         <div class="ppt-page-content">
-          <section class="scaffold-card" data-page-scaffold="1">
-            <h1 class="scaffold-title">${safeTitle}</h1>
-            <div class="scaffold-hint">等待模型填充这一页内容</div>
+          <section class="scaffold-card" data-page-scaffold="1" data-placeholder-page="1">
+            <main data-block-id="content" data-role="content">
+              <h1 class="scaffold-title" data-block-id="title" data-role="title">${safeTitle}</h1>
+              <div class="scaffold-hint">等待模型填充这一页内容</div>
+            </main>
           </section>
         </div>
       </div>
     </main>
     ${FIT_SCRIPT}
   </body>
-</html>`;
-};
+</html>`
+}
 
-export const buildProjectIndexHtml = (
-  title: string,
-  pages: DeckPageFile[]
-): string => {
-  const safeTitle = escapeHtml(title || "OpenPPT Preview");
+export const buildProjectIndexHtml = (title: string, pages: DeckPageFile[]): string => {
+  const safeTitle = escapeHtml(title || 'OpenPPT Preview')
   const pagesData = JSON.stringify(
     pages.map((page) => ({
       pageNumber: page.pageNumber,
       pageId: page.pageId,
       title: page.title,
-      htmlPath: page.htmlPath,
+      htmlPath: page.htmlPath
     }))
-  ).replace(/</g, "\\u003c");
+  ).replace(/</g, '\\u003c')
   const thumbButtons = pages
     .map(
       (page) => `<button class="ppt-thumb-item" data-page-id="${page.pageId}">
@@ -92,13 +91,14 @@ export const buildProjectIndexHtml = (
   <div class="ppt-thumb-title">${escapeHtml(page.title)}</div>
 </button>`
     )
-    .join("\n");
+    .join('\n')
 
   const frameElements = pages
     .map(
-      (page) => `<iframe class="ppt-preview-frame" data-page-id="${page.pageId}" title="${escapeHtml(page.title)}"></iframe>`
+      (page) =>
+        `<iframe class="ppt-preview-frame" data-page-id="${page.pageId}" title="${escapeHtml(page.title)}"></iframe>`
     )
-    .join("\n");
+    .join('\n')
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -492,59 +492,61 @@ export const buildProjectIndexHtml = (
       scheduleFitFrame();
     </script>
   </body>
-</html>`;
-};
+</html>`
+}
 
 export const buildProjectIndexScaffold = (
   title: string,
   pages: Array<{ pageNumber: number; title: string; pageId: string }>
 ): string => {
   return buildProjectIndexHtml(
-    title || "OpenPPT Preview",
+    title || 'OpenPPT Preview',
     pages.map((page) => ({
       pageNumber: page.pageNumber,
       pageId: page.pageId,
       title: page.title,
-      htmlPath: `${page.pageId}.html`,
+      htmlPath: `${page.pageId}.html`
     }))
-  );
-};
+  )
+}
 
-export const extractPagesDataFromIndex = (indexHtml: string): Array<{
-  pageNumber: number;
-  pageId: string;
-  title: string;
-  html: string;
-  htmlPath?: string;
+export const extractPagesDataFromIndex = (
+  indexHtml: string
+): Array<{
+  pageNumber: number
+  pageId: string
+  title: string
+  html: string
+  htmlPath?: string
 }> => {
-  const $ = cheerio.load(indexHtml, { scriptingEnabled: false });
-  const pagesDataText = $("script#pages-data").text();
+  const $ = cheerio.load(indexHtml, { scriptingEnabled: false })
+  const pagesDataText = $('script#pages-data').text()
   const metadata = (() => {
     try {
-      const parsed = JSON.parse(pagesDataText);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed = JSON.parse(pagesDataText)
+      return Array.isArray(parsed) ? parsed : []
     } catch {
-      return [];
+      return []
     }
   })() as Array<{
-    pageNumber?: number;
-    pageId?: string;
-    title?: string;
-    htmlPath?: string;
-  }>;
+    pageNumber?: number
+    pageId?: string
+    title?: string
+    htmlPath?: string
+  }>
 
-  if (metadata.length === 0) return [];
+  if (metadata.length === 0) return []
 
   return metadata.map((item, index) => {
-    const pageNumber = Number(item.pageNumber) || index + 1;
-    const pageId = String(item.pageId || `page-${pageNumber}`);
-    const rawPath = typeof item.htmlPath === "string" ? item.htmlPath.trim() : "";
+    const pageNumber = Number(item.pageNumber) || index + 1
+    const pageId = String(item.pageId || `page-${pageNumber}`)
+    const rawPath = typeof item.htmlPath === 'string' ? item.htmlPath.trim() : ''
     return {
       pageNumber,
       pageId,
       title: String(item.title || `Page ${pageNumber}`),
-      html: "",
-      htmlPath: rawPath.length > 0 ? rawPath : `${pageId}.html`,
-    };
-  });
-};
+      html: '',
+      htmlPath: rawPath.length > 0 ? rawPath : `${pageId}.html`
+    }
+  })
+}

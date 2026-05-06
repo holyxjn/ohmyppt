@@ -9,9 +9,11 @@ import type { SessionPreviewPage } from './types'
 import { useT } from '@renderer/i18n'
 
 export const PageSidebar = memo(function PageSidebar({
-  pages
+  pages,
+  disabled = false
 }: {
   pages: SessionPreviewPage[]
+  disabled?: boolean
 }): React.JSX.Element {
   const navigate = useNavigate()
   const t = useT()
@@ -54,7 +56,7 @@ export const PageSidebar = memo(function PageSidebar({
                 page={page}
                 isSelected={selectedPageNumber === page.pageNumber}
                 previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
-                onSelect={setSelectedPageNumber}
+                onSelect={disabled ? undefined : setSelectedPageNumber}
               />
             ))}
           </div>

@@ -53,6 +53,7 @@ export function SessionGeneratingPage(): React.JSX.Element {
   const eventsContainerRef = useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = useRef(true)
   const shouldAutoScrollRef = useRef(true)
+  const currentStageRef = useRef<string>('preflight')
 
   const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
   const [progress, setProgress] = useState(0)
@@ -61,9 +62,11 @@ export function SessionGeneratingPage(): React.JSX.Element {
   ])
   const [error, setError] = useState<string | null>(null)
   const [sessionTitle, setSessionTitle] = useState<string>(t('generating.currentSession'))
-  const [, setTotalPages] = useState<number>(1)
+  const [totalPages, setTotalPages] = useState<number>(1)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [editorGate, setEditorGate] = useState<EditorGate>(() => getEditorGate(null))
+  const [currentStage, setCurrentStage] = useState<string>('preflight')
+  const [completedPageCount, setCompletedPageCount] = useState<number>(0)
 
   const appendEvent = (line: string, timestamp?: string): void => {
     const el = eventsContainerRef.current
@@ -149,6 +152,10 @@ export function SessionGeneratingPage(): React.JSX.Element {
       if (event.type === 'stage_started' || event.type === 'stage_progress') {
         applyProgress(event.payload.progress)
         applyTotalPages(event.payload.totalPages)
+        if (event.payload.stage) {
+          currentStageRef.current = event.payload.stage
+          setCurrentStage(event.payload.stage)
+        }
         appendEvent(event.payload.label, event.payload.timestamp)
         return
       }
@@ -156,10 +163,38 @@ export function SessionGeneratingPage(): React.JSX.Element {
       if (event.type === 'llm_status') {
         applyProgress(event.payload.progress)
         applyTotalPages(event.payload.totalPages)
-        appendEvent(
-          `${event.payload.label}${event.payload.detail ? ` · ${event.payload.detail}` : ''}`,
-          event.payload.timestamp
-        )
+
+        // Track stage changes (compare before updating)
+        const prevStage = currentStageRef.current
+        const stageChanged = event.payload.stage && event.payload.stage !== prevStage
+        if (event.payload.stage) {
+          currentStageRef.current = event.payload.stage
+          setCurrentStage(event.payload.stage)
+        }
+
+        // Parse page completion count from detail
+        const detail = event.payload.detail || ''
+        const pageMatch = detail.match(/(\d+)\/(\d+)\s*(页|pages?)/)
+        if (pageMatch) {
+          setCompletedPageCount(parseInt(pageMatch[1], 10))
+        }
+
+        // Filter: only append meaningful events to log
+        const hasPageCompletion = Boolean(pageMatch)
+        const isValidationOrError =
+          detail.includes('校验') || detail.includes('validat') ||
+          detail.includes('失败') || detail.includes('fail') ||
+          detail.includes('重试') || detail.includes('retry') ||
+          detail.includes('准备完成') || detail.includes('ready')
+        const isRetryLabel =
+          event.payload.label?.includes('重试') || event.payload.label?.includes('retry')
+
+        if (stageChanged || hasPageCompletion || isValidationOrError || isRetryLabel) {
+          appendEvent(
+            `${event.payload.label}${detail ? ` · ${detail}` : ''}`,
+            event.payload.timestamp
+          )
+        }
         return
       }
 
@@ -553,14 +588,76 @@ export function SessionGeneratingPage(): React.JSX.Element {
       <div className="relative z-20 border-t border-[#d8ccb5]/65 bg-[#fff7e7]/88 px-6 py-2 backdrop-blur-sm">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-1.5 flex items-center justify-between text-[11px] text-[#617350]">
-            <span>
-              {status === 'completed'
-                ? t('sessions.statusComplete')
-                : status === 'failed'
-                  ? t('generating.interrupted')
-                  : t('generating.progress')}
-            </span>
-            <span className="font-semibold">{displayProgress}%</span>
+            <div className="flex items-center gap-2">
+              {status === 'completed' && (
+                <span>{t('sessions.statusComplete')}</span>
+              )}
+              {status === 'failed' && (
+                <span>{t('generating.interrupted')}</span>
+              )}
+              {/* Step indicator */}
+              {(() => {
+                const stages = ['preflight', 'planning', 'rendering', 'validation'] as const
+                const stageLabels: Record<string, string> = {
+                  preflight: t('generating.stages.preflight'),
+                  planning: t('generating.stages.planning'),
+                  rendering: t('generating.stages.rendering'),
+                  validation: t('generating.stages.validation')
+                }
+                const activeIndex = stages.indexOf(currentStage as typeof stages[number])
+                const renderStage = stages[2]
+                return (
+                  <div className="flex items-center gap-1 text-[10px]">
+                    {stages.map((stage, i) => {
+                      const isActive = i === activeIndex
+                      const isDone = i < activeIndex || status === 'completed'
+                      const isRenderingActive = stage === renderStage && isActive
+                      return (
+                        <span key={stage} className="flex items-center gap-1">
+                          {i > 0 && (
+                            <span className={`mx-0.5 h-px w-3 ${isDone ? 'bg-[#6f9f59]' : 'bg-[#c8bfb0]'}`} />
+                          )}
+                          <span
+                            className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium ${
+                              isDone
+                                ? 'text-[#4f7b3f]'
+                                : isActive
+                                  ? 'bg-[#eef5e8] text-[#3e5a30]'
+                                  : 'text-[#a09882]'
+                            }`}
+                          >
+                            {isDone && !isActive && (
+                              <CheckCircle2 className="h-3 w-3" />
+                            )}
+                            {isActive && (
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#4f7b3f]" />
+                            )}
+                            {isRenderingActive && completedPageCount > 0
+                              ? `${stageLabels[stage]} ${completedPageCount}/${totalPages}`
+                              : stageLabels[stage]}
+                          </span>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+            <div className="flex items-center gap-2">
+              {status === 'running' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!id) return
+                    void ipc.cancelGenerate(id)
+                  }}
+                  className="inline-flex h-6 cursor-pointer items-center rounded-md border border-[#d7b5ae]/80 bg-[#fbf1ee]/80 px-2 text-[10px] font-semibold text-[#93564f] transition-colors hover:bg-[#f5e0db] hover:text-[#7a3e38]"
+                >
+                  {t('generating.cancelGeneration')}
+                </button>
+              )}
+              <span className="font-semibold">{displayProgress}%</span>
+            </div>
           </div>
           <div className="h-2.5 overflow-hidden rounded-full border border-[#d8ccb5]/80 bg-[#fff9ef]/75 shadow-[inset_0_1px_2px_rgba(74,58,40,0.12)]">
             <div

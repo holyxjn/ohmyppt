@@ -14,7 +14,7 @@ export const PageThumbnail = memo(function PageThumbnail({
   page: SessionPreviewPage
   isSelected: boolean
   previewVersion: number
-  onSelect: (pageNumber: number) => void
+  onSelect?: (pageNumber: number) => void
 }): React.JSX.Element {
   const t = useT()
 
@@ -23,9 +23,11 @@ export const PageThumbnail = memo(function PageThumbnail({
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={() => onSelect(page.pageNumber)}
+          onClick={onSelect ? () => onSelect(page.pageNumber) : undefined}
+          disabled={!onSelect}
           className={cn(
-            'group relative block w-full min-w-0 overflow-hidden rounded-[1.25rem] p-1.5 text-left transition-all duration-200 cursor-pointer',
+            'group relative block w-full min-w-0 overflow-hidden rounded-[1.25rem] p-1.5 text-left transition-all duration-200',
+            onSelect ? 'cursor-pointer' : 'cursor-default opacity-60',
             isSelected
               ? 'bg-[#d4e4c1]/86 shadow-[0_14px_26px_rgba(93,107,77,0.18)]'
               : 'bg-[#e8e0d0]/34 hover:bg-[#e8e0d0]/68 hover:shadow-[0_8px_18px_rgba(93,107,77,0.09)]'

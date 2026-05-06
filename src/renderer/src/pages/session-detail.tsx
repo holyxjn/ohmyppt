@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type { DragEditorMovePayload } from '../components/preview/drag-editor-script'
+import type { TextEditorSelectionPayload } from '../components/preview/text-editor-types'
+import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
 import { MessagePanel } from '../components/session-detail/MessagePanel'
 import { PageSidebar } from '../components/session-detail/PageSidebar'
 import { PreviewStage } from '../components/session-detail/PreviewStage'
 import { SessionToolbar } from '../components/session-detail/SessionToolbar'
+import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
 import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
 import { useSessionStore, useGenerateStore } from '../store'
 import { useSessionDetailUiStore } from '../store/sessionDetailStore'
@@ -14,6 +17,36 @@ import type { GenerateChunkEvent } from '@shared/generation.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
+
+const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
+  text: '',
+  color: '#34402c',
+  fontSize: '',
+  fontWeight: '400'
+}
+
+function rgbToHex(value: string | undefined): string {
+  const text = String(value || '').trim()
+  if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(text)) return text
+  const match = text.match(/^rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})/i)
+  if (!match) return '#34402c'
+  const toHex = (part: string): string =>
+    Math.max(0, Math.min(255, Number(part) || 0))
+      .toString(16)
+      .padStart(2, '0')
+  return `#${toHex(match[1])}${toHex(match[2])}${toHex(match[3])}`
+}
+
+function fontSizeToNumber(value: string | undefined): string {
+  const parsed = Number(String(value || '').replace(/px$/i, ''))
+  return Number.isFinite(parsed) && parsed > 0 ? String(Math.round(parsed)) : ''
+}
+
+function normalizeFontWeight(value: string | undefined): string {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return value === 'bold' ? '700' : '400'
+  return String(Math.max(300, Math.min(800, Math.round(parsed / 100) * 100)))
+}
 
 export function SessionDetailPage(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
@@ -32,7 +65,7 @@ export function SessionDetailPage(): React.JSX.Element {
     useGenerateStore()
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const selectedPageNumber = useSessionDetailUiStore((state) => state.selectedPageNumber)
-  const consoleOpen = useSessionDetailUiStore((state) => state.consoleOpen)
+  const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const setSelectedPageNumber = useSessionDetailUiStore((state) => state.setSelectedPageNumber)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
@@ -41,8 +74,14 @@ export function SessionDetailPage(): React.JSX.Element {
   const [pendingDragEdits, setPendingDragEdits] = useState<
     Array<DragEditorMovePayload & { pageId: string; htmlPath: string }>
   >([])
-  const [isSavingDragEdits, setIsSavingDragEdits] = useState(false)
+  const [pendingTextEdits, setPendingTextEdits] = useState<
+    Array<{ pageId: string; htmlPath: string; selector: string; patch: { text: string; style: { color: string; fontSize: string; fontWeight: string } } }>
+  >([])
+  const [isSavingEdits, setIsSavingEdits] = useState(false)
+  const [textSelection, setTextSelection] = useState<TextEditorSelectionPayload | null>(null)
+  const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
+  const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
   const {
     success: toastSuccess,
@@ -76,6 +115,9 @@ export function SessionDetailPage(): React.JSX.Element {
     resetForPageChange()
     window.setTimeout(() => {
       setPendingDragEdits([])
+      setPendingTextEdits([])
+      setTextSelection(null)
+      setTextDraft(EMPTY_ELEMENT_DRAFT)
     }, 0)
   }, [resetForPageChange, selectedPage?.pageId])
 
@@ -381,7 +423,10 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const cleanMessageContent = (content: string): string =>
-    content.replace(/[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g, t('sessionDetail.selectorLocated'))
+    content.replace(
+      /[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g,
+      t('sessionDetail.selectorLocated')
+    )
 
   const getPptxExportNotice = (warnings?: string[]): string | null => {
     const items = (warnings || []).filter(Boolean)
@@ -540,13 +585,18 @@ export function SessionDetailPage(): React.JSX.Element {
     })
   }
 
-  const handleSavePendingDragEdits = async (): Promise<void> => {
+  // Unified save: persist both drag edits and text edits for the current page
+  const handleSaveAllEdits = async (): Promise<void> => {
     if (!id || !selectedPage?.pageId) return
-    const edits = pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId)
-    if (edits.length === 0) return
-    setIsSavingDragEdits(true)
+    const dragEdits = pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId)
+    const textEdits = pendingTextEdits.filter((item) => item.pageId === selectedPage.pageId)
+    if (dragEdits.length === 0 && textEdits.length === 0) {
+      useSessionDetailUiStore.getState().setInteractionMode('preview')
+      return
+    }
+    setIsSavingEdits(true)
     try {
-      for (const edit of edits) {
+      for (const edit of dragEdits) {
         const result = await ipc.updateElementLayout({
           sessionId: id,
           htmlPath: edit.htmlPath,
@@ -562,23 +612,116 @@ export function SessionDetailPage(): React.JSX.Element {
           throw new Error(t('sessionDetail.layoutSaveFailed'))
         }
       }
+      for (const edit of textEdits) {
+        const result = await ipc.updateElementProperties({
+          sessionId: id,
+          htmlPath: edit.htmlPath,
+          pageId: edit.pageId,
+          selector: edit.selector,
+          patch: edit.patch
+        })
+        if (!result.success) {
+          throw new Error(t('sessionDetail.textSaveFailed'))
+        }
+      }
       setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+      setPendingTextEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+      previewIframeRef.current?.clearTextEditorSelection()
+      setTextSelection(null)
+      setTextDraft(EMPTY_ELEMENT_DRAFT)
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
-      useSessionDetailUiStore.getState().setDragEditing(false)
-      toastSuccess(t('sessionDetail.adjustmentsSaved', { count: edits.length }))
+      useSessionDetailUiStore.getState().setInteractionMode('preview')
+      const totalCount = dragEdits.length + textEdits.length
+      toastSuccess(t('sessionDetail.adjustmentsSaved', { count: totalCount }))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('sessionDetail.layoutSaveFailed'))
     } finally {
-      setIsSavingDragEdits(false)
+      setIsSavingEdits(false)
     }
   }
 
-  const handleCancelPendingDragEdits = (): void => {
+  const handleDiscardAllEdits = (): void => {
     if (!selectedPage?.pageId) return
-    const hadPending = pendingDragEdits.some((item) => item.pageId === selectedPage.pageId)
+    const hadDragPending = pendingDragEdits.some((item) => item.pageId === selectedPage.pageId)
+    const hadTextPending = pendingTextEdits.some((item) => item.pageId === selectedPage.pageId)
     setPendingDragEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+    setPendingTextEdits((items) => items.filter((item) => item.pageId !== selectedPage.pageId))
+    previewIframeRef.current?.clearTextEditorSelection()
+    setTextSelection(null)
+    setTextDraft(EMPTY_ELEMENT_DRAFT)
     setPreviewRefreshKey((key) => key + 1)
-    if (hadPending) toastInfo(t('sessionDetail.discardedAdjustments'))
+    useSessionDetailUiStore.getState().setInteractionMode('preview')
+    if (hadDragPending || hadTextPending) toastInfo(t('sessionDetail.discardedAdjustments'))
+  }
+
+  const handleTextSelected = (payload: TextEditorSelectionPayload): void => {
+    // Commit previous edit before switching to new element
+    commitCurrentTextEdit()
+    setTextSelection(payload)
+    setTextDraft({
+      text: payload.text,
+      color: rgbToHex(payload.style.color),
+      fontSize: fontSizeToNumber(payload.style.fontSize),
+      fontWeight: normalizeFontWeight(payload.style.fontWeight)
+    })
+  }
+
+  const handleTextDraftChange = (draft: ElementEditDraft): void => {
+    setTextDraft(draft)
+    // Live preview in iframe
+    if (textSelection && selectedPage?.pageId) {
+      previewIframeRef.current?.liveUpdateTextElement(textSelection.selector, {
+        text: draft.text,
+        style: {
+          color: draft.color,
+          fontSize: draft.fontSize ? `${draft.fontSize}px` : undefined,
+          fontWeight: draft.fontWeight
+        }
+      })
+    }
+  }
+
+  // When user starts editing a new element, save the previous text edit as pending
+  const commitCurrentTextEdit = (): void => {
+    if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
+    const nextText = textDraft.text.trim()
+    if (!nextText) return
+    // Skip if nothing actually changed
+    if (
+      nextText === textSelection.text &&
+      textDraft.color === rgbToHex(textSelection.style.color) &&
+      textDraft.fontSize === fontSizeToNumber(textSelection.style.fontSize) &&
+      textDraft.fontWeight === normalizeFontWeight(textSelection.style.fontWeight)
+    ) return
+    const patch = {
+      text: nextText,
+      style: {
+        color: textDraft.color,
+        fontSize: textDraft.fontSize,
+        fontWeight: textDraft.fontWeight
+      }
+    }
+    const entry = {
+      pageId: selectedPage.pageId,
+      htmlPath: selectedPage.htmlPath,
+      selector: textSelection.selector,
+      patch
+    }
+    setPendingTextEdits((items) => {
+      const existingIndex = items.findIndex(
+        (item) => item.pageId === entry.pageId && item.selector === entry.selector
+      )
+      if (existingIndex < 0) return [...items, entry]
+      return items.map((item, index) => (index === existingIndex ? entry : item))
+    })
+  }
+
+  const handleCancelTextEdit = (): void => {
+    // Commit current text edit before closing panel
+    commitCurrentTextEdit()
+    previewIframeRef.current?.clearTextEditorSelection()
+    setTextSelection(null)
+    setTextDraft(EMPTY_ELEMENT_DRAFT)
   }
 
   return (
@@ -611,22 +754,28 @@ export function SessionDetailPage(): React.JSX.Element {
         </header>
 
         <div className="flex min-h-0 flex-1 bg-[#f5f1e8]">
-          <PageSidebar pages={normalizedOrderedPages} />
+          <PageSidebar pages={normalizedOrderedPages} disabled={interactionMode === 'ai-inspect' && isGenerating} />
 
           <PreviewStage
+            ref={previewIframeRef}
             selectedPage={selectedPage}
             sessionTitle={currentSession?.title}
             isGenerating={isGenerating}
             progressLabel={progress?.label}
             previewRefreshKey={previewRefreshKey}
-            pendingDragCount={selectedPagePendingDragCount}
-            isSavingDragEdits={isSavingDragEdits}
+            pendingEditCount={selectedPagePendingDragCount + pendingTextEdits.filter((item) => item.pageId === selectedPage?.pageId).length}
+            isSavingEdits={isSavingEdits}
+            textSelection={textSelection}
+            textDraft={textDraft}
+            onTextDraftChange={handleTextDraftChange}
             onElementMoved={handleElementMoved}
-            onSaveDragEdits={() => void handleSavePendingDragEdits()}
-            onCancelDragEdits={handleCancelPendingDragEdits}
+            onTextSelected={handleTextSelected}
+            onCancelTextEdit={handleCancelTextEdit}
+            onSaveAllEdits={() => void handleSaveAllEdits()}
+            onDiscardAllEdits={handleDiscardAllEdits}
           />
 
-          {consoleOpen && (
+          {interactionMode === 'ai-inspect' && (
             <MessagePanel
               selectedPageExists={Boolean(selectedPage?.pageId)}
               selectedPageNumber={selectedPage?.pageNumber}

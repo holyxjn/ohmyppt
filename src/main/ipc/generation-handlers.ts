@@ -2,6 +2,11 @@ import { ipcMain } from 'electron'
 import log from 'electron-log/main.js'
 import type { IpcContext } from './context'
 import type { GenerationContext, GenerationService } from './generation-flow'
+import type { SessionStatus } from '../db/schema'
+
+function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
+  return status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'
+}
 
 export function registerGenerationHandlers(
   ctx: IpcContext,
@@ -99,7 +104,8 @@ export function registerGenerationHandlers(
         sessionId: context.sessionId,
         runId: context.runId,
         mode: context.effectiveMode,
-        totalPages: context.totalPages
+        totalPages: context.totalPages,
+        previousSessionStatus: context.previousSessionStatus
       })
       await executeGeneration(context)
       return { success: true, runId: context.runId }
@@ -147,11 +153,16 @@ export function registerGenerationHandlers(
           : ''
       const retryUserMessage = retrySupplement
         ? [
-            'Continue generating the unfinished slides in this session.',
-            'Determine the content language from the existing topic, outline, source materials, and the user supplement; do not infer it from this instruction language.',
+            '继续生成本会话中未完成的页面。页面正文、标题、图表标签必须保持与现有页面相同语言。',
+            'Continue generating the unfinished slides in this session. Keep slide text, titles, and chart labels in the same language as existing slides.',
+            'Determine the content language from the existing topic, outline, source materials, existing slides, and the user supplement; do not infer it from this instruction language.',
             `User supplement:\n${retrySupplement}`
           ].join('\n')
-        : 'Continue generating the unfinished slides in this session. Determine the content language from the existing topic, outline, and source materials; do not infer it from this instruction language.'
+        : [
+            '继续生成本会话中未完成的页面。页面正文、标题、图表标签必须保持与现有页面相同语言。',
+            'Continue generating the unfinished slides in this session. Keep slide text, titles, and chart labels in the same language as existing slides.',
+            'Determine the content language from the existing topic, outline, source materials, and existing slides; do not infer it from this instruction language.'
+          ].join('\n')
       context = await resolveGenerationContext(
         event,
         {
@@ -165,6 +176,7 @@ export function registerGenerationHandlers(
         sessionId: context.sessionId,
         runId: context.runId,
         mode: 'retry',
+        previousSessionStatus: context.previousSessionStatus,
         totalPages: Math.max(
           1,
           (await db.listLatestGenerationPageSnapshot(context.sessionId)).filter(
@@ -197,8 +209,11 @@ export function registerGenerationHandlers(
           message: '生成已取消'
         }
       })
+      await db.updateSessionStatus(
+        sessionId,
+        normalizeRestoredSessionStatus(activeState.previousSessionStatus)
+      )
     }
-    await db.updateSessionStatus(sessionId, 'failed')
     return { success: true }
   })
 }
