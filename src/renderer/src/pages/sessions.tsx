@@ -8,6 +8,10 @@ import { type Session, useSessionStore } from '../store'
 import { useToastStore } from '../store'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
+import dayjs from 'dayjs'
+import duration from 'dayjs/plugin/duration'
+
+dayjs.extend(duration)
 
 const getSourceTag = (
   session: Session,
@@ -195,6 +199,16 @@ export function SessionsPage(): React.JSX.Element {
                   <span className="rounded-lg border border-[#e1d1b7]/80 bg-[#fff7e8]/75 px-2 py-1 text-[#7c6a4c]">
                     {t('sessions.pagesCount', { generated: editorGate.generatedCount, total: editorGate.totalCount })}
                   </span>
+                  {session.generation_duration_sec ? (
+                    <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
+                      {(() => {
+                        const d = dayjs.duration(session.generation_duration_sec!, 'second')
+                        const m = Math.floor(d.asMinutes())
+                        const s = d.seconds()
+                        return m > 0 ? `${m}m ${s}s` : `${s}s`
+                      })()}
+                    </span>
+                  ) : null}
                   {!isComplete && editorGate.failedCount > 0 && (
                     <span className="rounded-lg border border-[#d7b5ae]/70 bg-[#fff7f2]/80 px-2 py-1 text-[#93564f]">
                       {t('sessions.failedCount', { count: editorGate.failedCount })}

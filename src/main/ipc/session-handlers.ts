@@ -130,7 +130,12 @@ export function registerSessionHandlers(ctx: IpcContext): void {
             includeHtml: false
           }
         )
-        return snapshot.session || (session as unknown as Record<string, unknown>)
+        const enriched = snapshot.session || (session as unknown as Record<string, unknown>)
+        const run = await db.getLatestGenerationRun(session.id)
+        if (run && run.updated_at > run.created_at) {
+          enriched.generation_duration_sec = run.updated_at - run.created_at
+        }
+        return enriched
       })
     )
     return enrichedSessions.map((session) =>

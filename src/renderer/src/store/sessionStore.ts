@@ -15,6 +15,7 @@ export interface Session {
   created_at: number
   updated_at: number
   metadata: string | null
+  generation_duration_sec?: number | null
 }
 
 export interface Message {
