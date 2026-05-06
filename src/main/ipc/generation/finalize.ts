@@ -58,7 +58,7 @@ export async function finalizeGenerationFailure(
   }
   await db.updateSessionStatus(
     context.sessionId,
-    (context.effectiveMode === 'edit' || context.effectiveMode === 'retry') &&
+    (context.effectiveMode === 'edit' || context.effectiveMode === 'retry' || context.effectiveMode === 'addPage') &&
       context.previousSessionStatus !== 'active'
       ? (context.previousSessionStatus as 'completed' | 'failed' | 'archived')
       : 'failed'

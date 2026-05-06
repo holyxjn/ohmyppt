@@ -395,6 +395,12 @@ export const zh = {
     textSaved: '文字已保存',
     textSaveFailed: '文字保存失败',
     textSaveEmpty: '文字不能为空',
-    inspectActiveToast: '已进入AI模式，可以在界面检选元素让AI修改'
+    inspectActiveToast: '已进入AI模式，可以在界面检选元素让AI修改',
+    addPage: '新增页面',
+    addPageDescription: '描述想新增的页面内容',
+    addPageGenerating: '正在生成新页面...',
+    addPageGenerate: '生成',
+    addPageCancel: '取消',
+    addPageFailed: '新增页面失败'
   }
 } as const

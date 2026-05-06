@@ -24,6 +24,9 @@ interface SessionDetailUiStore {
   pendingAssets: UploadedAsset[]
   assetDragActive: boolean
   isUploadingAssets: boolean
+  addPageDialogOpen: boolean
+  isAddingPage: boolean
+  pendingSelectPageNumber: number | null
 
   setInput: (input: string) => void
   setChatType: (chatType: SessionDetailChatType) => void
@@ -48,6 +51,9 @@ interface SessionDetailUiStore {
   setAssetDragActive: (active: boolean) => void
   setIsUploadingAssets: (isUploading: boolean) => void
   bumpThumbnailVersion: (pageId: string) => void
+  setAddPageDialogOpen: (open: boolean) => void
+  setIsAddingPage: (adding: boolean) => void
+  setPendingSelectPageNumber: (pageNumber: number | null) => void
   resetForPageChange: () => void
   resetForSessionChange: () => void
 }
@@ -71,6 +77,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   pendingAssets: [],
   assetDragActive: false,
   isUploadingAssets: false,
+  addPageDialogOpen: false,
+  isAddingPage: false,
+  pendingSelectPageNumber: null,
 
   setInput: (input) => set({ input }),
   setChatType: (chatType) => set({ chatType }),
@@ -120,6 +129,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
         [pageId]: (state.thumbnailVersions[pageId] || 0) + 1
       }
     })),
+  setAddPageDialogOpen: (addPageDialogOpen) => set({ addPageDialogOpen }),
+  setIsAddingPage: (isAddingPage) => set({ isAddingPage }),
+  setPendingSelectPageNumber: (pendingSelectPageNumber) => set({ pendingSelectPageNumber }),
   resetForPageChange: () =>
     set({
       interactionMode: 'preview' as InteractionMode,
@@ -143,6 +155,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       pendingAssets: [],
       assetDragActive: false,
       isUploadingAssets: false,
-      thumbnailVersions: {}
+      thumbnailVersions: {},
+      addPageDialogOpen: false,
+      isAddingPage: false,
+      pendingSelectPageNumber: null
     })
 }))

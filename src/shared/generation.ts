@@ -72,6 +72,12 @@ export interface GenerateRetryFailedPayload {
   userMessage?: string
 }
 
+export interface GenerateAddPagePayload {
+  sessionId: string
+  userMessage: string
+  insertAfterPageNumber: number
+}
+
 export interface GeneratedPagePayload {
   pageNumber: number
   title: string

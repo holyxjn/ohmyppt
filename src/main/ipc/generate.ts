@@ -13,7 +13,7 @@ import {
   buildSinglePageGenerationPrompt
 } from '../prompt'
 import type { GenerateChunkEvent } from '@shared/generation'
-import { normalizeLayoutIntent } from '@shared/layout-intent'
+import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { resolveModelTimeoutMs, type ModelTimeoutProfile } from '@shared/model-timeout'
 import { progressLabel, progressText } from '@shared/progress'
 import type { DesignContract, OutlineItem } from '../tools/types'
@@ -512,6 +512,79 @@ export const planDeckWithLLM = async (args: {
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Planning failed'))
+}
+
+export const planNewPage = async (args: {
+  provider: string
+  apiKey: string
+  model: string
+  baseUrl: string
+  temperature?: number
+  appLocale?: AppLocale
+  modelTimeoutMs?: number
+  userDescription: string
+  signal?: AbortSignal
+}): Promise<{ title: string; contentOutline: string; layoutIntent: LayoutIntent }> => {
+  const client = resolveModel(
+    args.provider,
+    args.apiKey,
+    args.model,
+    args.baseUrl,
+    args.temperature
+  )
+  const systemPrompt = [
+    'You are a PPT slide planner. The user wants to add ONE new slide to an existing deck.',
+    'Generate a title, concise key points (1-4 items), and a layout intent for this single slide.',
+    '',
+    'Assign layoutIntent based on the slide content type:',
+    '  - data-focus: metrics, KPIs, trends, or quantitative results',
+    '  - comparison: comparing 2+ options or alternatives',
+    '  - timeline: phases, stages, roadmap',
+    '  - concept: ideas, frameworks, principles',
+    '  - process: how something works, step-by-step',
+    '  - summary: conclusion, key takeaways',
+    '  - quote: a single statement or judgment',
+    '  - image-focus: products, scenes, visuals',
+    '',
+    'Return only a JSON object with exactly these fields: title, keyPoints, layoutIntent.',
+    'Do not add explanations, Markdown, or extra text.',
+    'keyPoints must contain 1-4 short phrases.'
+  ].join('\n')
+  const userPrompt = [
+    'User request for the new slide:',
+    args.userDescription
+  ].join('\n')
+
+  const combinedSignal = args.modelTimeoutMs
+    ? AbortSignal.any([
+        AbortSignal.timeout(args.modelTimeoutMs),
+        args.signal || AbortSignal.timeout(120_000)
+      ])
+    : args.signal || undefined
+
+  const response = await client.invoke(
+    [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const, content: userPrompt }
+    ],
+    { signal: combinedSignal }
+  )
+  const responseText = extractModelText(response)
+  const parsed = parseModelJson(responseText, args.appLocale)
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('LLM plan_new_page returned invalid format; expected a JSON object.')
+  }
+  const item = parsed as Record<string, unknown>
+  const title = String(item.title ?? '').trim()
+  if (!title) {
+    throw new Error('LLM plan_new_page missing title field.')
+  }
+  const keyPoints = normalizeKeyPoints(item.keyPoints)
+  const contentOutline = normalizeOutlineText(keyPoints.join('；'))
+  const layoutIntent = normalizeLayoutIntent(item.layoutIntent)
+
+  return { title, contentOutline, layoutIntent }
 }
 
 export const buildDesignContractWithLLM = async (args: {

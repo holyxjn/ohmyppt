@@ -14,7 +14,7 @@ type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 type MessageType = 'text' | 'tool_call' | 'tool_result' | 'stream_chunk'
 type ChatScope = 'main' | 'page'
 type StyleSource = 'builtin' | 'custom' | 'override'
-type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import'
+type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage'
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
 

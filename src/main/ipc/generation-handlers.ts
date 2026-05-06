@@ -24,7 +24,8 @@ export function registerGenerationHandlers(
     resolveGenerationContext,
     finalizeGenerationFailure,
     executeGeneration,
-    executeRetryFailedPages
+    executeRetryFailedPages,
+    executeAddPageGeneration
   } = generationService
   const startingSessionIds = new Set<string>()
 
@@ -192,6 +193,79 @@ export function registerGenerationHandlers(
       }
       throw error
     } finally {
+      if (context) {
+        agentManager.removeSession(context.sessionId)
+      }
+    }
+  })
+
+  ipcMain.handle('generate:addPage', async (event, payload) => {
+    pruneFinishedSessionRunStates()
+    const requestedSessionId =
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+        ? String((payload as { sessionId?: string }).sessionId).trim()
+        : ''
+    if (requestedSessionId) {
+      const runningState = sessionRunStates.get(requestedSessionId)
+      if (runningState?.status === 'running') {
+        log.info('[generate:addPage] attach to existing run', {
+          sessionId: requestedSessionId,
+          runId: runningState.runId
+        })
+        return { success: true, runId: runningState.runId, alreadyRunning: true }
+      }
+      if (startingSessionIds.has(requestedSessionId)) {
+        log.info('[generate:addPage] attach to starting run', {
+          sessionId: requestedSessionId
+        })
+        return { success: true, alreadyRunning: true }
+      }
+      startingSessionIds.add(requestedSessionId)
+    }
+
+    let context: GenerationContext | null = null
+    try {
+      const addPagePayload =
+        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+      const userMsg = typeof addPagePayload.userMessage === 'string' ? addPagePayload.userMessage.trim() : ''
+      if (!userMsg) {
+        throw new Error('userMessage is required for addPage')
+      }
+      const insertAfter = Number(addPagePayload.insertAfterPageNumber) || 0
+      // Encode insertAfterPageNumber as a prefix so the flow can parse it out
+      const flowUserMessage = `[addPage:insertAfter=${insertAfter}]${userMsg}`
+      context = await resolveGenerationContext(event, {
+        sessionId: requestedSessionId,
+        type: 'deck',
+        userMessage: flowUserMessage
+      }, { persistUserMessage: false, mode: 'addPage' })
+      // Persist the clean user message separately
+      await db.addMessage(context.sessionId, {
+        role: 'user',
+        content: userMsg,
+        type: 'text',
+        chat_scope: 'main' as const
+      })
+      beginSessionRunState({
+        sessionId: context.sessionId,
+        runId: context.runId,
+        mode: 'addPage',
+        previousSessionStatus: context.previousSessionStatus,
+        totalPages: context.totalPages + 1
+      })
+      await executeAddPageGeneration(context)
+      return { success: true, runId: context.runId }
+    } catch (error) {
+      if (context) {
+        await finalizeGenerationFailure(context, error)
+      }
+      throw error
+    } finally {
+      if (requestedSessionId) {
+        startingSessionIds.delete(requestedSessionId)
+      }
       if (context) {
         agentManager.removeSession(context.sessionId)
       }

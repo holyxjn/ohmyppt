@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Home } from 'lucide-react'
+import { Home, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { ScrollArea } from '../ui/ScrollArea'
@@ -10,10 +10,12 @@ import { useT } from '@renderer/i18n'
 
 export const PageSidebar = memo(function PageSidebar({
   pages,
-  disabled = false
+  disabled = false,
+  onAddPage
 }: {
   pages: SessionPreviewPage[]
   disabled?: boolean
+  onAddPage?: () => void
 }): React.JSX.Element {
   const navigate = useNavigate()
   const t = useT()
@@ -62,6 +64,17 @@ export const PageSidebar = memo(function PageSidebar({
           </div>
         )}
       </ScrollArea>
+      {onAddPage && (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onAddPage}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[1rem] border border-dashed border-[#b5c4a1]/60 bg-[#d4e4c1]/30 px-3 py-2 text-xs font-medium text-[#5d6b4d] transition-colors hover:bg-[#d4e4c1]/50 hover:text-[#3e4a32] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t('sessionDetail.addPage')}
+        </button>
+      )}
     </aside>
   )
 })

@@ -70,6 +70,10 @@ export function SessionDetailPage(): React.JSX.Element {
   const setSelectedPageNumber = useSessionDetailUiStore((state) => state.setSelectedPageNumber)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
+  const addPageDialogOpen = useSessionDetailUiStore((state) => state.addPageDialogOpen)
+  const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
+  const setAddPageDialogOpen = useSessionDetailUiStore((state) => state.setAddPageDialogOpen)
+  const setIsAddingPage = useSessionDetailUiStore((state) => state.setIsAddingPage)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
   const [pendingDragEdits, setPendingDragEdits] = useState<
     Array<DragEditorMovePayload & { pageId: string; htmlPath: string }>
@@ -83,6 +87,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
+  const [addPageInput, setAddPageInput] = useState('')
   const {
     success: toastSuccess,
     error: toastError,
@@ -224,6 +229,21 @@ export function SessionDetailPage(): React.JSX.Element {
           totalPages: payload.totalPages
         })
         if (type === 'page_generated') {
+          // Skip page_generated during addPage — pages will be reloaded on run_completed
+          if (useSessionDetailUiStore.getState().isAddingPage) {
+            updateProgress({
+              stage: payload.stage,
+              label: payload.label,
+              progress: payload.progress ?? 0,
+              currentPage: payload.currentPage,
+              totalPages: payload.totalPages
+            })
+            // Remember the new page number so we can select it after reload
+            if (payload.pageNumber) {
+              useSessionDetailUiStore.getState().setPendingSelectPageNumber(payload.pageNumber)
+            }
+            return
+          }
           const store = useGenerateStore.getState()
           // 全新生成：第 1 页到来时清掉旧页面，避免新旧混合
           if (payload.pageNumber === 1 && store.currentPages.length > 0) {
@@ -282,8 +302,24 @@ export function SessionDetailPage(): React.JSX.Element {
         })
       } else if (type === 'run_completed') {
         useGenerateStore.getState().finishGeneration()
+        if (useSessionDetailUiStore.getState().isAddingPage) {
+          useSessionDetailUiStore.getState().setIsAddingPage(false)
+          // Reload session to get renumbered pages from backend
+          if (id) {
+            void loadSession(id).then(() => {
+              const pending = useSessionDetailUiStore.getState().pendingSelectPageNumber
+              if (pending) {
+                useSessionDetailUiStore.getState().setSelectedPageNumber(pending)
+                useSessionDetailUiStore.getState().setPendingSelectPageNumber(null)
+              }
+            })
+          }
+        }
       } else if (type === 'run_error') {
         useGenerateStore.getState().setError(payload.message)
+        if (useSessionDetailUiStore.getState().isAddingPage) {
+          useSessionDetailUiStore.getState().setIsAddingPage(false)
+        }
       }
     }
     const unsubscribe = ipc.onGenerateChunk(handler)
@@ -420,6 +456,31 @@ export function SessionDetailPage(): React.JSX.Element {
   const handleCancel = async (): Promise<void> => {
     await ipc.cancelGenerate(id!)
     cancelGeneration()
+  }
+
+  const handleOpenAddPageDialog = (): void => {
+    setAddPageInput('')
+    setAddPageDialogOpen(true)
+  }
+
+  const handleAddPage = async (): Promise<void> => {
+    if (!id || !addPageInput.trim()) return
+    const description = addPageInput.trim()
+    setAddPageDialogOpen(false)
+    setAddPageInput('')
+    setIsAddingPage(true)
+    try {
+      await ipc.addPage({
+        sessionId: id,
+        userMessage: description,
+        insertAfterPageNumber: selectedPageNumber ?? normalizedOrderedPages.length
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
+      toastError(message)
+    } finally {
+      setIsAddingPage(false)
+    }
   }
 
   const cleanMessageContent = (content: string): string =>
@@ -754,7 +815,11 @@ export function SessionDetailPage(): React.JSX.Element {
         </header>
 
         <div className="flex min-h-0 flex-1 bg-[#f5f1e8]">
-          <PageSidebar pages={normalizedOrderedPages} disabled={interactionMode === 'ai-inspect' && isGenerating} />
+          <PageSidebar
+            pages={normalizedOrderedPages}
+            disabled={interactionMode === 'ai-inspect' && isGenerating}
+            onAddPage={handleOpenAddPageDialog}
+          />
 
           <PreviewStage
             ref={previewIframeRef}
@@ -790,6 +855,62 @@ export function SessionDetailPage(): React.JSX.Element {
             />
           )}
         </div>
+
+        {/* Add Page Dialog */}
+        {addPageDialogOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="w-[520px] rounded-2xl bg-white p-6 shadow-2xl">
+              <h3 className="mb-3 text-base font-semibold text-[#2f3a2a]">
+                {t('sessionDetail.addPage')}
+              </h3>
+              <textarea
+                value={addPageInput}
+                onChange={(e) => setAddPageInput(e.target.value)}
+                placeholder={t('sessionDetail.addPageDescription')}
+                className="mb-4 h-40 w-full resize-none rounded-xl border border-[#d4e4c1]/60 bg-[#f8f6f0] px-4 py-3 text-sm leading-relaxed text-[#2f3a2a] placeholder:text-[#8a9a7b] focus:border-[#5d6b4d] focus:outline-none"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && addPageInput.trim()) {
+                    e.preventDefault()
+                    void handleAddPage()
+                  }
+                  if (e.key === 'Escape') {
+                    setAddPageDialogOpen(false)
+                  }
+                }}
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAddPageDialogOpen(false)}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-[#5d6b4d] transition-colors hover:bg-[#f0ece3] cursor-pointer"
+                >
+                  {t('sessionDetail.addPageCancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={!addPageInput.trim()}
+                  onClick={() => void handleAddPage()}
+                  className="rounded-xl bg-[#5d6b4d] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#3e4a32] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {t('sessionDetail.addPageGenerate')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Page Loading Overlay */}
+        {isAddingPage && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#d4e4c1] border-t-[#5d6b4d]" />
+              <p className="text-sm font-medium text-[#3e4a32]">
+                {t('sessionDetail.addPageGenerating')}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )

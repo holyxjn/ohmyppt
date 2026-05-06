@@ -1,4 +1,5 @@
 import type {
+  GenerateAddPagePayload,
   GenerateChunkEvent,
   GenerateRetryFailedPayload,
   GenerateStartPayload,
@@ -188,6 +189,12 @@ export const ipc = {
     }>,
   retryFailedPages: (payload: GenerateRetryFailedPayload) =>
     getIpc().invoke('generate:retryFailedPages', payload) as Promise<{
+      success: boolean
+      runId?: string
+      alreadyRunning?: boolean
+    }>,
+  addPage: (payload: GenerateAddPagePayload) =>
+    getIpc().invoke('generate:addPage', payload) as Promise<{
       success: boolean
       runId?: string
       alreadyRunning?: boolean
