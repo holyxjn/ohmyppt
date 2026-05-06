@@ -1066,6 +1066,13 @@ export const runDeepAgentDeckGeneration = async (args: {
         )
       }
 
+      emitPageStatus({
+        pageId: page.pageId,
+        label: progressLabel(args.appLocale, '页面内容已写入'),
+        detail: `${page.pageId} · ${page.title}`,
+        pageProgress: 95
+      })
+
       await args.onPageCompleted?.({
         pageNumber: page.pageNumber,
         pageId: page.pageId,

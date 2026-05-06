@@ -134,6 +134,10 @@ export function buildSinglePageGenerationPrompt(args: {
     '- The content must not contain <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.',
     '- The content must be complete and balanced: close your main layout containers and leave no unfinished trailing tags.',
     '- After the tool call succeeds, final response should be a short summary only. Do not paste the HTML in the final response.',
-    '- Do not modify other slides.'
+    '- Do not modify other slides.',
+    '',
+    'Tool context (pre-injected):',
+    `- Target file: ${args.pageId}.html (virtual path: /${args.pageId}.html)`,
+    '- Agent workspace root: /'
   ].join('\n')
 }

@@ -134,6 +134,11 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
   const isMainScopeEdit = isEditMode && context.editScope === 'main'
   const hasSelector = Boolean(context.selectedSelector?.trim())
   const statusLanguage = context.appLocale === 'en' ? 'English' : 'Simplified Chinese'
+  const isSinglePageTask =
+    !isEditMode &&
+    (Boolean(context.selectedPageId) ||
+      (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length === 1) ||
+      context.outlineTitles.length === 1)
 
   const parsePageNumber = (pageId?: string): number | null => {
     if (!pageId) return null
@@ -205,6 +210,11 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     isMainScopeEdit,
     emitNormalizedToolStatus
   })
+
+  // Single-page generation: only expose write tool, skip get_session_context / report_generation_status
+  if (isSinglePageTask) {
+    return [...pageWriteTools]
+  }
 
   return [
     // ── get_session_context ──

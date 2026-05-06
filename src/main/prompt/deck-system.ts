@@ -96,18 +96,28 @@ export function buildDeckAgentSystemPrompt(
       : '- 不要调用 edit_file / write_file 直接覆盖页面文件，统一用 update_page_file(content)',
     '',
     '## Execution Flow',
-    '1. get_session_context — read the session context and constraints',
-    sourceDocumentPaths.length > 0
-      ? `2. Prefer retrieved source-document snippets in the single-page prompt. If snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}), then call report_generation_status('Analyzing request', ...)`
-      : "2. report_generation_status('Analyzing request', ...) — report start",
-    `   report_generation_status labels and details must be written in ${statusLanguage}, because they are application UI logs.`,
-    '   This status/log language is independent from deck content language. Deck content must still follow the Content language rules.',
-    '   progress must be a numeric literal such as 10, 35, or 88. Do not pass strings such as "10".',
-    '   Progress must be detailed and monotonic. Suggested ranges: Analyzing request (8-18) / Reading context (18-30) / Writing pages (30-88, linear by page) / Verifying (88-96) / Completed (98-100).',
-    '   Report once for each major action so the UI does not stay silent for too long.',
-    step3Instruction,
-    '4. verify_completion() — check whether target pages are filled',
-    "5. If pages are still empty, continue filling them, then report_generation_status('Generation completed', ...)",
+    isSinglePageTask
+      ? [
+          sourceDocumentPaths.length > 0
+            ? `1. If retrieved source-document snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}).`
+            : '1. Analyze the slide requirements from the context provided.',
+          step3Instruction,
+          '3. Send a short summary as your final response.'
+        ].join('\n')
+      : [
+          '1. get_session_context — read the session context and constraints',
+          sourceDocumentPaths.length > 0
+            ? `2. Prefer retrieved source-document snippets in the single-page prompt. If snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}), then call report_generation_status('Analyzing request', ...)`
+            : "2. report_generation_status('Analyzing request', ...) — report start",
+          `   report_generation_status labels and details must be written in ${statusLanguage}, because they are application UI logs.`,
+          '   This status/log language is independent from deck content language. Deck content must still follow the Content language rules.',
+          '   progress must be a numeric literal such as 10, 35, or 88. Do not pass strings such as "10".',
+          '   Progress must be detailed and monotonic. Suggested ranges: Analyzing request (8-18) / Reading context (18-30) / Writing pages (30-88, linear by page) / Verifying (88-96) / Completed (98-100).',
+          '   Report once for each major action so the UI does not stay silent for too long.',
+          step3Instruction,
+          '4. verify_completion() — check whether target pages are filled',
+          "5. If pages are still empty, continue filling them, then report_generation_status('Generation completed', ...)"
+        ].join('\n'),
     '## Current Task',
     `Topic: ${context.topic}`,
     `Deck title: ${context.deckTitle}`,
