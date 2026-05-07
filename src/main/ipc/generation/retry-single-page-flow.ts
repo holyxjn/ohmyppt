@@ -1,15 +1,11 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import { uiText } from './helpers'
-import { finalizeGenerationSuccess } from './finalize'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import { type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
-import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../template'
-import { planNewPage, runDeepAgentDeckGeneration } from '../generate'
+import { runDeepAgentDeckGeneration } from '../generate'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../model-config-utils'
@@ -19,14 +15,19 @@ import {
   hasStyleSkill
 } from '../../utils/style-skills'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
+import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 
-// ── Independent AddPage context (not shared with generation/retry/edit) ──
+// ── Independent RetrySinglePage context ──
 
-export type AddPageContext = {
+export type RetrySinglePageContext = {
   sessionId: string
   runId: string
-  userDescription: string
-  insertAfterPageNumber: number
+  pageId: string
+  pageNumber: number
+  title: string
+  contentOutline: string
+  layoutIntent: LayoutIntent
+  htmlPath: string
   provider: string
   apiKey: string
   model: string
@@ -42,25 +43,34 @@ export type AddPageContext = {
   sessionRecord: Record<string, unknown>
   previousSessionStatus: string
   messageScope: 'main' | 'page'
-  messagePageId?: string
+  messagePageId: string
   projectId: string
-  effectiveMode: 'addPage'
+  effectiveMode: 'retrySinglePage'
 }
 
-export async function resolveAddPageContext(
+export async function resolveRetrySinglePageContext(
   ctx: IpcContext,
   sessionId: string,
-  userDescription: string,
-  insertAfterPageNumber: number
-): Promise<AddPageContext> {
+  pageId: string
+): Promise<RetrySinglePageContext> {
   const { db, agentManager, resolveStoragePath, ensureSessionAssets } = ctx
 
-  log.info('[generate:addPage] resolving context', { sessionId, insertAfterPageNumber })
+  log.info('[generate:retrySinglePage] resolving context', { sessionId, pageId })
 
   const session = await db.getSession(sessionId)
   if (!session) throw new Error('Session not found')
   const sessionRecord = session as unknown as Record<string, unknown>
   const previousSessionStatus = String(sessionRecord.status || 'active')
+
+  // Read failed page metadata from DB
+  const pageSnapshots = await db.listLatestGenerationPageSnapshot(sessionId)
+  const pageSnapshot = pageSnapshots.find((p) => p.page_id === pageId)
+  if (!pageSnapshot) throw new Error(`Page ${pageId} not found in session`)
+
+  const pageNumber = pageSnapshot.page_number
+  const title = pageSnapshot.title || `Page ${pageNumber}`
+  const contentOutline = pageSnapshot.content_outline || title
+  const layoutIntent = normalizeLayoutIntent(pageSnapshot.layout_intent)
 
   // Model config
   const activeModel = await resolveActiveModelConfig(ctx)
@@ -89,6 +99,17 @@ export async function resolveAddPageContext(
   }
   await ensureSessionAssets(projectDir)
 
+  // Resolve htmlPath from metadata
+  const metadata = parseSessionMetadata(
+    typeof sessionRecord.metadata === 'string' ? sessionRecord.metadata : undefined
+  )
+  const metaPage = Array.isArray(metadata.generatedPages)
+    ? metadata.generatedPages.find((p: { pageId?: string; pageNumber?: number }) =>
+        p.pageId === pageId || p.pageNumber === pageNumber
+      )
+    : undefined
+  const htmlPath = metaPage?.htmlPath || pageSnapshot.html_path || path.join(projectDir, `${pageId}.html`)
+
   // Agent
   agentManager.ensureSession({
     sessionId,
@@ -115,20 +136,22 @@ export async function resolveAddPageContext(
       output_path: entry.projectDir
     })
 
-  log.info('[generate:addPage] context resolved', {
+  log.info('[generate:retrySinglePage] context resolved', {
     sessionId,
-    projectDir: entry.projectDir,
-    styleId,
-    provider: activeModel.provider,
-    model: activeModel.model,
-    insertAfterPageNumber
+    pageId,
+    pageNumber,
+    projectDir: entry.projectDir
   })
 
   return {
     sessionId,
     runId: crypto.randomUUID(),
-    userDescription,
-    insertAfterPageNumber,
+    pageId,
+    pageNumber,
+    title,
+    contentOutline,
+    layoutIntent,
+    htmlPath,
     provider: activeModel.provider,
     apiKey: activeModel.apiKey,
     model: activeModel.model,
@@ -143,25 +166,24 @@ export async function resolveAddPageContext(
     appLocale,
     sessionRecord,
     previousSessionStatus,
-    messageScope: 'main' as const,
-    messagePageId: undefined,
+    messageScope: 'page' as const,
+    messagePageId: pageId,
     projectId,
-    effectiveMode: 'addPage' as const
+    effectiveMode: 'retrySinglePage' as const
   }
 }
 
-// ── Execute the full add-page generation ──
+// ── Execute single page retry ──
 
-export async function executeAddPageGeneration(
+export async function executeRetrySinglePageGeneration(
   ctx: IpcContext,
-  context: AddPageContext
+  context: RetrySinglePageContext
 ): Promise<void> {
   const {
     db,
     agentManager,
     getPageSourceUrl,
     createDeckProgressEmitter,
-    DESIGN_CONTRACT_TEMPERATURE,
     PAGE_GENERATION_TEMPERATURE
   } = ctx
 
@@ -170,10 +192,10 @@ export async function executeAddPageGeneration(
   }
 
   const emitChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
-  const sessionRecord = context.sessionRecord
   const indexPath = path.join(context.projectDir, 'index.html')
 
-  // ── Step 1: Read designContract from session independent field ──
+  // Read designContract
+  const sessionRecord = context.sessionRecord
   let designContract: DesignContract | undefined
   if (
     typeof sessionRecord.designContract === 'string' &&
@@ -182,96 +204,14 @@ export async function executeAddPageGeneration(
     try {
       designContract = JSON.parse(sessionRecord.designContract) as DesignContract
     } catch {
-      // ignore malformed design contract
+      // ignore
     }
   }
   if (!designContract) {
-    throw new Error('当前会话缺少设计契约，无法新增页面。请先完成首次生成。')
+    throw new Error('当前会话缺少设计契约，无法重试。')
   }
 
-  // ── Step 2: Read existing pages from metadata ──
-  const metadata = parseSessionMetadata(
-    typeof sessionRecord.metadata === 'string' ? sessionRecord.metadata : undefined
-  )
-  const existingPages = Array.isArray(metadata.generatedPages)
-    ? metadata.generatedPages.filter((p) => p.pageId || p.pageNumber)
-    : []
-
-  if (existingPages.length === 0) {
-    throw new Error('当前会话没有已完成的页面，无法新增。请先完成首次生成。')
-  }
-
-  const insertAfterPageNumber = context.insertAfterPageNumber
-  const userDescription = context.userDescription
-
-  // ── Step 3: Plan new page ──
-  emitChunk({
-    type: 'stage_started',
-    payload: {
-      runId: context.runId,
-      stage: 'planning',
-      label: progressText(context.appLocale, 'understanding'),
-      progress: 2,
-      totalPages: 1
-    }
-  })
-
-  const newPageNumber = Math.max(...existingPages.map((p) => p.pageNumber)) + 1
-  const newPageId = `page-${newPageNumber}`
-  const newHtmlPath = path.join(context.projectDir, `${newPageId}.html`)
-
-  const existingTitles = existingPages.map((p) => p.title).filter(Boolean)
-
-  let planResult: { title: string; contentOutline: string; layoutIntent: LayoutIntent }
-  try {
-    planResult = await planNewPage({
-      provider: context.provider,
-      apiKey: context.apiKey,
-      model: context.model,
-      baseUrl: context.providerBaseUrl,
-      modelTimeoutMs: context.modelTimeouts.planning,
-      temperature: DESIGN_CONTRACT_TEMPERATURE,
-      appLocale: context.appLocale,
-      userDescription,
-      topic: context.topic,
-      existingTitles,
-      signal: context.abortSignal
-    })
-  } catch (planError) {
-    // Retry plan once
-    try {
-      planResult = await planNewPage({
-        provider: context.provider,
-        apiKey: context.apiKey,
-        model: context.model,
-        baseUrl: context.providerBaseUrl,
-        modelTimeoutMs: context.modelTimeouts.planning,
-        temperature: DESIGN_CONTRACT_TEMPERATURE,
-        appLocale: context.appLocale,
-        userDescription,
-        topic: context.topic,
-        existingTitles,
-        signal: context.abortSignal
-      })
-    } catch {
-      throw new Error(
-        `规划新页面失败：${planError instanceof Error ? planError.message : String(planError)}`
-      )
-    }
-  }
-
-  // ── Step 4: Create scaffold ──
-  await fs.promises.writeFile(
-    newHtmlPath,
-    buildPageScaffoldHtml({
-      pageNumber: newPageNumber,
-      pageId: newPageId,
-      title: planResult.title
-    }),
-    'utf-8'
-  )
-
-  // ── Step 5: Generate with agent ──
+  // Emit progress
   emitChunk({
     type: 'stage_started',
     payload: {
@@ -283,31 +223,38 @@ export async function executeAddPageGeneration(
     }
   })
 
+  // Write scaffold before generation
+  await fs.promises.writeFile(
+    context.htmlPath,
+    `<section data-page-scaffold="${context.pageId}" data-page-number="${context.pageNumber}">
+<main data-role="content"><p>Regenerating...</p></main>
+</section>`,
+    'utf-8'
+  )
+
+  // Create run + page records
   await db.createGenerationRun({
     id: context.runId,
     sessionId: context.sessionId,
-    mode: 'addPage',
+    mode: 'retrySinglePage',
     totalPages: 1,
-    metadata: {
-      addPage: true,
-      pageId: newPageId,
-      insertAfterPageNumber
-    }
+    metadata: { retrySinglePage: true, pageId: context.pageId }
   })
   await db.upsertGenerationPage({
     runId: context.runId,
     sessionId: context.sessionId,
-    pageId: newPageId,
-    pageNumber: newPageNumber,
-    title: planResult.title,
-    contentOutline: planResult.contentOutline,
-    layoutIntent: planResult.layoutIntent,
-    htmlPath: newHtmlPath,
+    pageId: context.pageId,
+    pageNumber: context.pageNumber,
+    title: context.title,
+    contentOutline: context.contentOutline,
+    layoutIntent: context.layoutIntent,
+    htmlPath: context.htmlPath,
     status: 'pending'
   })
 
-  const pageFileMap: Record<string, string> = { [newPageId]: newHtmlPath }
+  const pageFileMap: Record<string, string> = { [context.pageId]: context.htmlPath }
 
+  // Generate with retry
   let generationError: unknown
   const { failedPages } = await runDeepAgentDeckGeneration({
     sessionId: context.sessionId,
@@ -322,20 +269,22 @@ export async function executeAddPageGeneration(
     appLocale: context.appLocale,
     topic: context.topic,
     deckTitle: context.deckTitle,
-    userMessage: userDescription,
-    outlineTitles: [planResult.title],
-    outlineItems: [planResult],
+    userMessage: `重新生成第 ${context.pageNumber} 页「${context.title}」`,
+    outlineTitles: [context.title],
+    outlineItems: [{
+      title: context.title,
+      contentOutline: context.contentOutline,
+      layoutIntent: context.layoutIntent
+    }],
     sourceDocumentPaths: [],
     generationMode: 'generate',
-    pageTasks: [
-      {
-        pageNumber: newPageNumber,
-        pageId: newPageId,
-        title: planResult.title,
-        contentOutline: planResult.contentOutline,
-        layoutIntent: planResult.layoutIntent
-      }
-    ],
+    pageTasks: [{
+      pageNumber: context.pageNumber,
+      pageId: context.pageId,
+      title: context.title,
+      contentOutline: context.contentOutline,
+      layoutIntent: context.layoutIntent
+    }],
     designContract,
     projectDir: context.projectDir,
     indexPath,
@@ -381,10 +330,10 @@ export async function executeAddPageGeneration(
     signal: context.abortSignal
   }).catch((err) => {
     generationError = err
-    return { failedPages: [{ pageId: newPageId, title: planResult.title, reason: String(err) }] }
+    return { failedPages: [{ pageId: context.pageId, title: context.title, reason: String(err) }] }
   })
 
-  // Retry generation once if failed (including HTML validation errors caught above)
+  // Retry once if failed
   if (failedPages.length > 0) {
     emitChunk({
       type: 'llm_status',
@@ -393,14 +342,18 @@ export async function executeAddPageGeneration(
         stage: 'rendering',
         label: progressText(context.appLocale, 'retrying'),
         progress: 15,
-        totalPages: 1,
-        detail: uiText(
-          context.appLocale,
-          `页面生成失败，正在重试...`,
-          `Page generation failed, retrying...`
-        )
+        totalPages: 1
       }
     })
+
+    // Write fresh scaffold for retry
+    await fs.promises.writeFile(
+      context.htmlPath,
+      `<section data-page-scaffold="${context.pageId}" data-page-number="${context.pageNumber}">
+<main data-role="content"><p>Retrying...</p></main>
+</section>`,
+      'utf-8'
+    )
 
     const retryResult = await runDeepAgentDeckGeneration({
       sessionId: context.sessionId,
@@ -415,20 +368,22 @@ export async function executeAddPageGeneration(
       appLocale: context.appLocale,
       topic: context.topic,
       deckTitle: context.deckTitle,
-      userMessage: userDescription,
-      outlineTitles: [planResult.title],
-      outlineItems: [planResult],
+      userMessage: `重新生成第 ${context.pageNumber} 页「${context.title}」，确保使用 PPT.createChart 而不是 new Chart。`,
+      outlineTitles: [context.title],
+      outlineItems: [{
+        title: context.title,
+        contentOutline: context.contentOutline,
+        layoutIntent: context.layoutIntent
+      }],
       sourceDocumentPaths: [],
       generationMode: 'generate',
-      pageTasks: [
-        {
-          pageNumber: newPageNumber,
-          pageId: newPageId,
-          title: planResult.title,
-          contentOutline: planResult.contentOutline,
-          layoutIntent: planResult.layoutIntent
-        }
-      ],
+      pageTasks: [{
+        pageNumber: context.pageNumber,
+        pageId: context.pageId,
+        title: context.title,
+        contentOutline: context.contentOutline,
+        layoutIntent: context.layoutIntent
+      }],
       designContract,
       projectDir: context.projectDir,
       indexPath,
@@ -486,128 +441,109 @@ export async function executeAddPageGeneration(
     throw generationError
   }
 
-  // ── Step 6: Validate generated page ──
-  if (!fs.existsSync(newHtmlPath)) {
-    throw new Error(`${newPageId}.html 缺失`)
+  // Validate generated page
+  if (!fs.existsSync(context.htmlPath)) {
+    throw new Error(`${context.pageId}.html 缺失`)
   }
-  const newPageHtml = await fs.promises.readFile(newHtmlPath, 'utf-8')
-  const newPageValidation = validatePersistedPageHtml(newPageHtml, newPageId)
-  if (!newPageValidation.valid) {
-    throw new Error(
-      `新页面 HTML 验证失败: ${newPageValidation.errors.join('; ')}`
-    )
+  const newHtml = await fs.promises.readFile(context.htmlPath, 'utf-8')
+  const validation = validatePersistedPageHtml(newHtml, context.pageId)
+  if (!validation.valid) {
+    throw new Error(`重试页面 HTML 验证失败: ${validation.errors.join('; ')}`)
   }
 
-  // ── Step 7: Merge into existing pages and renumber ──
-  const newPageEntry = {
-    pageNumber: insertAfterPageNumber + 1,
-    title: planResult.title,
-    pageId: newPageId,
-    htmlPath: newHtmlPath,
-    html: newPageHtml
-  }
+  // Rebuild index.html with updated pages
+  const metadata = parseSessionMetadata(
+    typeof sessionRecord.metadata === 'string' ? sessionRecord.metadata : undefined
+  )
+  const existingPages: Array<{ pageId?: string; pageNumber?: number; title?: string; htmlPath?: string }> =
+    Array.isArray(metadata.generatedPages)
+      ? metadata.generatedPages.filter((p: { pageId?: string; pageNumber?: number }) => p.pageId || p.pageNumber)
+      : []
 
-  // Read existing page HTMLs for the merge
-  const existingPageDescriptors = await Promise.all(
-    existingPages.map(async (page) => {
-      const pageId = page.pageId || `page-${page.pageNumber}`
-      const htmlPath = page.htmlPath || path.join(context.projectDir, `${pageId}.html`)
-      const html = fs.existsSync(htmlPath)
-        ? await fs.promises.readFile(htmlPath, 'utf-8')
-        : ''
-      return {
-        pageNumber: page.pageNumber,
-        title: page.title,
-        pageId,
-        htmlPath,
-        html
-      }
+  // Read actual generated title from DB (LLM may change it during retry)
+  const runPages = await db.listGenerationPages(context.runId)
+  const latestPageRecord = runPages.find((p) => p.page_id === context.pageId)
+  const actualTitle = latestPageRecord?.title || context.title
+
+  // Check if the failed page exists in metadata; if not, insert it
+  const pageExistsInMetadata = existingPages.some(
+    (p) => p.pageId === context.pageId || p.pageNumber === context.pageNumber
+  )
+  if (!pageExistsInMetadata) {
+    existingPages.push({
+      pageId: context.pageId,
+      pageNumber: context.pageNumber,
+      title: actualTitle,
+      htmlPath: context.htmlPath
     })
-  )
-
-  // Insert new page after insertAfterPageNumber
-  const beforePages = existingPageDescriptors.filter(
-    (p) => p.pageNumber <= insertAfterPageNumber
-  )
-  const afterPages = existingPageDescriptors.filter(
-    (p) => p.pageNumber > insertAfterPageNumber
-  )
-  const mergedPages = [...beforePages, newPageEntry, ...afterPages]
-
-  // Renumber
-  const renumberedPages = mergedPages.map((page, index) => ({
-    ...page,
-    pageNumber: index + 1
-  }))
-
-  // ── Step 8: Rebuild index.html ──
-  await fs.promises.writeFile(
-    indexPath,
-    buildProjectIndexHtml(
-      context.deckTitle,
-      renumberedPages.map(
-        (page): DeckPageFile => ({
-          pageNumber: page.pageNumber,
-          pageId: page.pageId,
-          title: page.title,
-          htmlPath: path.basename(page.htmlPath)
-        })
-      )
-    ),
-    'utf-8'
-  )
-
-  // ── Step 9: Emit page_generated event ──
-  const renumberedNewPage = renumberedPages.find((p) => p.pageId === newPageId)
-  const generatedPayload = {
-    pageNumber: renumberedNewPage?.pageNumber ?? newPageEntry.pageNumber,
-    title: newPageEntry.title,
-    pageId: newPageEntry.pageId,
-    htmlPath: newPageEntry.htmlPath,
-    html: newPageEntry.html,
-    sourceUrl: getPageSourceUrl(newPageEntry.htmlPath)
+    // Sort by pageNumber to maintain order
+    existingPages.sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0))
   }
 
+  // Update the failed page in the list (keep same position, same pageId)
+  const updatedPages = existingPages.map((p) =>
+    (p.pageId === context.pageId || p.pageNumber === context.pageNumber)
+      ? { ...p, title: actualTitle, htmlPath: context.htmlPath }
+      : p
+  )
+
+  // Emit page_updated event
   emitChunk({
-    type: 'page_generated',
+    type: 'page_updated',
     payload: {
       runId: context.runId,
       stage: 'rendering',
       label: progressText(context.appLocale, 'completed'),
       progress: 95,
-      currentPage: generatedPayload.pageNumber,
-      totalPages: renumberedPages.length,
-      ...generatedPayload
+      currentPage: context.pageNumber,
+      totalPages: updatedPages.length,
+      pageNumber: context.pageNumber,
+      title: actualTitle,
+      pageId: context.pageId,
+      htmlPath: context.htmlPath,
+      html: newHtml,
+      sourceUrl: getPageSourceUrl(context.htmlPath)
     }
   })
 
-  // ── Step 10: Finalize ──
-  // Persist assistant message
-  const assistantContent = uiText(
-    context.appLocale,
-    `已新增页面「${planResult.title}」并插入到第 ${insertAfterPageNumber} 页之后。`,
-    `Added page "${planResult.title}" after page ${insertAfterPageNumber}.`
-  )
-  await db.addMessage(context.sessionId, {
-    role: 'assistant',
-    content: assistantContent,
-    type: 'text',
-    chat_scope: 'main' as const
+  // Finalize — update metadata and project status, but only mark session 'completed'
+  // if there are no remaining failed pages.
+  const generatedPages = updatedPages.map((p: { pageNumber?: number; title?: string; pageId?: string; htmlPath?: string }) => ({
+    pageNumber: p.pageNumber || 0,
+    title: p.title || '',
+    pageId: p.pageId || `page-${p.pageNumber}`,
+    htmlPath: p.htmlPath || ''
+  }))
+
+  await db.updateSessionMetadata(context.sessionId, {
+    lastRunId: context.runId,
+    entryMode: 'multi_page',
+    generatedPages,
+    indexPath,
+    projectId: context.projectId
   })
+  await db.updateProjectStatus(context.projectId, 'draft')
+
+  // Check if there are still failed pages in the session
+  const remainingSnapshots = await db.listLatestGenerationPageSnapshot(context.sessionId)
+  const hasFailedPages = remainingSnapshots.some((s) => s.status === 'failed')
+  // If other pages are still failed, session must NOT be 'completed'
+  const targetStatus = hasFailedPages ? 'failed' : 'completed'
+
+  await db.updateSessionStatus(context.sessionId, targetStatus)
+
+  log.info('[generate:retrySinglePage] completed', {
+    sessionId: context.sessionId,
+    pageId: context.pageId,
+    hasFailedPages,
+    targetStatus
+  })
+
   emitChunk({
-    type: 'assistant_message',
+    type: 'run_completed',
     payload: {
       runId: context.runId,
-      content: assistantContent,
-      chatType: 'main',
-      pageId: undefined
+      totalPages: updatedPages.length
     }
-  })
-
-  await finalizeGenerationSuccess(ctx, {
-    context,
-    indexPath,
-    totalPages: renumberedPages.length,
-    generatedPages: renumberedPages
   })
 }

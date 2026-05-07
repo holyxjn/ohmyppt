@@ -11,11 +11,13 @@ import { useT } from '@renderer/i18n'
 export const PageSidebar = memo(function PageSidebar({
   pages,
   disabled = false,
-  onAddPage
+  onAddPage,
+  onRetryFailedPage
 }: {
   pages: SessionPreviewPage[]
   disabled?: boolean
   onAddPage?: () => void
+  onRetryFailedPage?: (page: SessionPreviewPage) => void
 }): React.JSX.Element {
   const navigate = useNavigate()
   const t = useT()
@@ -82,6 +84,26 @@ export const PageSidebar = memo(function PageSidebar({
                   previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
                   onSelect={disabled ? undefined : setSelectedPageNumber}
                 />
+                {page.status === 'failed' && onRetryFailedPage && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      setSelectedPageNumber(page.pageNumber)
+                      onRetryFailedPage(page)
+                    }}
+                    className="group mt-1 block w-full rounded-[1.1rem] bg-[#f3e4df]/85 p-1.5 text-left shadow-[0_8px_18px_rgba(142,90,83,0.08)] transition-all duration-200 hover:bg-[#f1ddd7] hover:shadow-[0_10px_22px_rgba(142,90,83,0.12)] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <div className="rounded-[0.9rem] border border-[#d7b5ae]/70 bg-[#fbf1ee] px-2.5 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#a36a63]">
+                        P{page.pageNumber}
+                      </div>
+                      <div className="mt-1 text-[11px] font-medium leading-4 text-[#93564f]">
+                        {t('sessionDetail.retryFailedPage')}
+                      </div>
+                    </div>
+                  </button>
+                )}
               </div>
             ))}
           </div>

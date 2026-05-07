@@ -25,6 +25,25 @@ const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
   fontWeight: '400'
 }
 
+function normalizePagesForSelection(
+  pages: Array<{
+    pageNumber: number
+    title: string
+    html: string
+    htmlPath?: string
+    pageId?: string
+    sourceUrl?: string
+    status?: string
+    error?: string | null
+  }>
+): SessionPreviewPage[] {
+  return [...pages]
+    .sort((a, b) => a.pageNumber - b.pageNumber)
+    .map((page) =>
+      page.pageId ? (page as SessionPreviewPage) : { ...page, pageId: `page-${page.pageNumber}` }
+    )
+}
+
 function rgbToHex(value: string | undefined): string {
   const text = String(value || '').trim()
   if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(text)) return text
@@ -67,11 +86,11 @@ export function SessionDetailPage(): React.JSX.Element {
   const selectedPageNumber = useSessionDetailUiStore((state) => state.selectedPageNumber)
   const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
-  const setSelectedPageNumber = useSessionDetailUiStore((state) => state.setSelectedPageNumber)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
   const addPageDialogOpen = useSessionDetailUiStore((state) => state.addPageDialogOpen)
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
+  const isRetryingSinglePage = useSessionDetailUiStore((state) => state.isRetryingSinglePage)
   const setAddPageDialogOpen = useSessionDetailUiStore((state) => state.setAddPageDialogOpen)
   const setIsAddingPage = useSessionDetailUiStore((state) => state.setIsAddingPage)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
@@ -100,24 +119,6 @@ export function SessionDetailPage(): React.JSX.Element {
     [currentPages]
   )
 
-  const normalizePagesForSelection = (
-    pages: Array<{
-      pageNumber: number
-      title: string
-      html: string
-      htmlPath?: string
-      pageId?: string
-      sourceUrl?: string
-      status?: string
-      error?: string | null
-    }>
-  ): SessionPreviewPage[] =>
-    [...pages]
-      .sort((a, b) => a.pageNumber - b.pageNumber)
-      .map((page) =>
-        page.pageId ? (page as SessionPreviewPage) : { ...page, pageId: `page-${page.pageNumber}` }
-      )
-
   const normalizedOrderedPages = useMemo(
     () => normalizePagesForSelection(orderedPages),
     [orderedPages]
@@ -141,10 +142,9 @@ export function SessionDetailPage(): React.JSX.Element {
     }, 0)
   }, [resetForPageChange, selectedPage?.pageId])
 
-  const isFullyGenerated = useMemo(() => {
+  const canEditInSessionDetail = useMemo(() => {
     if (!currentSession) return false
-    const gate = getEditorGate(currentSession)
-    return gate.generatedCount >= gate.totalCount && gate.failedCount === 0
+    return getEditorGate(currentSession).canEdit
   }, [currentSession])
 
   useEffect(() => {
@@ -166,12 +166,12 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     if (!id || !currentSession) return
-    // Don't redirect during addPage — we're already on the editor page
-    if (useSessionDetailUiStore.getState().isAddingPage) return
-    if (!isFullyGenerated) {
+    // Don't redirect during addPage / retrySinglePage — we're already on the editor page
+    if (useSessionDetailUiStore.getState().isAddingPage || useSessionDetailUiStore.getState().isRetryingSinglePage) return
+    if (!canEditInSessionDetail) {
       navigate(`/sessions/${id}/generating`, { replace: true })
     }
-  }, [currentSession, id, isFullyGenerated, navigate])
+  }, [canEditInSessionDetail, currentSession, id, navigate])
 
   useEffect(() => {
     if (!id) return
@@ -179,16 +179,16 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!saved) return
     const parsed = Number(saved)
     if (Number.isFinite(parsed) && parsed > 0) {
-      setSelectedPageNumber(parsed)
+      useSessionDetailUiStore.getState().setSelectedPageNumber(parsed)
     }
-  }, [id, setSelectedPageNumber])
+  }, [id])
 
   useEffect(() => {
-    // Skip auto-select during addPage — handleAddPage manages selection explicitly
-    if (useSessionDetailUiStore.getState().isAddingPage) return
+    // Skip auto-select during addPage / retrySinglePage — selection managed explicitly
+    if (useSessionDetailUiStore.getState().isAddingPage || useSessionDetailUiStore.getState().isRetryingSinglePage) return
 
     if (normalizedOrderedPages.length === 0) {
-      setSelectedPageNumber(null)
+      useSessionDetailUiStore.getState().setSelectedPageNumber(null)
       return
     }
 
@@ -199,8 +199,8 @@ export function SessionDetailPage(): React.JSX.Element {
       return
     }
 
-    setSelectedPageNumber(normalizedOrderedPages[0].pageNumber)
-  }, [normalizedOrderedPages, selectedPageNumber, setSelectedPageNumber])
+    useSessionDetailUiStore.getState().setSelectedPageNumber(normalizedOrderedPages[0].pageNumber)
+  }, [normalizedOrderedPages, selectedPageNumber])
 
   useEffect(() => {
     if (!id || !selectedPageNumber) return
@@ -472,6 +472,23 @@ export function SessionDetailPage(): React.JSX.Element {
     setAddPageDialogOpen(true)
   }
 
+  const handleRetryFailedPage = async (page: SessionPreviewPage): Promise<void> => {
+    if (!id || !page.pageId) return
+    useSessionDetailUiStore.getState().setIsRetryingSinglePage(true)
+    useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+    try {
+      await ipc.retrySinglePage({ sessionId: id, pageId: page.pageId })
+      await loadSession(id)
+      useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('sessionDetail.retryPageFailed')
+      toastError(message)
+    } finally {
+      useGenerateStore.getState().finishGeneration()
+      useSessionDetailUiStore.getState().setIsRetryingSinglePage(false)
+    }
+  }
+
   const handleAddPage = async (): Promise<void> => {
     if (!id || !addPageInput.trim()) return
     const description = addPageInput.trim()
@@ -482,6 +499,7 @@ export function SessionDetailPage(): React.JSX.Element {
     setIsAddingPage(true)
     const insertAfter = selectedPageNumber ?? normalizedOrderedPages.length
     useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+    let targetSelection: number | null | undefined = undefined
 
     try {
       await ipc.addPage({
@@ -507,12 +525,12 @@ export function SessionDetailPage(): React.JSX.Element {
       const fallbackPage =
         latestPages[Math.min(insertAfter, Math.max(latestPages.length - 1, 0))] ||
         latestPages[latestPages.length - 1]
-      setSelectedPageNumber((addedPage || fallbackPage)?.pageNumber ?? null)
+      targetSelection = (addedPage || fallbackPage)?.pageNumber ?? null
     } catch (err) {
       const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
       toastError(message)
     } finally {
-      setIsAddingPage(false)
+      useSessionDetailUiStore.getState().finishAddPage(targetSelection)
       useGenerateStore.getState().finishGeneration()
     }
   }
@@ -853,6 +871,7 @@ export function SessionDetailPage(): React.JSX.Element {
             pages={normalizedOrderedPages}
             disabled={interactionMode === 'ai-inspect' && isGenerating}
             onAddPage={handleOpenAddPageDialog}
+            onRetryFailedPage={handleRetryFailedPage}
           />
 
           <PreviewStage
@@ -946,6 +965,26 @@ export function SessionDetailPage(): React.JSX.Element {
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e8e0d0]">
                   <div
                     className="h-full rounded-full bg-[#5d6b4d] transition-all duration-300 ease-out"
+                    style={{ width: `${Math.min(100, Math.max(0, progress?.progress ?? 0))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Retry Single Page Progress Overlay */}
+        {isRetryingSinglePage && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="flex w-[360px] flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#f3e4df] border-t-[#93564f]" />
+              <div className="flex w-full flex-col items-center gap-2">
+                <p className="text-sm font-medium text-[#93564f]">
+                  {progress?.label || t('sessionDetail.retryPageGenerating')}
+                </p>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e8e0d0]">
+                  <div
+                    className="h-full rounded-full bg-[#93564f] transition-all duration-300 ease-out"
                     style={{ width: `${Math.min(100, Math.max(0, progress?.progress ?? 0))}%` }}
                   />
                 </div>

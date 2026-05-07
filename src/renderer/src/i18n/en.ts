@@ -420,6 +420,9 @@ export const en = {
     addPageGenerating: 'Generating new page...',
     addPageGenerate: 'Generate',
     addPageCancel: 'Cancel',
-    addPageFailed: 'Failed to add page'
+    addPageFailed: 'Failed to add page',
+    retryFailedPage: 'Regenerate this page',
+    retryPageGenerating: 'Regenerating page...',
+    retryPageFailed: 'Failed to regenerate page'
   }
 } satisfies DeepStringShape<typeof zh>

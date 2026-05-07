@@ -4,6 +4,7 @@ import type { IpcContext } from './context'
 import type { GenerationContext, GenerationService } from './generation-flow'
 import type { SessionStatus } from '../db/schema'
 import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from './generation/add-page-flow'
+import { resolveRetrySinglePageContext, executeRetrySinglePageGeneration, type RetrySinglePageContext } from './generation/retry-single-page-flow'
 import { finalizeGenerationFailure as finalizeAddPageFailure } from './generation/finalize'
 
 function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
@@ -268,6 +269,58 @@ export function registerGenerationHandlers(
       }
       if (addPageCtx) {
         agentManager.removeSession(addPageCtx.sessionId)
+      }
+    }
+  })
+
+  ipcMain.handle('generate:retrySinglePage', async (_event, payload) => {
+    pruneFinishedSessionRunStates()
+    const addPagePayload =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const requestedSessionId =
+      typeof addPagePayload.sessionId === 'string' ? addPagePayload.sessionId.trim() : ''
+    const requestedPageId =
+      typeof addPagePayload.pageId === 'string' ? addPagePayload.pageId.trim() : ''
+    if (!requestedSessionId) {
+      throw new Error('sessionId 不能为空')
+    }
+    if (!requestedPageId) {
+      throw new Error('pageId 不能为空')
+    }
+
+    {
+      const runningState = sessionRunStates.get(requestedSessionId)
+      if (runningState?.status === 'running') {
+        log.info('[generate:retrySinglePage] attach to existing run', {
+          sessionId: requestedSessionId,
+          runId: runningState.runId
+        })
+        return { success: true, runId: runningState.runId, alreadyRunning: true }
+      }
+    }
+
+    let retryCtx: RetrySinglePageContext | null = null
+    try {
+      retryCtx = await resolveRetrySinglePageContext(ctx, requestedSessionId, requestedPageId)
+
+      beginSessionRunState({
+        sessionId: retryCtx.sessionId,
+        runId: retryCtx.runId,
+        mode: 'retrySinglePage',
+        previousSessionStatus: retryCtx.previousSessionStatus,
+        totalPages: 1
+      })
+
+      await executeRetrySinglePageGeneration(ctx, retryCtx)
+      return { success: true, runId: retryCtx.runId }
+    } catch (error) {
+      if (retryCtx) {
+        await finalizeAddPageFailure(ctx, retryCtx as any, error)
+      }
+      throw error
+    } finally {
+      if (retryCtx) {
+        agentManager.removeSession(retryCtx.sessionId)
       }
     }
   })

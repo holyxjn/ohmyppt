@@ -2,6 +2,7 @@ import type {
   GenerateAddPagePayload,
   GenerateChunkEvent,
   GenerateRetryFailedPayload,
+  GenerateRetrySinglePagePayload,
   GenerateStartPayload,
   ParseDocumentPlanPayload,
   ParsedDocumentPlanResult,
@@ -198,6 +199,11 @@ export const ipc = {
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+    }>,
+  retrySinglePage: (payload: GenerateRetrySinglePagePayload) =>
+    getIpc().invoke('generate:retrySinglePage', payload) as Promise<{
+      success: boolean
+      runId?: string
     }>,
   getGenerateState: (sessionId: string) =>
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,

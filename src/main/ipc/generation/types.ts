@@ -4,7 +4,7 @@ import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import type { DesignContract } from '../../tools/types'
 import { loadStyleSkill } from '../../utils/style-skills'
 
-export type GenerateMode = 'generate' | 'edit' | 'retry' | 'addPage'
+export type GenerateMode = 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
 export type GenerateChatType = 'main' | 'page'
 
 // Minimal context needed by finalize functions.

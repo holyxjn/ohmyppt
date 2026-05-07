@@ -78,6 +78,11 @@ export interface GenerateAddPagePayload {
   insertAfterPageNumber: number
 }
 
+export interface GenerateRetrySinglePagePayload {
+  sessionId: string
+  pageId: string
+}
+
 export interface GeneratedPagePayload {
   pageNumber: number
   title: string

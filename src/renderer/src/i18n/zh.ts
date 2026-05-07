@@ -401,6 +401,9 @@ export const zh = {
     addPageGenerating: '正在生成新页面...',
     addPageGenerate: '生成',
     addPageCancel: '取消',
-    addPageFailed: '新增页面失败'
+    addPageFailed: '新增页面失败',
+    retryFailedPage: '重新生成此页',
+    retryPageGenerating: '正在重新生成页面...',
+    retryPageFailed: '重试生成页面失败'
   }
 } as const

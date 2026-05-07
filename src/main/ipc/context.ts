@@ -22,7 +22,7 @@ import { FREEZE_PAGE_FOR_EXPORT_SCRIPT } from '../utils/html-to-pptx-browser-scr
 export type SessionRunState = {
   sessionId: string
   runId: string
-  mode: 'generate' | 'edit' | 'retry' | 'addPage'
+  mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
   previousSessionStatus?: string
   status: 'running' | 'completed' | 'failed'
   progress: number
@@ -70,7 +70,7 @@ export interface IpcContext {
   beginSessionRunState: (args: {
     sessionId: string
     runId: string
-    mode: 'generate' | 'edit' | 'retry' | 'addPage'
+    mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
     totalPages: number
     previousSessionStatus?: string
   }) => void
@@ -378,7 +378,7 @@ export function createIpcContext(
   const beginSessionRunState = (args: {
     sessionId: string
     runId: string
-    mode: 'generate' | 'edit' | 'retry' | 'addPage'
+    mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
     totalPages: number
     previousSessionStatus?: string
   }): void => {

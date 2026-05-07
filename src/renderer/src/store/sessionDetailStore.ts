@@ -26,6 +26,7 @@ interface SessionDetailUiStore {
   isUploadingAssets: boolean
   addPageDialogOpen: boolean
   isAddingPage: boolean
+  isRetryingSinglePage: boolean
 
   setInput: (input: string) => void
   setChatType: (chatType: SessionDetailChatType) => void
@@ -52,6 +53,8 @@ interface SessionDetailUiStore {
   bumpThumbnailVersion: (pageId: string) => void
   setAddPageDialogOpen: (open: boolean) => void
   setIsAddingPage: (adding: boolean) => void
+  setIsRetryingSinglePage: (retrying: boolean) => void
+  finishAddPage: (selectedPageNumber?: number | null) => void
   resetForPageChange: () => void
   resetForSessionChange: () => void
 }
@@ -77,6 +80,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isUploadingAssets: false,
   addPageDialogOpen: false,
   isAddingPage: false,
+  isRetryingSinglePage: false,
 
   setInput: (input) => set({ input }),
   setChatType: (chatType) => set({ chatType }),
@@ -128,6 +132,13 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
     })),
   setAddPageDialogOpen: (addPageDialogOpen) => set({ addPageDialogOpen }),
   setIsAddingPage: (isAddingPage) => set({ isAddingPage }),
+  setIsRetryingSinglePage: (isRetryingSinglePage) => set({ isRetryingSinglePage }),
+  finishAddPage: (selectedPageNumber) =>
+    set((state) => ({
+      isAddingPage: false,
+      selectedPageNumber:
+        typeof selectedPageNumber === 'undefined' ? state.selectedPageNumber : selectedPageNumber
+    })),
   resetForPageChange: () =>
     set({
       interactionMode: 'preview' as InteractionMode,
@@ -153,6 +164,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       isUploadingAssets: false,
       thumbnailVersions: {},
       addPageDialogOpen: false,
-      isAddingPage: false
+      isAddingPage: false,
+      isRetryingSinglePage: false
     })
 }))
