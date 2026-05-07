@@ -9,7 +9,7 @@ import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
-import { buildDesignContractWithLLM, runDeepAgentDeckGeneration } from '../generate'
+import { buildDesignContractWithLLM, runDeepAgentDeckGeneration } from '../engine/generate'
 
 export async function executeRetryFailedPages(
   ctx: IpcContext,

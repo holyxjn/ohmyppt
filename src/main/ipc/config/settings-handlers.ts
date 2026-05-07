@@ -1,13 +1,13 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import log from 'electron-log/main.js'
-import { resolveModel } from '../agent'
-import type { IpcContext } from './context'
+import { resolveModel } from '../../agent'
+import type { IpcContext } from '../context'
 import {
   CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
   type ConfigurableModelTimeoutProfile,
   resolveModelTimeoutMs
 } from '@shared/model-timeout'
-import { readAppLocale, uiText } from './locale-utils'
+import { readAppLocale, uiText } from '../config/locale-utils'
 
 const readGlobalTimeouts = (
   settings: Record<string, unknown>

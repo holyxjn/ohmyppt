@@ -8,11 +8,11 @@ import fs from 'fs'
 import crypto from 'crypto'
 import { type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
-import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../template'
-import { planNewPage, runDeepAgentDeckGeneration } from '../generate'
+import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../engine/template'
+import { planNewPage, runDeepAgentDeckGeneration } from '../engine/generate'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../model-config-utils'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import {
   loadStyleSkill,
   listStyleCatalog,

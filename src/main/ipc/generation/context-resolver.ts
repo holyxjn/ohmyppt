@@ -12,7 +12,7 @@ import {
 } from '../../utils/style-skills'
 import { extractOutlineTitles } from '../utils'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../model-config-utils'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import type { GenerateMode, GenerateChatType, GenerationContext } from './types'
 
 export async function resolveGenerationContext(

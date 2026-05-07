@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react'
 import { Home, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useGenerateStore, useSessionStore } from '@renderer/store'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { ScrollArea } from '../ui/ScrollArea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
@@ -28,6 +29,7 @@ export const PageSidebar = memo(function PageSidebar({
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const resetSessionRuntimeState = useSessionStore((state) => state.resetRuntimeState)
 
   // Keep selected thumbnail in view when add-page completes (isAddingPage: true -> false).
   // Fallback to bottom if selected thumbnail is not found yet.
@@ -48,6 +50,13 @@ export const PageSidebar = memo(function PageSidebar({
     wasAddingRef.current = isAddingPage
   }, [isAddingPage, selectedPageNumber, pages.length])
 
+  const handleBackToSessions = (): void => {
+    useGenerateStore.getState().reset()
+    useSessionDetailUiStore.getState().resetForSessionChange()
+    resetSessionRuntimeState()
+    navigate('/sessions')
+  }
+
   return (
     <aside className="flex min-h-0 w-[220px] shrink-0 flex-col bg-[#f5f1e8] px-2.5 pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)]">
       <div className="relative mb-3 flex items-center justify-between overflow-hidden rounded-[1.35rem] bg-[#e8e0d0]/72 px-2 py-1.5 shadow-[0_10px_24px_rgba(93,107,77,0.08)]">
@@ -56,7 +65,7 @@ export const PageSidebar = memo(function PageSidebar({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={() => navigate('/sessions')}
+              onClick={handleBackToSessions}
               className="relative inline-flex h-8 w-8 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#f5f1e8]/72 text-[#5d6b4d] shadow-[0_4px_10px_rgba(93,107,77,0.08)] transition-colors hover:bg-[#d4e4c1]/78 hover:text-[#3e4a32] cursor-pointer"
               aria-label={t('sessionDetail.backToSessions')}
             >

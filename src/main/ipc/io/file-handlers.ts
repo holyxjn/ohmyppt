@@ -1,7 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import fs from 'fs'
 import { pathToFileURL } from 'url'
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
 
 export function registerFileHandlers(ctx: IpcContext): void {
   const { parsePathPayload, normalizeSessionId, assertPathInAllowedRoots } = ctx

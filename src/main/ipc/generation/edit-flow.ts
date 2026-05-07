@@ -9,7 +9,7 @@ import { normalizeLayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
-import { runDeepAgentEdit } from '../generate'
+import { runDeepAgentEdit } from '../engine/generate'
 import type { GeneratedPagePayload } from '@shared/generation'
 
 export async function executeEditGeneration(

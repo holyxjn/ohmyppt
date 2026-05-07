@@ -1,11 +1,11 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log/main.js'
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
 import type { GenerationContext, GenerationService } from './generation-flow'
-import type { SessionStatus } from '../db/schema'
-import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from './generation/add-page-flow'
-import { resolveRetrySinglePageContext, executeRetrySinglePageGeneration, type RetrySinglePageContext } from './generation/retry-single-page-flow'
-import { finalizeGenerationFailure as finalizeAddPageFailure } from './generation/finalize'
+import type { SessionStatus } from '../../db/schema'
+import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from '../generation/add-page-flow'
+import { resolveRetrySinglePageContext, executeRetrySinglePageGeneration, type RetrySinglePageContext } from '../generation/retry-single-page-flow'
+import { finalizeGenerationFailure as finalizeAddPageFailure } from '../generation/finalize'
 
 function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
   return status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'

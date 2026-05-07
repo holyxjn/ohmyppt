@@ -3,8 +3,8 @@ import log from 'electron-log/main.js'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import type { IpcContext } from './context'
-import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../utils/pptx-importer'
+import type { IpcContext } from '../context'
+import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
 
 type PptxImportPayload = {
   filePath?: unknown

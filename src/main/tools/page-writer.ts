@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio'
 import log from 'electron-log/main.js'
 import type { SessionDeckGenerationContext } from './types'
 import { validateHtmlContent, validatePersistedPageHtml } from './html-utils'
-import { buildSessionAssetHeadTags } from '../ipc/page-assets'
+import { buildSessionAssetHeadTags } from '../ipc/engine/page-assets'
 import { normalizeCreativePageFragment } from './page-fragment-normalizer'
 
 const uiText = (locale: 'zh' | 'en' | undefined, zh: string, en: string): string =>

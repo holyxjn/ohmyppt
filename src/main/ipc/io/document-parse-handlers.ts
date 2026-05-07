@@ -4,13 +4,13 @@ import { createRequire } from 'module'
 import path from 'path'
 import log from 'electron-log/main.js'
 import { nanoid } from 'nanoid'
-import { resolveModel } from '../agent'
+import { resolveModel } from '../../agent'
 import { FilesystemBackend, createDeepAgent } from 'deepagents'
-import { extractJsonBlock, extractModelText } from './utils'
-import type { IpcContext } from './context'
+import { extractJsonBlock, extractModelText } from '../utils'
+import type { IpcContext } from '../context'
 import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string

@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import * as cheerio from 'cheerio'
 import fs from 'fs'
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
 
 function clampDragValue(value: unknown): number {
   const parsed = Number(value)

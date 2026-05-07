@@ -1,4 +1,4 @@
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
 
 export type AppLocale = 'zh' | 'en'
 

@@ -2,8 +2,8 @@
 import fs from 'fs'
 import pLimit from 'p-limit'
 import log from 'electron-log/main.js'
-import type { AgentManager } from '../agent'
-import { createSessionDeckAgent, createSessionEditAgent, resolveModel } from '../agent'
+import type { AgentManager } from '../../agent'
+import { createSessionDeckAgent, createSessionEditAgent, resolveModel } from '../../agent'
 import {
   buildDesignContractSystemPrompt,
   buildDesignContractUserPrompt,
@@ -12,18 +12,18 @@ import {
   buildPlanningUserPrompt,
   buildSinglePageGenerationPrompt,
   CONTENT_LANGUAGE_RULES
-} from '../prompt'
+} from '../../prompt'
 import type { GenerateChunkEvent } from '@shared/generation'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { resolveModelTimeoutMs, type ModelTimeoutProfile } from '@shared/model-timeout'
 import { progressLabel, progressText } from '@shared/progress'
-import type { DesignContract, OutlineItem } from '../tools/types'
-import { isPlaceholderPageHtml } from '../tools/html-utils'
-import { extractModelText, extractJsonBlock, sleep } from './utils'
+import type { DesignContract, OutlineItem } from '../../tools/types'
+import { isPlaceholderPageHtml } from '../../tools/html-utils'
+import { extractModelText, extractJsonBlock, sleep } from '../utils'
 import {
   createReferenceDocumentRetriever,
   formatReferenceDocumentSnippets
-} from '../utils/reference-document-retrieval'
+} from '../../utils/reference-document-retrieval'
 
 type AppLocale = 'zh' | 'en'
 

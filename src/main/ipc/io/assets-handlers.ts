@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import path from 'path'
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
 
 export function registerAssetHandlers(ctx: IpcContext): void {
   const { mainWindow, uploadImageAssets } = ctx

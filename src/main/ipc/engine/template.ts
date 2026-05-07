@@ -1,7 +1,7 @@
 /** HTML template builders for multi-page preview architecture. */
-import { escapeHtml } from './utils'
+import { escapeHtml } from '../utils'
 import * as cheerio from 'cheerio'
-import { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from '../tools'
+import { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from '../../tools'
 import { buildSessionAssetHeadTags } from './page-assets'
 
 export interface DeckPageFile {

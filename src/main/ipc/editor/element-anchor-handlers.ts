@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import * as cheerio from 'cheerio'
 import fs from 'fs'
 import type { AnyNode } from 'domhandler'
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
 
 const SCAFFOLD_BLOCK_IDS = new Set(['content', 'page', 'root'])
 const BLOCKED_TAGS = new Set(['html', 'head', 'body', 'script', 'style', 'link', 'meta', 'title'])

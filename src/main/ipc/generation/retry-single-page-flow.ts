@@ -5,10 +5,10 @@ import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
-import { runDeepAgentDeckGeneration } from '../generate'
+import { runDeepAgentDeckGeneration } from '../engine/generate'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../model-config-utils'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import {
   loadStyleSkill,
   listStyleCatalog,

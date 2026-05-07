@@ -16,7 +16,7 @@ import {
   SESSION_ASSET_DIR_NAMES,
   SESSION_ASSET_FILE_NAMES,
   type DeckPageFile
-} from './template'
+} from './engine/template'
 import { FREEZE_PAGE_FOR_EXPORT_SCRIPT } from '../utils/html-to-pptx-browser-scripts'
 
 export type SessionRunState = {
