@@ -67,6 +67,8 @@ export const en = {
     sessionCreated: 'Session created',
     generationStarted: 'Generation started',
     sessionCreateFailed: 'Failed to create session',
+    pptxStorageRequiredTitle: 'Storage directory required',
+    pptxStorageRequired: 'Please choose a storage directory in Settings before importing a PPTX.',
     documentSingleOnly: 'Upload one document at a time.',
     documentCountExceeded: 'Too many documents',
     documentTooLargeTitle: 'Document too large',
@@ -403,6 +405,10 @@ export const en = {
       'The export will preserve layout, colors, and images while keeping key text editable where possible.',
     pptxExported: 'PPTX exported ({count} pages)',
     pptxEditableDescription: 'Layout and editable text were preserved where possible.',
+    exportPptxDefault: 'Background + Text + Images + Shapes',
+    exportPptxTextOnly: 'Background + Text Only',
+    exportPptxWithImages: 'Background + Text + Images',
+    exportPptxWithShapes: 'Background + Text + Shapes',
     pageLoadNotice:
       'Some pages took longer to load and were exported from the current view. Please quickly inspect the PPTX.',
     noEditableTextNotice:

@@ -172,6 +172,8 @@ export function HomePage(): ReactElement {
     }
   }
 
+  const hasStoragePath = (settings?.storagePath || '').trim().length > 0
+
   const handleParseDocumentClick = (): void => {
     if (parsingDocument) return
     documentInputRef.current?.click()
@@ -179,6 +181,16 @@ export function HomePage(): ReactElement {
 
   const handleImportPptxClick = (): void => {
     if (importingPptx) return
+    if (!hasStoragePath) {
+      warning(t('home.pptxStorageRequiredTitle'), {
+        description: t('home.pptxStorageRequired'),
+        action: {
+          label: t('home.goToSettings'),
+          onClick: () => navigate('/settings')
+        }
+      })
+      return
+    }
     pptxInputRef.current?.click()
   }
 
@@ -279,6 +291,16 @@ export function HomePage(): ReactElement {
     if (!filePath) {
       error(t('home.pptxPathFailedTitle'), {
         description: t('home.pptxPathFailed')
+      })
+      return
+    }
+    if (!hasStoragePath) {
+      warning(t('home.pptxStorageRequiredTitle'), {
+        description: t('home.pptxStorageRequired'),
+        action: {
+          label: t('home.goToSettings'),
+          onClick: () => navigate('/settings')
+        }
       })
       return
     }

@@ -1,19 +1,28 @@
 import {
+  ChevronDown,
   ExternalLink,
   FileDown,
   FileSearch,
   Image as ImageIcon,
   Loader2,
-  Presentation
+  Presentation,
+  Square
 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { Button } from '../ui/Button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../ui/DropdownMenu'
 import { useT } from '@renderer/i18n'
 
 const toolbarButtonClass =
   'h-7 rounded-[8px] border-transparent bg-[#e8e0d0]/72 px-2.5 text-[11px] text-[#3e4a32] shadow-[0_4px_10px_rgba(86,72,53,0.08)] hover:bg-[#d4e4c1]/78'
 const toolbarIconClass = 'mr-1.5 h-3.5 w-3.5'
+const dropdownItemIconClass = 'mr-2 h-3.5 w-3.5 text-[#6b7280]'
 
 export function SessionToolbar({
   hasPages,
@@ -30,7 +39,7 @@ export function SessionToolbar({
   canRevealFile: boolean
   onExportPdf: () => void
   onExportPng: () => void
-  onExportPptx: () => void
+  onExportPptx: (options?: { exportImages?: boolean; exportShapes?: boolean }) => void
   onOpenPreview: () => void
   onRevealFile: () => void
 }): React.JSX.Element {
@@ -42,21 +51,43 @@ export function SessionToolbar({
   return (
     <>
       {hasPages && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={toolbarButtonClass}
-          onClick={onExportPptx}
-          disabled={isExportingPptx}
-        >
-          {isExportingPptx ? (
-            <Loader2 className={cn(toolbarIconClass, 'animate-spin')} />
-          ) : (
-            <Presentation className={toolbarIconClass} />
-          )}
-          {t('sessionDetail.exportPptx')}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(toolbarButtonClass, 'gap-1')}
+              disabled={isExportingPptx}
+            >
+              {isExportingPptx ? (
+                <Loader2 className={cn(toolbarIconClass, 'animate-spin')} />
+              ) : (
+                <Presentation className={toolbarIconClass} />
+              )}
+              {t('sessionDetail.exportPptx')}
+              {!isExportingPptx && <ChevronDown className="h-3 w-3" />}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[14rem]">
+            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: true, exportShapes: true })}>
+              <Presentation className={dropdownItemIconClass} />
+              {t('sessionDetail.exportPptxDefault')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: false, exportShapes: false })}>
+              <Presentation className={dropdownItemIconClass} />
+              {t('sessionDetail.exportPptxTextOnly')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: true, exportShapes: false })}>
+              <ImageIcon className={dropdownItemIconClass} />
+              {t('sessionDetail.exportPptxWithImages')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: false, exportShapes: true })}>
+              <Square className={dropdownItemIconClass} />
+              {t('sessionDetail.exportPptxWithShapes')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
       {hasPages && (
         <Button
