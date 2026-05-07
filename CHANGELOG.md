@@ -1,5 +1,20 @@
 # 更新日志 / Changelog
 
+
+## 2026-05-07
+
+### 中文
+
+ - 新增编辑页：可以新增页面，每个页面可以包含多个元素。
+ - 优化pptx：优化了导出pptx的流程，支持更多pptx的元素导出。
+ - 优化性能： 优化整个应用的性能和稳定性。
+
+### English
+
+- Added page insertion: add new pages to an existing deck, each supporting multiple elements.
+- Improved PPTX export: refined the export pipeline to support a wider range of PPTX elements.
+- Improved performance: overall app performance and stability improvements.
+
 ## 2026-05-06
 
 ### 中文
