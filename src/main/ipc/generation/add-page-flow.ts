@@ -1,8 +1,8 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import { createGenerationPageCallbacks, generatePagesWithRetry, uiText } from './helpers'
-import { resolveCommonContext } from './common-context'
-import { finalizeGenerationSuccess } from './finalize'
+import { createGenerationPageCallbacks, generatePagesWithRetry, uiText } from './generation-utils'
+import { resolveCommonContext } from './context'
+import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
@@ -11,7 +11,7 @@ import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../engine/template'
 import { planNewPage } from '../engine/generate'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata } from './session-metadata'
+import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 
 // ── Independent AddPage context (not shared with generation/retry/edit) ──
@@ -138,7 +138,7 @@ export async function executeAddPageGeneration(
     }
   })
 
-  const newPageNumber = Math.max(...existingPages.map((p) => p.pageNumber)) + 1
+  const newPageNumber = Math.max(...existingPages.map((p) => derivePageNumber(p.pageId, p.pageNumber))) + 1
   const newPageId = `page-${newPageNumber}`
   const newHtmlPath = path.join(context.projectDir, `${newPageId}.html`)
 
@@ -313,7 +313,7 @@ export async function executeAddPageGeneration(
         ? await fs.promises.readFile(htmlPath, 'utf-8')
         : ''
       return {
-        pageNumber: page.pageNumber,
+        pageNumber: derivePageNumber(pageId, page.pageNumber),
         title: page.title,
         pageId,
         htmlPath,

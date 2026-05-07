@@ -1,20 +1,21 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import type { GenerationContext, GenerationService } from './generation-flow'
 import type { SessionStatus } from '../../db/schema'
+import { createEmitAssistantMessage } from '../generation/generation-utils'
+import { executeDeckGeneration, resolveDeckContext } from '../generation/deck-flow'
+import { executeEditGeneration, resolveEditContext } from '../generation/edit-flow'
+import { executeRetryFailedPages, resolveRetryContext } from '../generation/retry-flow'
+import type { DeckContext, EditContext, RetryContext } from '../generation/types'
 import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from '../generation/add-page-flow'
 import { resolveRetrySinglePageContext, executeRetrySinglePageGeneration, type RetrySinglePageContext } from '../generation/retry-single-page-flow'
-import { finalizeGenerationFailure as finalizeAddPageFailure } from '../generation/finalize'
+import { finalizeGenerationFailure } from '../generation/finalization'
 
 function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
   return status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'
 }
 
-export function registerGenerationHandlers(
-  ctx: IpcContext,
-  generationService: GenerationService
-): void {
+export function registerGenerationHandlers(ctx: IpcContext): void {
   const {
     db,
     agentManager,
@@ -23,13 +24,8 @@ export function registerGenerationHandlers(
     beginSessionRunState,
     emitGenerateChunk
   } = ctx
-  const {
-    resolveGenerationContext,
-    finalizeGenerationFailure,
-    executeGeneration,
-    executeRetryFailedPages
-  } = generationService
   const startingSessionIds = new Set<string>()
+  const emitAssistant = createEmitAssistantMessage(db, emitGenerateChunk)
 
   ipcMain.handle('generate:state', async (_event, rawSessionId: unknown) => {
     pruneFinishedSessionRunStates()
@@ -100,9 +96,18 @@ export function registerGenerationHandlers(
       startingSessionIds.add(requestedSessionId)
     }
 
-    let context: GenerationContext | null = null
+    let context: DeckContext | EditContext | null = null
     try {
-      context = await resolveGenerationContext(event, payload)
+      const requestedType =
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { type?: unknown }).type === 'page'
+          ? 'page'
+          : 'deck'
+      context =
+        requestedType === 'page'
+          ? await resolveEditContext(ctx, event, payload)
+          : await resolveDeckContext(ctx, event, payload)
       beginSessionRunState({
         sessionId: context.sessionId,
         runId: context.runId,
@@ -110,11 +115,15 @@ export function registerGenerationHandlers(
         totalPages: context.totalPages,
         previousSessionStatus: context.previousSessionStatus
       })
-      await executeGeneration(context)
+      if (context.effectiveMode === 'edit') {
+        await executeEditGeneration(ctx, emitAssistant, context)
+      } else {
+        await executeDeckGeneration(ctx, emitAssistant, context)
+      }
       return { success: true, runId: context.runId }
     } catch (error) {
       if (context) {
-        await finalizeGenerationFailure(context, error)
+        await finalizeGenerationFailure(ctx, context, error)
       }
       throw error
     } finally {
@@ -146,35 +155,9 @@ export function registerGenerationHandlers(
       }
     }
 
-    let context: GenerationContext | null = null
+    let context: RetryContext | null = null
     try {
-      const retryPayload =
-        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
-      const retrySupplement =
-        typeof retryPayload.userMessage === 'string' && retryPayload.userMessage.trim().length > 0
-          ? retryPayload.userMessage.trim()
-          : ''
-      const retryUserMessage = retrySupplement
-        ? [
-            '继续生成本会话中未完成的页面。页面正文、标题、图表标签必须保持与现有页面相同语言。',
-            'Continue generating the unfinished slides in this session. Keep slide text, titles, and chart labels in the same language as existing slides.',
-            'Determine the content language from the existing topic, outline, source materials, existing slides, and the user supplement; do not infer it from this instruction language.',
-            `User supplement:\n${retrySupplement}`
-          ].join('\n')
-        : [
-            '继续生成本会话中未完成的页面。页面正文、标题、图表标签必须保持与现有页面相同语言。',
-            'Continue generating the unfinished slides in this session. Keep slide text, titles, and chart labels in the same language as existing slides.',
-            'Determine the content language from the existing topic, outline, source materials, and existing slides; do not infer it from this instruction language.'
-          ].join('\n')
-      context = await resolveGenerationContext(
-        event,
-        {
-          ...retryPayload,
-          type: 'deck',
-          userMessage: retryUserMessage
-        },
-        { persistUserMessage: false, mode: 'retry' }
-      )
+      context = await resolveRetryContext(ctx, event, payload)
       beginSessionRunState({
         sessionId: context.sessionId,
         runId: context.runId,
@@ -187,11 +170,11 @@ export function registerGenerationHandlers(
           ).length || context.totalPages
         )
       })
-      await executeRetryFailedPages(context)
+      await executeRetryFailedPages(ctx, emitAssistant, context)
       return { success: true, runId: context.runId }
     } catch (error) {
       if (context) {
-        await finalizeGenerationFailure(context, error)
+        await finalizeGenerationFailure(ctx, context, error)
       }
       throw error
     } finally {
@@ -260,7 +243,7 @@ export function registerGenerationHandlers(
       return { success: true, runId: addPageCtx.runId }
     } catch (error) {
       if (addPageCtx) {
-        await finalizeAddPageFailure(ctx, addPageCtx, error)
+        await finalizeGenerationFailure(ctx, addPageCtx, error)
       }
       throw error
     } finally {
@@ -315,7 +298,7 @@ export function registerGenerationHandlers(
       return { success: true, runId: retryCtx.runId }
     } catch (error) {
       if (retryCtx) {
-        await finalizeAddPageFailure(ctx, retryCtx as any, error)
+        await finalizeGenerationFailure(ctx, retryCtx, error)
       }
       throw error
     } finally {

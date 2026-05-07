@@ -4,10 +4,10 @@ import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
-import { createGenerationPageCallbacks, generatePagesWithRetry } from './helpers'
-import { resolveCommonContext } from './common-context'
+import { createGenerationPageCallbacks, generatePagesWithRetry } from './generation-utils'
+import { resolveCommonContext } from './context'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata } from './session-metadata'
+import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 
@@ -58,7 +58,7 @@ export async function resolveRetrySinglePageContext(
   const pageSnapshot = pageSnapshots.find((p) => p.page_id === pageId)
   if (!pageSnapshot) throw new Error(`Page ${pageId} not found in session`)
 
-  const pageNumber = pageSnapshot.page_number
+  const pageNumber = Number(pageId.match(/^page-(\d+)$/i)?.[1]) || pageSnapshot.page_number
   const title = pageSnapshot.title || `Page ${pageNumber}`
   const contentOutline = pageSnapshot.content_outline || title
   const layoutIntent = normalizeLayoutIntent(pageSnapshot.layout_intent)
@@ -309,12 +309,15 @@ export async function executeRetrySinglePageGeneration(
 
   // Finalize — update metadata and project status, but only mark session 'completed'
   // if there are no remaining failed pages.
-  const generatedPages = updatedPages.map((p: { pageNumber?: number; title?: string; pageId?: string; htmlPath?: string }) => ({
-    pageNumber: p.pageNumber || 0,
-    title: p.title || '',
-    pageId: p.pageId || `page-${p.pageNumber}`,
-    htmlPath: p.htmlPath || ''
-  }))
+  const generatedPages = updatedPages.map((p: { pageNumber?: number; title?: string; pageId?: string; htmlPath?: string }) => {
+    const pageId = p.pageId || `page-${p.pageNumber}`
+    return {
+      pageNumber: derivePageNumber(pageId, p.pageNumber || 0),
+      title: p.title || '',
+      pageId,
+      htmlPath: p.htmlPath || ''
+    }
+  })
 
   await db.updateSessionMetadata(context.sessionId, {
     lastRunId: context.runId,

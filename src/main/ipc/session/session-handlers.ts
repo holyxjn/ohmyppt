@@ -10,7 +10,7 @@ import { getStyleDetail, hasStyleSkill } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig } from '../config/model-config-utils'
 import { readAppLocale, uiText } from '../config/locale-utils'
-import { parseSessionMetadata } from '../generation/session-metadata'
+import { parseSessionMetadata } from '../generation/metadata-parser'
 
 export function registerSessionHandlers(ctx: IpcContext): void {
   const {

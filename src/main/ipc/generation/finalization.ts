@@ -1,6 +1,7 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
 import type { FinalizeContext, FinalizeGenerationArgs } from './types'
+import { derivePageNumber } from './metadata-parser'
 
 export async function finalizeGenerationSuccess(
   ctx: IpcContext,
@@ -12,7 +13,7 @@ export async function finalizeGenerationSuccess(
     lastRunId: context.runId,
     entryMode: 'multi_page',
     generatedPages: generatedPages.map((page) => ({
-      pageNumber: page.pageNumber,
+      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
       title: page.title,
       pageId: page.pageId,
       htmlPath: page.htmlPath

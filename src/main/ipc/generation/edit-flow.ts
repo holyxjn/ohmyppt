@@ -1,6 +1,6 @@
 import type { IpcContext } from '../context'
-import type { GenerationContext, EmitAssistantFn } from './types'
-import { uiText } from './helpers'
+import type { EditContext, EmitAssistantFn, GenerateChatType } from './types'
+import { uiText } from './generation-utils'
 import log from 'electron-log/main.js'
 import { progressText } from '@shared/progress'
 import path from 'path'
@@ -8,14 +8,87 @@ import fs from 'fs'
 import { normalizeLayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata } from './session-metadata'
+import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import { runDeepAgentEdit } from '../engine/generate'
 import type { GeneratedPagePayload } from '@shared/generation'
+import {
+  buildOutlineTitles,
+  buildTotalPages,
+  normalizeGeneratePayload,
+  resolveCommonContext
+} from './context'
+
+export async function resolveEditContext(
+  ctx: IpcContext,
+  _event: Electron.IpcMainInvokeEvent,
+  payload: unknown
+): Promise<EditContext> {
+  const input = normalizeGeneratePayload(payload)
+  const { db, formatImagePathsForPrompt } = ctx
+  if (!input.sessionId) throw new Error('sessionId 不能为空')
+
+  const common = await resolveCommonContext(ctx, input.sessionId)
+  const imagePaths = input.rawImagePaths
+  const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt(imagePaths)}`
+  const chatType: GenerateChatType = input.chatType
+  const chatPageId =
+    chatType === 'page'
+      ? input.chatPageId || input.selectedPageId
+      : undefined
+  if (chatType === 'page' && !chatPageId) {
+    throw new Error('chatType=page requires chatPageId or selectedPageId')
+  }
+
+  await db.addMessage(input.sessionId, {
+    role: 'user',
+    content: input.rawUserMessage,
+    type: 'text',
+    chat_scope: chatType,
+    page_id: chatType === 'page' ? chatPageId : undefined,
+    selector: chatType === 'page' ? input.selector : undefined,
+    image_paths: imagePaths
+  })
+  await db.updateSessionStatus(input.sessionId, 'active')
+
+  return {
+    sessionId: input.sessionId,
+    userMessage,
+    requestedType: 'page',
+    effectiveMode: 'edit',
+    selectedPageId: input.selectedPageId,
+    htmlPath: input.htmlPath,
+    selector: input.selector,
+    elementTag: input.elementTag,
+    elementText: input.elementText,
+    session: common.session,
+    sessionRecord: common.sessionRecord,
+    previousSessionStatus: common.previousSessionStatus,
+    entry: common.entry,
+    runId: common.runId,
+    styleId: common.styleId,
+    styleSkill: common.styleSkill,
+    userProvidedOutlineTitles: buildOutlineTitles(input.rawUserMessage),
+    totalPages: buildTotalPages(common.sessionRecord),
+    provider: common.provider,
+    apiKey: common.apiKey,
+    model: common.model,
+    modelTimeouts: common.modelTimeouts,
+    providerBaseUrl: common.providerBaseUrl,
+    projectId: common.projectId,
+    messageScope: chatType,
+    messagePageId: chatType === 'page' ? chatPageId : undefined,
+    imagePaths,
+    sourceDocumentPaths: [],
+    topic: common.topic,
+    deckTitle: common.deckTitle,
+    appLocale: common.appLocale
+  }
+}
 
 export async function executeEditGeneration(
   ctx: IpcContext,
   emitAssistant: EmitAssistantFn,
-  context: GenerationContext
+  context: EditContext
 ): Promise<void> {
   const {
     db,
@@ -23,7 +96,6 @@ export async function executeEditGeneration(
     getPageSourceUrl,
     validateProjectIndexHtml,
     createDeckProgressEmitter,
-    emitGenerateChunk,
     PAGE_EDIT_WITH_SELECTOR_TEMPERATURE,
     PAGE_EDIT_DEFAULT_TEMPERATURE
   } = ctx
@@ -65,7 +137,7 @@ export async function executeEditGeneration(
     pageRefs = (metadata.generatedPages || []).map((p, index) => {
       const pageId = p.pageId || `page-${p.pageNumber || index + 1}`
       return {
-        pageNumber: p.pageNumber || index + 1,
+        pageNumber: Number(pageId.match(/^page-(\d+)$/i)?.[1]) || index + 1,
         title: p.title || `第${index + 1}页`,
         pageId,
         htmlPath: p.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
@@ -77,9 +149,10 @@ export async function executeEditGeneration(
   for (const page of latestPageSnapshot) {
     const pageId = page.page_id || `page-${page.page_number}`
     if (pageRefById.has(pageId)) continue
+    const pageNumber = Number(pageId.match(/^page-(\d+)$/i)?.[1]) || page.page_number
     const ref = {
-      pageNumber: page.page_number,
-      title: page.title || `第${page.page_number}页`,
+      pageNumber,
+      title: page.title || `第${pageNumber}页`,
       pageId,
       htmlPath: page.html_path || path.join(context.entry.projectDir, `${pageId}.html`)
     }
@@ -389,7 +462,7 @@ export async function executeEditGeneration(
       runId: context.runId,
       sessionId: context.sessionId,
       pageId: page.pageId,
-      pageNumber: page.pageNumber,
+      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
       title: page.title,
       contentOutline: outlineItem?.contentOutline || '',
       layoutIntent: outlineItem?.layoutIntent,
@@ -441,7 +514,7 @@ export async function executeEditGeneration(
     lastRunId: context.runId,
     entryMode: 'multi_page',
     generatedPages: generatedPagesForMetadata.map((page) => ({
-      pageNumber: page.pageNumber,
+      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
       title: page.title,
       pageId: page.pageId,
       htmlPath: page.htmlPath

@@ -33,3 +33,15 @@ export function parseSessionMetadata(raw: string | undefined | null): SessionMet
     return {}
   }
 }
+
+/**
+ * Derive a stable pageNumber from pageId when it follows the `page-N` convention.
+ * Falls back to `fallback` when pageId doesn't match the pattern.
+ */
+export function derivePageNumber(pageId: string | undefined, fallback: number): number {
+  if (pageId) {
+    const n = Number(pageId.match(/^page-(\d+)$/i)?.[1])
+    if (n > 0) return n
+  }
+  return fallback
+}

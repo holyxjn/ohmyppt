@@ -54,6 +54,21 @@ export type GenerationContext = {
   appLocale: 'zh' | 'en'
 }
 
+export type DeckContext = GenerationContext & { effectiveMode: 'generate' }
+export type EditContext = GenerationContext & { effectiveMode: 'edit' }
+export type RetryContext = GenerationContext & { effectiveMode: 'retry' }
+
+export type AnyFlowContext =
+  | DeckContext
+  | EditContext
+  | RetryContext
+  | {
+      sessionId: string
+      runId: string
+      messageScope: GenerateChatType
+      messagePageId?: string
+    }
+
 export type FinalizeGenerationArgs = {
   context: FinalizeContext
   indexPath: string
@@ -68,15 +83,4 @@ export type FinalizeGenerationArgs = {
   designContract?: DesignContract
 }
 
-export interface GenerationService {
-  resolveGenerationContext: (
-    _event: Electron.IpcMainInvokeEvent,
-    payload: unknown,
-    options?: { persistUserMessage?: boolean; mode?: GenerateMode }
-  ) => Promise<GenerationContext>
-  finalizeGenerationFailure: (context: GenerationContext, error: unknown) => Promise<void>
-  executeGeneration: (context: GenerationContext) => Promise<void>
-  executeRetryFailedPages: (context: GenerationContext) => Promise<void>
-}
-
-export type EmitAssistantFn = (context: GenerationContext, content: string) => Promise<void>
+export type EmitAssistantFn = (context: AnyFlowContext, content: string) => Promise<void>

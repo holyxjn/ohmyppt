@@ -5,6 +5,7 @@ import fs from 'fs'
 import crypto from 'crypto'
 import type { IpcContext } from '../context'
 import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
+import { derivePageNumber } from '../generation/metadata-parser'
 
 type PptxImportPayload = {
   filePath?: unknown
@@ -118,7 +119,7 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         originalFileName,
         indexPath: imported.indexPath,
         generatedPages: imported.pages.map((page) => ({
-          pageNumber: page.pageNumber,
+          pageNumber: derivePageNumber(page.pageId, page.pageNumber),
           title: page.title,
           pageId: page.pageId,
           htmlPath: page.htmlPath

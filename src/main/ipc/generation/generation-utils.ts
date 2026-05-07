@@ -4,7 +4,7 @@ import { progressText } from '@shared/progress'
 import type { PPTDatabase } from '../../db/database'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { runDeepAgentDeckGeneration } from '../engine/generate'
-import type { GenerationContext, EmitAssistantFn } from './types'
+import type { AnyFlowContext, EmitAssistantFn } from './types'
 
 export const uiText = (locale: 'zh' | 'en', zh: string, en: string): string =>
   locale === 'en' ? en : zh
@@ -143,7 +143,7 @@ export function createEmitAssistantMessage(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   emitGenerateChunk: (sessionId: string, chunk: any) => void
 ): EmitAssistantFn {
-  return async (context: GenerationContext, content: string): Promise<void> => {
+  return async (context: AnyFlowContext, content: string): Promise<void> => {
     if (!content.trim()) return
     const messageId = await db.addMessage(context.sessionId, {
       role: 'assistant',
