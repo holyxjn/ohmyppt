@@ -1,23 +1,17 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import { uiText } from './helpers'
+import { createGenerationPageCallbacks, generatePagesWithRetry, uiText } from './helpers'
+import { resolveCommonContext } from './common-context'
 import { finalizeGenerationSuccess } from './finalize'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
-import crypto from 'crypto'
 import { type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../engine/template'
-import { planNewPage, runDeepAgentDeckGeneration } from '../engine/generate'
+import { planNewPage } from '../engine/generate'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata } from './session-metadata'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
-import {
-  loadStyleSkill,
-  listStyleCatalog,
-  hasStyleSkill
-} from '../../utils/style-skills'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 
 // ── Independent AddPage context (not shared with generation/retry/edit) ──
@@ -53,99 +47,27 @@ export async function resolveAddPageContext(
   userDescription: string,
   insertAfterPageNumber: number
 ): Promise<AddPageContext> {
-  const { db, agentManager, resolveStoragePath, ensureSessionAssets } = ctx
-
   log.info('[generate:addPage] resolving context', { sessionId, insertAfterPageNumber })
-
-  const session = await db.getSession(sessionId)
-  if (!session) throw new Error('Session not found')
-  const sessionRecord = session as unknown as Record<string, unknown>
-  const previousSessionStatus = String(sessionRecord.status || 'active')
-
-  // Model config
-  const activeModel = await resolveActiveModelConfig(ctx)
-  const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
-
-  // Style
-  const styleCatalog = listStyleCatalog()
-  const defaultStyleId =
-    styleCatalog.find((item) => item.styleKey === 'minimal-white')?.id ??
-    styleCatalog[0]?.id ??
-    ''
-  const styleIdRaw =
-    typeof sessionRecord.styleId === 'string' ? String(sessionRecord.styleId).trim() : ''
-  const styleId = styleIdRaw || defaultStyleId
-  if (!styleId || !hasStyleSkill(styleId)) {
-    throw new Error(`styleId 不存在或不可用：${styleId}`)
-  }
-  const styleSkill = loadStyleSkill(styleId)
-
-  // Project dir
-  const existingProject = await db.getProject(sessionId)
-  const storagePath = await resolveStoragePath()
-  const projectDir = existingProject?.output_path || path.join(storagePath, sessionId)
-  if (!fs.existsSync(projectDir)) {
-    fs.mkdirSync(projectDir, { recursive: true })
-  }
-  await ensureSessionAssets(projectDir)
-
-  // Agent
-  agentManager.ensureSession({
-    sessionId,
-    provider: activeModel.provider,
-    model: activeModel.model,
-    baseUrl: activeModel.baseUrl,
-    projectDir
-  })
-  const entry = agentManager.beginRun(sessionId)
-  if (!entry) throw new Error('Session not found')
-
-  // Locale
-  const settings = await db.getAllSettings()
-  const appLocale: 'zh' | 'en' = settings.locale === 'en' ? 'en' : 'zh'
-
-  const topic = String(sessionRecord.topic || '当前主题')
-  const deckTitle = String(sessionRecord.title || 'OpenPPT Preview')
-
-  const projectId =
-    existingProject?.id ??
-    await db.createProject({
-      session_id: sessionId,
-      title: String(sessionRecord.title || 'Untitled'),
-      output_path: entry.projectDir
-    })
+  const common = await resolveCommonContext(ctx, sessionId)
+  const { sessionRecord } = common
 
   log.info('[generate:addPage] context resolved', {
     sessionId,
-    projectDir: entry.projectDir,
-    styleId,
-    provider: activeModel.provider,
-    model: activeModel.model,
+    projectDir: common.projectDir,
+    styleId: common.styleId,
+    provider: common.provider,
+    model: common.model,
     insertAfterPageNumber
   })
 
   return {
+    ...common,
     sessionId,
-    runId: crypto.randomUUID(),
     userDescription,
     insertAfterPageNumber,
-    provider: activeModel.provider,
-    apiKey: activeModel.apiKey,
-    model: activeModel.model,
-    providerBaseUrl: activeModel.baseUrl,
-    modelTimeouts,
-    projectDir: entry.projectDir,
-    abortSignal: entry.abortController.signal,
-    styleId,
-    styleSkillPrompt: styleSkill.prompt,
-    topic,
-    deckTitle,
-    appLocale,
     sessionRecord,
-    previousSessionStatus,
     messageScope: 'main' as const,
     messagePageId: undefined,
-    projectId,
     effectiveMode: 'addPage' as const
   }
 }
@@ -307,102 +229,13 @@ export async function executeAddPageGeneration(
   })
 
   const pageFileMap: Record<string, string> = { [newPageId]: newHtmlPath }
-
-  let generationError: unknown
-  const { failedPages } = await runDeepAgentDeckGeneration({
-    sessionId: context.sessionId,
-    provider: context.provider,
-    apiKey: context.apiKey,
-    model: context.model,
-    baseUrl: context.providerBaseUrl,
-    modelTimeoutMs: context.modelTimeouts.agent,
-    temperature: PAGE_GENERATION_TEMPERATURE,
-    styleId: context.styleId,
-    styleSkillPrompt: context.styleSkillPrompt,
-    appLocale: context.appLocale,
-    topic: context.topic,
-    deckTitle: context.deckTitle,
-    userMessage: userDescription,
-    outlineTitles: [planResult.title],
-    outlineItems: [planResult],
-    sourceDocumentPaths: [],
-    generationMode: 'generate',
-    pageTasks: [
-      {
-        pageNumber: newPageNumber,
-        pageId: newPageId,
-        title: planResult.title,
-        contentOutline: planResult.contentOutline,
-        layoutIntent: planResult.layoutIntent
-      }
-    ],
-    designContract,
-    projectDir: context.projectDir,
-    indexPath,
-    pageFileMap,
-    agentManager,
-    emit: (chunk) => emitChunk(chunk),
-    onPageCompleted: async (page) => {
-      if (!fs.existsSync(page.htmlPath)) {
-        throw new Error(`${page.pageId}.html 缺失`)
-      }
-      const html = await fs.promises.readFile(page.htmlPath, 'utf-8')
-      const validation = validatePersistedPageHtml(html, page.pageId)
-      if (!validation.valid) {
-        throw new Error(`HTML 验证失败 (${page.pageId}): ${validation.errors.join('; ')}`)
-      }
-      await db.upsertGenerationPage({
-        runId: context.runId,
-        sessionId: context.sessionId,
-        pageId: page.pageId,
-        pageNumber: page.pageNumber,
-        title: page.title,
-        contentOutline: page.contentOutline,
-        layoutIntent: page.layoutIntent,
-        htmlPath: page.htmlPath,
-        status: 'completed'
-      })
-    },
-    onPageFailed: async (page) => {
-      await db.upsertGenerationPage({
-        runId: context.runId,
-        sessionId: context.sessionId,
-        pageId: page.pageId,
-        pageNumber: page.pageNumber,
-        title: page.title,
-        contentOutline: page.contentOutline,
-        layoutIntent: page.layoutIntent,
-        htmlPath: page.htmlPath,
-        status: 'failed',
-        error: page.reason
-      })
-    },
+  const pageCallbacks = createGenerationPageCallbacks({
+    db,
     runId: context.runId,
-    signal: context.abortSignal
-  }).catch((err) => {
-    generationError = err
-    return { failedPages: [{ pageId: newPageId, title: planResult.title, reason: String(err) }] }
+    sessionId: context.sessionId
   })
-
-  // Retry generation once if failed (including HTML validation errors caught above)
-  if (failedPages.length > 0) {
-    emitChunk({
-      type: 'llm_status',
-      payload: {
-        runId: context.runId,
-        stage: 'rendering',
-        label: progressText(context.appLocale, 'retrying'),
-        progress: 15,
-        totalPages: 1,
-        detail: uiText(
-          context.appLocale,
-          `页面生成失败，正在重试...`,
-          `Page generation failed, retrying...`
-        )
-      }
-    })
-
-    const retryResult = await runDeepAgentDeckGeneration({
+  await generatePagesWithRetry({
+    runArgs: {
       sessionId: context.sessionId,
       provider: context.provider,
       apiKey: context.apiKey,
@@ -435,56 +268,20 @@ export async function executeAddPageGeneration(
       pageFileMap,
       agentManager,
       emit: (chunk) => emitChunk(chunk),
-      onPageCompleted: async (page) => {
-        if (!fs.existsSync(page.htmlPath)) {
-          throw new Error(`${page.pageId}.html 缺失`)
-        }
-        const html = await fs.promises.readFile(page.htmlPath, 'utf-8')
-        const validation = validatePersistedPageHtml(html, page.pageId)
-        if (!validation.valid) {
-          throw new Error(`HTML 验证失败 (${page.pageId}): ${validation.errors.join('; ')}`)
-        }
-        await db.upsertGenerationPage({
-          runId: context.runId,
-          sessionId: context.sessionId,
-          pageId: page.pageId,
-          pageNumber: page.pageNumber,
-          title: page.title,
-          contentOutline: page.contentOutline,
-          layoutIntent: page.layoutIntent,
-          htmlPath: page.htmlPath,
-          status: 'completed'
-        })
-      },
-      onPageFailed: async (page) => {
-        await db.upsertGenerationPage({
-          runId: context.runId,
-          sessionId: context.sessionId,
-          pageId: page.pageId,
-          pageNumber: page.pageNumber,
-          title: page.title,
-          contentOutline: page.contentOutline,
-          layoutIntent: page.layoutIntent,
-          htmlPath: page.htmlPath,
-          status: 'failed',
-          error: page.reason
-        })
-      },
+      ...pageCallbacks,
       runId: context.runId,
       signal: context.abortSignal
-    })
-    if (retryResult.failedPages.length > 0) {
-      generationError = new Error(
-        retryResult.failedPages.map((p) => `${p.pageId}: ${p.reason}`).join('; ')
-      )
-    } else {
-      generationError = null
-    }
-  }
-
-  if (generationError) {
-    throw generationError
-  }
+    },
+    emitChunk,
+    appLocale: context.appLocale,
+    runId: context.runId,
+    totalPages: 1,
+    retryDetail: uiText(
+      context.appLocale,
+      `页面生成失败，正在重试...`,
+      `Page generation failed, retrying...`
+    )
+  })
 
   // ── Step 6: Validate generated page ──
   if (!fs.existsSync(newHtmlPath)) {
