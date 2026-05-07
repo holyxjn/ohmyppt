@@ -2,15 +2,16 @@ import { BrowserWindow, type NativeImage } from 'electron'
 import log from 'electron-log/main.js'
 import { pathToFileURL } from 'url'
 import {
-  buildHtmlToPptxExtractScript,
-  normalizeExtractedHtmlToPptxSlide,
-  type HtmlToPptxTextBox,
-  type HtmlToPptxSlide
+    buildHtmlToPptxExtractScript,
+    normalizeExtractedHtmlToPptxSlide,
+    type HtmlToPptxSlide,
+    type HtmlToPptxTextBox
 } from './html-to-pptx'
 import {
-  FREEZE_PAGE_FOR_PPTX_SCRIPT,
-  HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT,
-  WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT
+    FREEZE_PAGE_FOR_PPTX_SCRIPT,
+    HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT,
+    HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT,
+    WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT
 } from './html-to-pptx-browser-scripts'
 
 export interface HtmlPageForPptx {
@@ -28,6 +29,8 @@ export interface HtmlPageToPptxSlideOptions {
     pageId: string
     timeoutMs: number
   }) => Promise<{ timedOut: boolean }>
+  exportImages?: boolean
+  exportShapes?: boolean
 }
 
 export interface HtmlPageToPptxSlideResult {
@@ -154,13 +157,15 @@ const hasTextResidueInCapture = (
 const capturePptxBackgroundWithRetry = async (
   win: BrowserWindow,
   pageId: string,
-  texts: HtmlToPptxTextBox[]
+  texts: HtmlToPptxTextBox[],
+  hideScript?: string
 ): Promise<{ image: NativeImage; warning?: string }> => {
   let lastImage: NativeImage | null = null
   let lastCheck: ReturnType<typeof hasTextResidueInCapture> | null = null
+  const script = hideScript || HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
 
   for (let attempt = 1; attempt <= PPTX_BACKGROUND_CAPTURE_ATTEMPTS; attempt += 1) {
-    await win.webContents.executeJavaScript(HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT, true)
+    await win.webContents.executeJavaScript(script, true)
     await win.webContents.executeJavaScript(WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT, true)
     await sleep(process.platform === 'win32' ? 180 : 80)
     await win.webContents.executeJavaScript(WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT, true)
@@ -209,7 +214,9 @@ export const extractHtmlPageToPptxSlide = async ({
   page,
   timeoutMs,
   settleMs,
-  waitForPrintReadySignal
+  waitForPrintReadySignal,
+  exportImages = false,
+  exportShapes = false
 }: HtmlPageToPptxSlideOptions): Promise<HtmlPageToPptxSlideResult> => {
   const win = new BrowserWindow({
     show: false,
@@ -260,18 +267,24 @@ export const extractHtmlPageToPptxSlide = async ({
     await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
     await sleep(80)
 
+    const maxShapes = exportShapes ? 80 : 0
+    const maxImages = exportImages ? 40 : 0
     const extracted = await win.webContents.executeJavaScript(
       buildHtmlToPptxExtractScript({
         pageWidthPx: PPTX_CAPTURE_WIDTH,
         pageHeightPx: PPTX_CAPTURE_HEIGHT,
-        maxShapes: 0,
-        maxImages: 0
+        maxShapes,
+        maxImages
       }),
       true
     )
 
     const slide = normalizeExtractedHtmlToPptxSlide(extracted, page.title)
-    const backgroundCapture = await capturePptxBackgroundWithRetry(win, page.pageId, slide.texts)
+
+    const hideScript = (exportImages || exportShapes)
+      ? HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT
+      : HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
+    const backgroundCapture = await capturePptxBackgroundWithRetry(win, page.pageId, slide.texts, hideScript)
     const backgroundPng = backgroundCapture.image.toPNG()
     slide.backgroundImage = {
       dataUri: `data:image/png;base64,${backgroundPng.toString('base64')}`,
@@ -282,8 +295,13 @@ export const extractHtmlPageToPptxSlide = async ({
       h: PPTX_SLIDE_HEIGHT_IN,
       alt: page.title
     }
-    slide.shapes = []
-    slide.images = []
+
+    if (!exportShapes) {
+      slide.shapes = []
+    }
+    if (!exportImages) {
+      slide.images = []
+    }
 
     return {
       slide,
