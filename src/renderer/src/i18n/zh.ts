@@ -30,7 +30,7 @@ export const zh = {
     uploadDocument: '上传文档自动解析',
     parsingDocument: '解析中...',
     uploadDocumentTooltip:
-      '支持 txt、md、csv、docx，单个不超过 {maxSize}MB。解析后会自动填充主题、页数和详细描述，这里填入的是文档大纲；后续生成会继续参考实际文档内容进行 AI 创意生成。',
+      '支持 txt、md、csv、docx、pdf、html、ppt、pptx，单个不超过 {maxSize}MB。解析后会自动填充主题、页数和详细描述，这里填入的是文档大纲；后续生成会继续参考实际文档内容进行 AI 创意生成。',
     importPptx: '导入 PPTX 直接AI编辑',
     importingPptx: '导入中...',
     importPptxTooltip: '支持导入 .pptx 文件，单个不超过 {maxSize}MB。导入后会转换成可编辑页面。',

@@ -33,7 +33,7 @@ export const en = {
     uploadDocument: 'Upload document',
     parsingDocument: 'Parsing...',
     uploadDocumentTooltip:
-      'Supports txt, md, csv, and docx up to {maxSize}MB. Parsing fills in the topic, page count, and detailed brief; generation will still reference the original document content.',
+      'Supports txt, md, csv, docx, pdf, html, ppt, and pptx up to {maxSize}MB. Parsing fills in the topic, page count, and detailed brief; generation will still reference the original document content.',
     importPptx: 'Import PPTX for AI editing',
     importingPptx: 'Importing...',
     importPptxTooltip: 'Import a .pptx file up to {maxSize}MB and convert it into editable pages.',
@@ -405,10 +405,10 @@ export const en = {
       'The export will preserve layout, colors, and images while keeping key text editable where possible.',
     pptxExported: 'PPTX exported ({count} pages)',
     pptxEditableDescription: 'Layout and editable text were preserved where possible.',
-    exportPptxDefault: 'Background + Text + Images + Shapes',
-    exportPptxTextOnly: 'Background + Text Only',
-    exportPptxWithImages: 'Background + Text + Images',
-    exportPptxWithShapes: 'Background + Text + Shapes',
+    exportPptxDefault: 'Background + Text Only',
+    exportPptxWithImages: 'With Editable Images',
+    exportPptxWithShapes: 'With Editable Shapes',
+    exportPptxWithAll: 'With Images and Shapes',
     pageLoadNotice:
       'Some pages took longer to load and were exported from the current view. Please quickly inspect the PPTX.',
     noEditableTextNotice:
