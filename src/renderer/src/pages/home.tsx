@@ -1,10 +1,9 @@
-import { ipc } from '@renderer/lib/ipc'
-import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Textarea } from '../components/ui/Input'
 import { Card, CardContent } from '../components/ui/Card'
-import { Input, Textarea } from '../components/ui/Input'
 import {
   Select,
   SelectContent,
@@ -13,8 +12,12 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
+import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
+import { useSessionStore } from '../store'
+import { useSettingsStore } from '../store'
+import { useToastStore } from '../store'
+import { ipc } from '@renderer/lib/ipc'
 import { useT } from '../i18n'
-import { useSessionStore, useSettingsStore, useToastStore } from '../store'
 
 const MIN_PAGE_COUNT = 1
 const MAX_PAGE_COUNT = 40
@@ -237,9 +240,9 @@ export function HomePage(): ReactElement {
     try {
       const result = await ipc.parseDocumentPlan({
         files: payloadFiles,
-        topic: '',
+        topic: topic.trim(),
         pageCount: safePageCount,
-        existingBrief: ''
+        existingBrief: brief.trim()
       })
       setTopic(result.topic)
       setPageCount(String(result.pageCount))
@@ -425,7 +428,7 @@ export function HomePage(): ReactElement {
           <input
             ref={documentInputRef}
             type="file"
-            accept=".md,.txt,.text,.csv,.docx,.pdf,.html,.htm,.ppt,.pptx"
+            accept=".md,.txt,.text,.csv,.docx"
             multiple={false}
             className="hidden"
             onChange={(event) => void handleDocumentFilesSelected(event.target.files)}

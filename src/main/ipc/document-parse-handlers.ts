@@ -1,29 +1,28 @@
-import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
-import { resolveModelTimeoutMs } from '@shared/model-timeout'
-import { FilesystemBackend, createDeepAgent } from 'deepagents'
 import { ipcMain } from 'electron'
-import log from 'electron-log/main.js'
 import fs from 'fs'
 import { createRequire } from 'module'
-import { nanoid } from 'nanoid'
 import path from 'path'
+import log from 'electron-log/main.js'
+import { nanoid } from 'nanoid'
 import { resolveModel } from '../agent'
-import type { IpcContext } from './context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
+import { FilesystemBackend, createDeepAgent } from 'deepagents'
 import { extractJsonBlock, extractModelText } from './utils'
+import type { IpcContext } from './context'
+import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
+import { resolveModelTimeoutMs } from '@shared/model-timeout'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string
   workspacePath: string
   virtualPath: string
-  lineCount: number
 }
 
 const MAX_DOCUMENT_FILES = 1
 const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
 const MAX_PAGE_COUNT = 40
 
-const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx', '.pdf', '.html', '.htm', '.ppt', '.pptx'])
+const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx'])
 const NULL_CHAR_PATTERN = new RegExp(String.fromCharCode(0), 'g')
 const CJK_PATTERN = /[\u3400-\u9fff]/
 const LATIN_WORD_PATTERN = /\b[A-Za-z][A-Za-z'-]{2,}\b/g
@@ -43,55 +42,13 @@ const TurndownService = require('turndown') as new (options?: Record<string, unk
 }
 const { gfm } = require('@joplin/turndown-plugin-gfm') as { gfm: unknown }
 
-const { parse } = require('pptxtojson/dist/index.js') as {
-  parse: (buffer: ArrayBuffer, options?: Record<string, unknown>) => Promise<{ slides: Array<{ elements: Array<unknown> }> }>
-}
-
 const stripControlChars = (value: string): string =>
   value.replace(NULL_CHAR_PATTERN, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
-const cleanParseErrors = (value: string): string => {
-  return value
-    .replace(/&nbsp;/g, ' ')
-    .replace(/Error: Line offset \d+ exceeds file length \(\d+ lines\)/g, '')
-    .replace(/The provided document does not contain enough content\./g, '')
-    .replace(/Thedocumentdoesnotcontainenoughcontent\./g, '')
-    .replace(/The document does not contain enough information\./g, '')
-    .replace(/Please provide a document with sufficient information to proceed\.?/g, '')
-    .replace(/Pleaseprovideadocumentwithsufficientinformationtoproceed\.?/g, '')
-    .replace(/I'm sorry, but I was unable to read the document\./g, '')
-    .replace(/ImsorrybutIwasunabletoreadthedocument\./g, '')
-    .replace(/Please provide the topic and specify the language if necessary\.?/g, '')
-    .replace(/Pleaseprovidethetopicandspecifythelanguageifnecessary\.?/g, '')
-    .replace(/I'm sorry, but I couldn't retrieve the content of the document\./g, '')
-    .replace(/ImsorrybutIcouldn'tretrievethecontentofthedocument\./g, '')
-    .replace(/Please make sure the document is accessible and try again\.?/g, '')
-    .replace(/Pleasemakesurethedocumentisaccessibleandtryagain\.?/g, '')
-    .replace(/to analyze and produce the required JSON object\.?/g, '')
-    .replace(/toanalyzeandproducetherequiredJSONobject\.?/g, '')
-    .replace(/I'm sorry, but I couldn't read the entire document due to technical limitations\./g, '')
-    .replace(/ImsorrybutIcouldn'treadtheentiredocumentduetotechnicallimitations\./g, '')
-    .replace(/I'm sorry, but I couldn't read the entire document to determine the dominant language and infer the topic\.?/g, '')
-    .replace(/ImsorrybutIcouldn'treadtheentiredocumenttodeterminethedominantlanguageandinferthetopic\.?/g, '')
-    .replace(/Please provide the topic explicitly or ensure that the document is accessible for reading\.?/g, '')
-    .replace(/Pleaseprovidethetopicexplicitlyorensurethatthedocumentisaccessibleforreading\.?/g, '')
-    .replace(/I'm sorry, but I am unable to determine the dominant language of the source document based on the provided text snippets\.?/g, '')
-    .replace(/ImsorrybutIamunabletodeterminethedominantlanguageofthesourcedocumentbasedontheprovidedtextsnippets\.?/g, '')
-    .replace(/To proceed, I need the user to explicitly specify the language or provide more text from the document\.?/g, '')
-    .replace(/Toproceed,Ineedtheusertoexplicitlyspecifythelanguageorprovidemoretextfromthedocument\.?/g, '')
-    .replace(/The provided document does not contain enough information to determine the dominant language or infer a topic\.?/g, '')
-    .replace(/Theprovideddocumentdoesnotcontainenoughinformationtodeterminethedominantlanguageorinferatopic\.?/g, '')
-    .replace(/Additionally, the document structure does not align with the required format for generating the briefText\.?/g, '')
-    .replace(/Additionally,thedocumentstructuredoesnotalignwiththerequiredformatforgeneratingthebriefText\.?/g, '')
-    .replace(/Therefore, it is not possible to produce the fixed structure needed by the PPT creation form based on the given instructions\.?/g, '')
-    .replace(/Therefore,itisnotpossibletoproducethefixedstructureneededbythePPTcreationformbasedonthegiveninstructions\.?/g, '')
-    .trim()
-}
-
 const compactText = (value: string): string =>
-  stripControlChars(cleanParseErrors(value))
+  stripControlChars(value)
     .split('\n')
-    .map((line) => line.replace(/^[ \t]*\d+[ \t]+/, '').replace(/[ \t]+/g, ' ').trim())
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
     .join('\n')
     .replace(/\n{4,}/g, '\n\n\n')
     .trim()
@@ -498,136 +455,6 @@ const convertDocxToMarkdown = async (filePath: string): Promise<string> => {
   )
 }
 
-const { spawn } = require('child_process')
-const iconv = require('iconv-lite')
-
-const convertPdfToMarkdown = async (filePath: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const process = spawn('markitdown', [filePath], { encoding: 'buffer' })
-    let stdout = Buffer.alloc(0)
-    let stderr = Buffer.alloc(0)
-
-    process.stdout.on('data', (data: Buffer) => {
-      stdout = Buffer.concat([stdout, data])
-    })
-
-    process.stderr.on('data', (data: Buffer) => {
-      stderr = Buffer.concat([stderr, data])
-    })
-
-    process.on('close', (code: number) => {
-      let stderrStr = ''
-      if (stderr.length > 0) {
-        try {
-          stderrStr = iconv.decode(stderr, 'utf-8')
-        } catch {
-          try {
-            stderrStr = iconv.decode(stderr, 'gbk')
-          } catch {
-            stderrStr = stderr.toString('utf-8', 'replace')
-          }
-        }
-      }
-
-      if (code !== 0) {
-        return reject(new Error(`PDF解析失败: ${stderrStr || `markitdown exited with code ${code}`}`))
-      }
-
-      if (stderrStr && stderrStr.includes('Error:')) {
-        log.warn('[convertPdfToMarkdown] markitdown produced errors in stderr', { stderr: stderrStr })
-      } else if (stderrStr) {
-        log.warn('[convertPdfToMarkdown] markitdown produced warnings', { stderr: stderrStr })
-      }
-
-      let result: string
-      try {
-        result = iconv.decode(stdout, 'utf-8')
-        if (/[\uFFFD]/.test(result)) {
-          result = iconv.decode(stdout, 'gbk')
-        }
-      } catch {
-        try {
-          result = iconv.decode(stdout, 'gbk')
-        } catch {
-          result = stdout.toString('utf-8', 'replace')
-        }
-      }
-
-      result = result.trim()
-
-      if (!result) {
-        return reject(new Error('PDF解析结果为空'))
-      }
-
-      resolve(compactText(result))
-    })
-
-    process.on('error', (error: Error) => {
-      reject(new Error(`执行 markitdown 失败: ${error.message}`))
-    })
-  })
-}
-
-const convertHtmlToMarkdown = async (filePath: string): Promise<string> => {
-  const html = await fs.promises.readFile(filePath, 'utf-8')
-  const turndown = new TurndownService({
-    headingStyle: 'atx',
-    bulletListMarker: '-',
-    codeBlockStyle: 'fenced'
-  })
-  turndown.use(gfm)
-  return compactText(
-    stripMarkdownDataImages(turndown.turndown(stripInlineImagesFromHtml(html)))
-  )
-}
-
-const convertPptToMarkdown = async (filePath: string): Promise<string> => {
-  const buffer = await fs.promises.readFile(filePath)
-  const arrayBuffer =
-    buffer.byteOffset === 0 && buffer.byteLength === buffer.buffer.byteLength
-      ? (buffer.buffer as ArrayBuffer)
-      : (buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer)
-  const parsed = await parse(arrayBuffer, {
-    imageMode: 'none',
-    videoMode: 'none',
-    audioMode: 'none'
-  })
-  const slides = parsed.slides || []
-  const texts: string[] = []
-  for (const slide of slides) {
-    const slideTexts: string[] = []
-    const extractText = (elements: Array<unknown>): void => {
-      for (const element of elements) {
-        const record = element as Record<string, unknown>
-        if (record.type === 'group' && Array.isArray(record.elements)) {
-          extractText(record.elements)
-          continue
-        }
-        if (record.type === 'text' || record.type === 'shape') {
-          const content = String(record.content || '')
-          const cleanContent = content
-            .replace(/<[^>]*>/g, '')
-            .replace(/\u00a0/g, ' ')
-            .trim()
-          if (cleanContent) {
-            slideTexts.push(cleanContent)
-          }
-        }
-      }
-    }
-    if (Array.isArray(slide.elements)) {
-      extractText(slide.elements)
-    }
-    if (Array.isArray(slide.layoutElements)) {
-      extractText(slide.layoutElements)
-    }
-    if (slideTexts.length > 0) {
-      texts.push(`## 幻灯片 ${texts.length + 1}\n\n${slideTexts.join('\n\n')}`)
-    }
-  }
-  return compactText(texts.join('\n\n'))
-}
-
 const toSafeFileName = (value: string): string =>
   value
     .replace(/[\\/:"*?<>|]+/g, '-')
@@ -648,7 +475,7 @@ const prepareSourceFile = async (
 
   const ext = path.extname(filePath).toLowerCase()
   if (!SUPPORTED_EXTENSIONS.has(ext)) {
-    throw new Error('暂只支持 md、txt、csv、docx、pdf、html、ppt、pptx 文档')
+    throw new Error('暂只支持 md、txt、csv、docx 文档')
   }
   log.info('[documents:parsePlan] read source file', {
     fileName: path.basename(filePath),
@@ -660,28 +487,16 @@ const prepareSourceFile = async (
     typeof file.name === 'string' && file.name.trim().length > 0
       ? file.name.trim()
       : path.basename(filePath)
-  const needsConversion = ['.docx', '.pdf', '.html', '.htm', '.ppt', '.pptx'].includes(ext)
   const type: PreparedSourceFile['type'] =
-    ext === '.docx'
-      ? 'docx'
-      : ext === '.pdf'
-        ? 'pdf'
-        : ext === '.html' || ext === '.htm'
-          ? 'html'
-          : ext === '.ppt' || ext === '.pptx'
-            ? 'ppt'
-            : ext === '.md'
-              ? 'markdown'
-              : ext === '.csv'
-                ? 'csv'
-                : 'text'
+    ext === '.docx' ? 'docx' : ext === '.md' ? 'markdown' : ext === '.csv' ? 'csv' : 'text'
 
   const safeBaseName = toSafeFileName(path.basename(name, ext))
   const stamp = Date.now()
   const uniqueId = nanoid(8)
-  const workspaceName = needsConversion
-    ? `${stamp}-${uniqueId}-${safeBaseName || 'source'}.md`
-    : `${stamp}-${uniqueId}-${safeBaseName}${ext}`
+  const workspaceName =
+    ext === '.docx'
+      ? `${stamp}-${uniqueId}-${safeBaseName || 'source'}.md`
+      : `${stamp}-${uniqueId}-${safeBaseName}${ext}`
   const workspacePath = path.join(workspaceDir, workspaceName)
   let characterCount = stat.size
 
@@ -705,66 +520,6 @@ const prepareSourceFile = async (
       workspaceName,
       characterCount
     })
-  } else if (ext === '.pdf') {
-    const markdown = await convertPdfToMarkdown(filePath)
-    if (!markdown) throw new Error(`${name} 未解析出可用文本`)
-    await fs.promises.writeFile(
-      workspacePath,
-      [
-        `# ${path.basename(name, ext)}`,
-        '',
-        '> Converted from PDF for agent reading.',
-        '',
-        markdown
-      ].join('\n'),
-      'utf-8'
-    )
-    characterCount = markdown.length
-    log.info('[documents:parsePlan] pdf converted for reading', {
-      originalName: name,
-      workspaceName,
-      characterCount
-    })
-  } else if (ext === '.html' || ext === '.htm') {
-    const markdown = await convertHtmlToMarkdown(filePath)
-    if (!markdown) throw new Error(`${name} 未解析出可用文本`)
-    await fs.promises.writeFile(
-      workspacePath,
-      [
-        `# ${path.basename(name, ext)}`,
-        '',
-        '> Converted from HTML for agent reading. Inline images were omitted.',
-        '',
-        markdown
-      ].join('\n'),
-      'utf-8'
-    )
-    characterCount = markdown.length
-    log.info('[documents:parsePlan] html converted for reading', {
-      originalName: name,
-      workspaceName,
-      characterCount
-    })
-  } else if (ext === '.ppt' || ext === '.pptx') {
-    const markdown = await convertPptToMarkdown(filePath)
-    if (!markdown) throw new Error(`${name} 未解析出可用文本`)
-    await fs.promises.writeFile(
-      workspacePath,
-      [
-        `# ${path.basename(name, ext)}`,
-        '',
-        '> Converted from PowerPoint for agent reading.',
-        '',
-        markdown
-      ].join('\n'),
-      'utf-8'
-    )
-    characterCount = markdown.length
-    log.info('[documents:parsePlan] ppt/pptx converted for reading', {
-      originalName: name,
-      workspaceName,
-      characterCount
-    })
   } else {
     if (path.resolve(filePath) !== path.resolve(workspacePath)) {
       await fs.promises.copyFile(filePath, workspacePath)
@@ -776,8 +531,6 @@ const prepareSourceFile = async (
     })
   }
 
-  const lineCount = (await fs.promises.readFile(workspacePath, 'utf-8').catch(() => '')).split('\n').length
-
   return {
     name,
     type,
@@ -785,8 +538,7 @@ const prepareSourceFile = async (
     path: workspacePath,
     originalPath: filePath,
     workspacePath,
-    virtualPath: `/${workspaceName}`,
-    lineCount
+    virtualPath: `/${workspaceName}`
   }
 }
 
@@ -923,10 +675,8 @@ const buildDocumentPlanPrompt = (args: {
     '',
     'Reading requirements:',
     `- Document path: ${args.file.virtualPath}`,
-    `- The document has ${args.file.lineCount} lines in total. When calling read_file, the offset parameter must be less than ${args.file.lineCount}. Do NOT use offsets that exceed this line count.`,
     '- You must call read_file to read the document before producing the result.',
     '- If the file is long, call read_file multiple times in sections and summarize progressively. Do not only read the beginning.',
-    '- If the document is short (fewer than 100 lines), a single read_file call from the beginning is sufficient; do NOT call read_file with an offset.',
     '- If the document is a Word file, it has already been converted to Markdown for reading.',
     args.retryHint
       ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
