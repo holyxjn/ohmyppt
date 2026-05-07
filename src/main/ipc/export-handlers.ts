@@ -1,14 +1,16 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import log from 'electron-log/main.js'
-import path from 'path'
 import fs from 'fs'
+import path from 'path'
 import { PDFDocument } from 'pdf-lib'
-import type { IpcContext } from './context'
 import { writeHtmlToPptx, type HtmlToPptxSlide } from '../utils/html-to-pptx'
 import { extractHtmlPageToPptxSlide } from '../utils/html-to-pptx-renderer'
+import type { IpcContext } from './context'
 
 type ExportPayload = {
   sessionId?: unknown
+  exportImages?: boolean
+  exportShapes?: boolean
 }
 
 const parseSessionId = (payload: unknown): string => {
@@ -211,6 +213,12 @@ export function registerExportHandlers(ctx: IpcContext): void {
       throw new Error('sessionId 不能为空')
     }
 
+    const exportOptions = payload && typeof payload === 'object'
+      ? (payload as ExportPayload)
+      : {}
+    const exportImages = exportOptions.exportImages !== false
+    const exportShapes = exportOptions.exportShapes !== false
+
     const { session, pages, projectDir } = await resolveSessionPageFiles(sessionId)
     const sessionTitle =
       typeof session.title === 'string' && session.title.trim().length > 0
@@ -232,6 +240,9 @@ export function registerExportHandlers(ctx: IpcContext): void {
     }
 
     const warnings: string[] = []
+    let pagesWithoutText = 0
+    let pagesWithoutImages = 0
+    let pagesWithoutShapes = 0
 
     try {
       const slides: HtmlToPptxSlide[] = []
@@ -239,19 +250,39 @@ export function registerExportHandlers(ctx: IpcContext): void {
         log.info('[export:pptx] extract page', {
           sessionId,
           pageId: page.pageId,
-          htmlPath: page.htmlPath
+          htmlPath: page.htmlPath,
+          exportImages,
+          exportShapes
         })
         const extracted = await extractHtmlPageToPptxSlide({
           page,
           timeoutMs: EXPORT_PAGE_READY_TIMEOUT_MS,
           settleMs: EXPORT_CAPTURE_SETTLE_MS,
-          waitForPrintReadySignal
+          waitForPrintReadySignal,
+          exportImages,
+          exportShapes
         })
         slides.push(extracted.slide)
         if (extracted.warning) warnings.push(extracted.warning)
         if (extracted.slide.texts.length === 0) {
-          warnings.push(`页面 ${page.pageId} 未提取到可编辑文本。`)
+          pagesWithoutText += 1
         }
+        if (exportImages && extracted.slide.images.length === 0) {
+          pagesWithoutImages += 1
+        }
+        if (exportShapes && extracted.slide.shapes.length === 0) {
+          pagesWithoutShapes += 1
+        }
+      }
+
+      if (pagesWithoutText > 0) {
+        warnings.push(`${pages.length} 页中有 ${pagesWithoutText} 页未提取到可编辑文本。`)
+      }
+      if (exportImages && pagesWithoutImages > 0 && pagesWithoutImages < pages.length) {
+        warnings.push(`${pages.length} 页中有 ${pagesWithoutImages} 页未检测到图片。`)
+      }
+      if (exportShapes && pagesWithoutShapes > 0 && pagesWithoutShapes < pages.length) {
+        warnings.push(`${pages.length} 页中有 ${pagesWithoutShapes} 页未检测到形状。`)
       }
 
       await writeHtmlToPptx(saveResult.filePath, {

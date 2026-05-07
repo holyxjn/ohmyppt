@@ -526,7 +526,7 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleExportPptx = async (): Promise<void> => {
+  const handleExportPptx = async (options?: { exportImages?: boolean; exportShapes?: boolean }): Promise<void> => {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPptx) return
     detailState.setIsExportingPptx(true)
@@ -535,7 +535,7 @@ export function SessionDetailPage(): React.JSX.Element {
       duration: 8000
     })
     try {
-      const result = await ipc.exportPptx(id)
+      const result = await ipc.exportPptx(id, options)
       if (result.cancelled) {
         toastInfo(t('sessionDetail.exportCancelled'))
         return
