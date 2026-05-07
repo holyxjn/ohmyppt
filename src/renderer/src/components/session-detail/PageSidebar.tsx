@@ -27,13 +27,24 @@ export const PageSidebar = memo(function PageSidebar({
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
 
-  // Scroll to bottom when add-page completes (isAddingPage: true → false)
+  // Keep selected thumbnail in view when add-page completes (isAddingPage: true -> false).
+  // Fallback to bottom if selected thumbnail is not found yet.
   useEffect(() => {
     if (wasAddingRef.current && !isAddingPage && viewportRef.current) {
-      viewportRef.current.scrollTop = viewportRef.current.scrollHeight
+      const viewport = viewportRef.current
+      const selectedNode =
+        selectedPageNumber != null
+          ? viewport.querySelector<HTMLElement>(`[data-page-number="${selectedPageNumber}"]`)
+          : null
+
+      if (selectedNode) {
+        selectedNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      } else {
+        viewport.scrollTop = viewport.scrollHeight
+      }
     }
     wasAddingRef.current = isAddingPage
-  }, [isAddingPage])
+  }, [isAddingPage, selectedPageNumber, pages.length])
 
   return (
     <aside className="flex min-h-0 w-[220px] shrink-0 flex-col bg-[#f5f1e8] px-2.5 pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)]">
@@ -64,13 +75,14 @@ export const PageSidebar = memo(function PageSidebar({
         ) : (
           <div className="space-y-2.5">
             {pages.map((page) => (
-              <PageThumbnail
-                key={page.pageId}
-                page={page}
-                isSelected={selectedPageNumber === page.pageNumber}
-                previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
-                onSelect={disabled ? undefined : setSelectedPageNumber}
-              />
+              <div key={page.pageId} data-page-number={page.pageNumber}>
+                <PageThumbnail
+                  page={page}
+                  isSelected={selectedPageNumber === page.pageNumber}
+                  previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
+                  onSelect={disabled ? undefined : setSelectedPageNumber}
+                />
+              </div>
             ))}
           </div>
         )}

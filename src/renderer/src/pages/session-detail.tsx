@@ -100,11 +100,26 @@ export function SessionDetailPage(): React.JSX.Element {
     [currentPages]
   )
 
-  const normalizedOrderedPages = useMemo(
-    () =>
-      orderedPages.map((page) =>
+  const normalizePagesForSelection = (
+    pages: Array<{
+      pageNumber: number
+      title: string
+      html: string
+      htmlPath?: string
+      pageId?: string
+      sourceUrl?: string
+      status?: string
+      error?: string | null
+    }>
+  ): SessionPreviewPage[] =>
+    [...pages]
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+      .map((page) =>
         page.pageId ? (page as SessionPreviewPage) : { ...page, pageId: `page-${page.pageNumber}` }
-      ),
+      )
+
+  const normalizedOrderedPages = useMemo(
+    () => normalizePagesForSelection(orderedPages),
     [orderedPages]
   )
 
@@ -460,11 +475,12 @@ export function SessionDetailPage(): React.JSX.Element {
   const handleAddPage = async (): Promise<void> => {
     if (!id || !addPageInput.trim()) return
     const description = addPageInput.trim()
+    const beforePageIds = new Set(normalizedOrderedPages.map((page) => page.pageId))
+    const beforePageCount = normalizedOrderedPages.length
     setAddPageDialogOpen(false)
     setAddPageInput('')
     setIsAddingPage(true)
     const insertAfter = selectedPageNumber ?? normalizedOrderedPages.length
-    const targetPageNumber = insertAfter + 1
     useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
 
     try {
@@ -473,14 +489,25 @@ export function SessionDetailPage(): React.JSX.Element {
         userMessage: description,
         insertAfterPageNumber: insertAfter
       })
-      // IPC resolved — backend generation complete, all events processed.
-      // Reload session to get the full renumbered page list, then select the new page.
-      await loadSession(id)
-      // Sync pages to generateStore immediately so auto-select effect sees the new list
-      useGenerateStore.getState().setPages(
-        useSessionStore.getState().currentGeneratedPages
-      )
-      setSelectedPageNumber(targetPageNumber)
+      // addPage 返回后，新增页可能尚未写回 session，短轮询确保拿到新页再选中。
+      let latestGeneratedPages = useSessionStore.getState().currentGeneratedPages
+      let latestPages = normalizePagesForSelection(latestGeneratedPages)
+      let addedPage = latestPages.find((page) => !beforePageIds.has(page.pageId))
+
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await loadSession(id)
+        latestGeneratedPages = useSessionStore.getState().currentGeneratedPages
+        latestPages = normalizePagesForSelection(latestGeneratedPages)
+        addedPage = latestPages.find((page) => !beforePageIds.has(page.pageId))
+        if (addedPage || latestPages.length > beforePageCount) break
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 300))
+      }
+
+      useGenerateStore.getState().setPages(latestGeneratedPages)
+      const fallbackPage =
+        latestPages[Math.min(insertAfter, Math.max(latestPages.length - 1, 0))] ||
+        latestPages[latestPages.length - 1]
+      setSelectedPageNumber((addedPage || fallbackPage)?.pageNumber ?? null)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
       toastError(message)
