@@ -16,13 +16,13 @@ import {
   SESSION_ASSET_DIR_NAMES,
   SESSION_ASSET_FILE_NAMES,
   type DeckPageFile
-} from './template'
+} from './engine/template'
 import { FREEZE_PAGE_FOR_EXPORT_SCRIPT } from '../utils/html-to-pptx-browser-scripts'
 
 export type SessionRunState = {
   sessionId: string
   runId: string
-  mode: 'generate' | 'edit' | 'retry'
+  mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
   previousSessionStatus?: string
   status: 'running' | 'completed' | 'failed'
   progress: number
@@ -70,7 +70,7 @@ export interface IpcContext {
   beginSessionRunState: (args: {
     sessionId: string
     runId: string
-    mode: 'generate' | 'edit' | 'retry'
+    mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
     totalPages: number
     previousSessionStatus?: string
   }) => void
@@ -179,11 +179,10 @@ export function createIpcContext(
     if (!/id=["']pages-data["']/i.test(html)) {
       errors.push('index.html 缺少 pages-data 页面数据')
     }
-    if (!/const\s+pages\s*=\s*JSON\.parse/i.test(html)) {
+    const hasInlineJs = /const\s+pages\s*=\s*JSON\.parse/i.test(html) && /function\s+applyPage\s*\(/i.test(html)
+    const hasExternalRuntime = /src=["'][^"']*index-runtime\.js["']/i.test(html)
+    if (!hasInlineJs && !hasExternalRuntime) {
       errors.push('index.html 缺少页面数据解析逻辑')
-    }
-    if (!/function\s+applyPage\s*\(/i.test(html)) {
-      errors.push('index.html 缺少页面切换逻辑')
     }
     return errors
   }
@@ -379,7 +378,7 @@ export function createIpcContext(
   const beginSessionRunState = (args: {
     sessionId: string
     runId: string
-    mode: 'generate' | 'edit' | 'retry'
+    mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
     totalPages: number
     previousSessionStatus?: string
   }): void => {

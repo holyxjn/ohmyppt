@@ -7,8 +7,8 @@ import {
   updateStyleSkill,
   hasStyleSkill,
   deleteStyleSkill
-} from '../utils/style-skills'
-import type { IpcContext } from './context'
+} from '../../utils/style-skills'
+import type { IpcContext } from '../context'
 
 type StylePayload = {
   id: string

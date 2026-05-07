@@ -420,6 +420,15 @@ export const en = {
     textSaved: 'Text saved',
     textSaveFailed: 'Failed to save text',
     textSaveEmpty: 'Text cannot be empty',
-    inspectActiveToast: 'AI mode active — select elements on the page for AI to modify'
+    inspectActiveToast: 'AI mode active — select elements on the page for AI to modify',
+    addPage: 'Add Page',
+    addPageDescription: 'Describe the page you want to add',
+    addPageGenerating: 'Generating new page...',
+    addPageGenerate: 'Generate',
+    addPageCancel: 'Cancel',
+    addPageFailed: 'Failed to add page',
+    retryFailedPage: 'Regenerate this page',
+    retryPageGenerating: 'Regenerating page...',
+    retryPageFailed: 'Failed to regenerate page'
   }
 } satisfies DeepStringShape<typeof zh>

@@ -10,4 +10,4 @@ export {
   buildPlanningUserPrompt,
   buildEditUserPrompt,
 } from "./runtime-user";
-export { PAGE_SEMANTIC_STRUCTURE, resolveStylePrompt } from "./shared";
+export { PAGE_SEMANTIC_STRUCTURE, CONTENT_LANGUAGE_RULES, resolveStylePrompt } from "./shared";

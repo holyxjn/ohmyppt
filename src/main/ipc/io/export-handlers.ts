@@ -3,9 +3,9 @@ import log from 'electron-log/main.js'
 import fs from 'fs'
 import path from 'path'
 import { PDFDocument } from 'pdf-lib'
-import { writeHtmlToPptx, type HtmlToPptxSlide } from '../utils/html-to-pptx'
-import { extractHtmlPageToPptxSlide } from '../utils/html-to-pptx-renderer'
-import type { IpcContext } from './context'
+import type { IpcContext } from '../context'
+import { writeHtmlToPptx, type HtmlToPptxSlide } from '../../utils/html-to-pptx'
+import { extractHtmlPageToPptxSlide } from '../../utils/html-to-pptx-renderer'
 
 type ExportPayload = {
   sessionId?: unknown
@@ -267,10 +267,10 @@ export function registerExportHandlers(ctx: IpcContext): void {
         if (extracted.slide.texts.length === 0) {
           pagesWithoutText += 1
         }
-        if (exportImages && extracted.slide.images.length === 0) {
+        if (exportImages && (extracted.slide.images?.length ?? 0) === 0) {
           pagesWithoutImages += 1
         }
-        if (exportShapes && extracted.slide.shapes.length === 0) {
+        if (exportShapes && (extracted.slide.shapes?.length ?? 0) === 0) {
           pagesWithoutShapes += 1
         }
       }

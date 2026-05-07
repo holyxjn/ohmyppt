@@ -1,21 +1,94 @@
 import type { IpcContext } from '../context'
-import type { GenerationContext, EmitAssistantFn } from './types'
-import { uiText } from './helpers'
-import { finalizeGenerationSuccess } from './finalize'
+import type { DeckContext, EmitAssistantFn } from './types'
+import { uiText } from './generation-utils'
+import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import { type LayoutIntent } from '@shared/layout-intent'
 import { isPlaceholderPageHtml, validatePersistedPageHtml } from '../../tools/html-utils'
-import { buildProjectIndexHtml, type DeckPageFile } from '../template'
-import { buildDesignContractWithLLM, planDeckWithLLM, runDeepAgentDeckGeneration } from '../generate'
+import { buildProjectIndexHtml, type DeckPageFile } from '../engine/template'
+import { buildDesignContractWithLLM, planDeckWithLLM, runDeepAgentDeckGeneration } from '../engine/generate'
 import type { GeneratedPagePayload } from '@shared/generation'
 import { sleep } from '../utils'
+import {
+  buildOutlineTitles,
+  buildTotalPages,
+  normalizeGeneratePayload,
+  resolveCommonContext,
+  resolveSourceDocuments
+} from './context'
+import { derivePageNumber } from './metadata-parser'
+
+export async function resolveDeckContext(
+  ctx: IpcContext,
+  _event: Electron.IpcMainInvokeEvent,
+  payload: unknown
+): Promise<DeckContext> {
+  const input = normalizeGeneratePayload(payload)
+  const { db, formatImagePathsForPrompt } = ctx
+  if (!input.sessionId) throw new Error('sessionId 不能为空')
+
+  const common = await resolveCommonContext(ctx, input.sessionId)
+  const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt([])}`
+  const userProvidedOutlineTitles = buildOutlineTitles(input.rawUserMessage)
+  const totalPages = buildTotalPages(common.sessionRecord)
+  const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
+    sessionId: input.sessionId,
+    projectDir: common.projectDir,
+    rawDocPaths: input.rawDocPaths,
+    mode: 'generate',
+    sessionRecord: common.sessionRecord
+  })
+
+  await db.addMessage(input.sessionId, {
+    role: 'user',
+    content: input.rawUserMessage,
+    type: 'text',
+    chat_scope: 'main',
+    image_paths: []
+  })
+  await db.updateSessionStatus(input.sessionId, 'active')
+
+  return {
+    sessionId: input.sessionId,
+    userMessage,
+    requestedType: input.requestedType,
+    effectiveMode: 'generate',
+    selectedPageId: undefined,
+    htmlPath: undefined,
+    selector: undefined,
+    elementTag: undefined,
+    elementText: undefined,
+    session: common.session,
+    sessionRecord: common.sessionRecord,
+    previousSessionStatus: common.previousSessionStatus,
+    entry: common.entry,
+    runId: common.runId,
+    styleId: common.styleId,
+    styleSkill: common.styleSkill,
+    userProvidedOutlineTitles,
+    totalPages,
+    provider: common.provider,
+    apiKey: common.apiKey,
+    model: common.model,
+    modelTimeouts: common.modelTimeouts,
+    providerBaseUrl: common.providerBaseUrl,
+    projectId: common.projectId,
+    messageScope: 'main',
+    messagePageId: undefined,
+    imagePaths: [],
+    sourceDocumentPaths,
+    topic: common.topic,
+    deckTitle: common.deckTitle,
+    appLocale: common.appLocale
+  }
+}
 
 export async function executeDeckGeneration(
   ctx: IpcContext,
   emitAssistant: EmitAssistantFn,
-  context: GenerationContext
+  context: DeckContext
 ): Promise<void> {
   const {
     db,
@@ -289,7 +362,7 @@ export async function executeDeckGeneration(
     })
     persistedFailedPagesById.delete(page.pageId)
     persistedGeneratedPagesById.set(page.pageId, {
-      pageNumber: page.pageNumber,
+      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
       title: page.title,
       pageId: page.pageId,
       htmlPath: page.htmlPath
@@ -570,7 +643,7 @@ export async function executeDeckGeneration(
       lastRunId: context.runId,
       entryMode: 'multi_page',
       generatedPages: pageDescriptors.map((page) => ({
-        pageNumber: page.pageNumber,
+        pageNumber: derivePageNumber(page.pageId, page.pageNumber),
         title: page.title,
         pageId: page.pageId,
         htmlPath: page.htmlPath

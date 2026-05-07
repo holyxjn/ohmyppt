@@ -54,13 +54,15 @@ export function SessionsPage(): React.JSX.Element {
   }, [fetchSessions])
 
   const sortedSessions = [...sessions].sort((a, b) => b.updated_at - a.updated_at)
-  const isFullyGenerated = (session: { status: string; metadata: string | null; page_count: number | null }): boolean => {
-    const gate = getEditorGate(session)
-    return session.status === 'completed' || (gate.generatedCount >= gate.totalCount && gate.failedCount === 0)
-  }
+  const canEnterEditor = (session: {
+    id: string
+    status: string
+    metadata: string | null
+    page_count: number | null
+  }): boolean => getEditorGate(session, 0.8).canEdit
 
   const getSessionRoute = (session: { id: string; status: string; metadata: string | null; page_count: number | null }): string =>
-    isFullyGenerated(session) ? `/sessions/${session.id}` : `/sessions/${session.id}/generating`
+    canEnterEditor(session) ? `/sessions/${session.id}` : `/sessions/${session.id}/generating`
 
   const openRenameDialog = (session: Session): void => {
     setRenameSession(session)
@@ -124,7 +126,7 @@ export function SessionsPage(): React.JSX.Element {
       ) : (
         <div className="grid gap-3">
           {sortedSessions.map((session) => {
-            const isComplete = isFullyGenerated(session)
+            const isComplete = canEnterEditor(session)
             const editorGate = getEditorGate(session)
             const hasCompletedPages = editorGate.generatedCount > 0
             const isContinuable = !isComplete && hasCompletedPages

@@ -3,8 +3,8 @@ import {
   resolveModelTimeoutMs,
   type ModelTimeoutProfile
 } from '@shared/model-timeout'
-import type { IpcContext } from './context'
-import { readAppLocale, uiText } from './locale-utils'
+import type { IpcContext } from '../context'
+import { readAppLocale, uiText } from '../config/locale-utils'
 
 export interface ActiveModelConfig {
   id: string

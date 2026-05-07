@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron'
 import path from 'path'
 import fs from 'fs'
-import { extractPagesDataFromIndex } from './template'
-import type { IpcContext } from './context'
+import { extractPagesDataFromIndex } from '../engine/template'
+import type { IpcContext } from '../context'
 
 export function registerPreviewHandlers(ctx: IpcContext): void {
   const { parsePathPayload, normalizeSessionId, assertPathInAllowedRoots } = ctx

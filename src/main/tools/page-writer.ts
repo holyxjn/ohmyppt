@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio'
 import log from 'electron-log/main.js'
 import type { SessionDeckGenerationContext } from './types'
 import { validateHtmlContent, validatePersistedPageHtml } from './html-utils'
-import { buildSessionAssetHeadTags } from '../ipc/page-assets'
+import { buildSessionAssetHeadTags } from '../ipc/engine/page-assets'
 import { normalizeCreativePageFragment } from './page-fragment-normalizer'
 
 const uiText = (locale: 'zh' | 'en' | undefined, zh: string, en: string): string =>
@@ -370,59 +370,6 @@ function syncRootBackgroundFromScaffold(html: string): string {
   }
 }
 
-function stripUnsafeHiddenStates(html: string): string {
-  try {
-    const $ = cheerio.load(html, { scriptingEnabled: false })
-    $('*').each((_, node) => {
-      const el = $(node)
-
-      const classRaw = (el.attr('class') || '').trim()
-      if (classRaw) {
-        const kept = classRaw
-          .split(/\s+/)
-          .filter(Boolean)
-          .filter((cls) => {
-            const base = cls.split(':').pop() || cls
-            return base !== 'opacity-0' && base !== 'invisible'
-          })
-        if (kept.length > 0) {
-          el.attr('class', kept.join(' '))
-        } else {
-          el.removeAttr('class')
-        }
-      }
-
-      const styleRaw = (el.attr('style') || '').trim()
-      if (styleRaw) {
-        const keptDecls = styleRaw
-          .split(';')
-          .map((decl) => decl.trim())
-          .filter(Boolean)
-          .filter((decl) => {
-            const idx = decl.indexOf(':')
-            if (idx < 0) return true
-            const key = decl.slice(0, idx).trim().toLowerCase()
-            const value = decl
-              .slice(idx + 1)
-              .trim()
-              .toLowerCase()
-            if (key === 'opacity' && /^0(?:\.0+)?$/.test(value)) return false
-            if (key === 'visibility' && value === 'hidden') return false
-            return true
-          })
-        if (keptDecls.length > 0) {
-          el.attr('style', keptDecls.join('; '))
-        } else {
-          el.removeAttr('style')
-        }
-      }
-    })
-    return $.html()
-  } catch {
-    return html
-  }
-}
-
 const CANVAS_LOCK_CLASS_PATTERNS = [
   /^(w|h|min-w|min-h|max-w|max-h)-\[(1600px|900px|100vw|100vh|100dvw|100dvh)\]$/i,
   /^(w|h|min-w|min-h|max-w|max-h)-screen$/i,
@@ -452,35 +399,6 @@ function stripCanvasInlineSizes(styleAttr: string): string {
   return kept.join('; ')
 }
 
-function stripCanvasLockStyles(html: string): string {
-  try {
-    const $ = cheerio.load(html, { scriptingEnabled: false })
-    $('[class]').each((_, node) => {
-      const classValue = ($(node).attr('class') || '').trim()
-      if (!classValue) return
-      const cleaned = stripCanvasLockClasses(classValue)
-      if (cleaned.length > 0) {
-        $(node).attr('class', cleaned)
-      } else {
-        $(node).removeAttr('class')
-      }
-    })
-    $('[style]').each((_, node) => {
-      const styleValue = ($(node).attr('style') || '').trim()
-      if (!styleValue) return
-      const cleaned = stripCanvasInlineSizes(styleValue)
-      if (cleaned.length > 0) {
-        $(node).attr('style', cleaned)
-      } else {
-        $(node).removeAttr('style')
-      }
-    })
-    return $.html()
-  } catch {
-    return html
-  }
-}
-
 const REMOTE_RUNTIME_RESOURCE_RE =
   /<(script|link)\b[^>]*(?:src|href)\s*=\s*["'](?:https?:)?\/\/[^"']+["'][^>]*>/gi
 
@@ -496,7 +414,6 @@ export function extractRemoteRuntimeResources(content: string): string[] {
   return hits
 }
 
-const CHART_FRAME_CLASS = 'ppt-chart-frame'
 const CHART_FRAME_DEFAULT_HEIGHT_CLASS = 'h-[240px]'
 
 function splitClassNames(classRaw: string): string[] {
@@ -531,63 +448,6 @@ function hasConcreteChartHeightStyle(styleRaw: string): boolean {
   return /(?:^|;)\s*(?:height|min-height)\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
     styleRaw
   )
-}
-
-function stabilizeChartCanvases(html: string): string {
-  try {
-    const $ = cheerio.load(html, { scriptingEnabled: false })
-    $('canvas').each((_, node) => {
-      const canvas = $(node)
-      const originalCanvasClasses = splitClassNames(canvas.attr('class') || '')
-      const wrapperClasses = originalCanvasClasses.filter(isMarginUtilityClass)
-      const canvasClassSet = new Set(
-        originalCanvasClasses.filter(
-          (cls) => !isChartCanvasLayoutClass(cls) && !isMarginUtilityClass(cls)
-        )
-      )
-      canvasClassSet.add('h-full')
-      canvasClassSet.add('w-full')
-      canvas.attr('class', Array.from(canvasClassSet).join(' '))
-
-      const parent = canvas.parent()
-      if (!parent.length) return
-
-      const parentClassRaw = (parent.attr('class') || '').trim()
-      const parentClassSet = new Set(parentClassRaw.split(/\s+/).filter(Boolean))
-      const parentStyle = parent.attr('style') || ''
-      const hasHeightClass = hasConcreteChartHeightClass(parentClassSet)
-      const hasHeightStyle = hasConcreteChartHeightStyle(parentStyle)
-      const parentElementChildren = parent.children()
-      const parentIsDedicatedFrame =
-        parentElementChildren.length === 1 && parentElementChildren.get(0) === canvas.get(0)
-
-      if (parentIsDedicatedFrame && (hasHeightClass || hasHeightStyle)) {
-        parentClassSet.add(CHART_FRAME_CLASS)
-        parentClassSet.add('relative')
-        parentClassSet.add('min-w-0')
-        parentClassSet.add('overflow-hidden')
-        parent.attr('class', Array.from(parentClassSet).join(' '))
-        return
-      }
-
-      const frame = $('<div></div>')
-      const frameClassSet = new Set([
-        CHART_FRAME_CLASS,
-        'relative',
-        CHART_FRAME_DEFAULT_HEIGHT_CLASS,
-        'w-full',
-        'min-w-0',
-        'overflow-hidden',
-        ...wrapperClasses
-      ])
-      frame.attr('class', Array.from(frameClassSet).join(' '))
-      canvas.before(frame)
-      frame.append(canvas)
-    })
-    return $.html()
-  } catch {
-    return html
-  }
 }
 
 function hasCustomPageAnimation(html: string): boolean {

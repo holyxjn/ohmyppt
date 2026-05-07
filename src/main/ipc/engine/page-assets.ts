@@ -6,6 +6,7 @@ export const SESSION_ASSET_FILES = {
   katex: "katex.min.js",
   katexAutoRender: "katex-auto-render.min.js",
   runtime: "ppt-runtime.js",
+  indexRuntime: "index-runtime.js",
 } as const;
 
 export const SESSION_ASSET_FILE_NAMES = Object.values(SESSION_ASSET_FILES);

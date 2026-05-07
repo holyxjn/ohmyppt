@@ -1,6 +1,7 @@
-import { memo } from 'react'
-import { Home } from 'lucide-react'
+import { memo, useEffect, useRef } from 'react'
+import { Home, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useGenerateStore, useSessionStore } from '@renderer/store'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { ScrollArea } from '../ui/ScrollArea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
@@ -10,10 +11,14 @@ import { useT } from '@renderer/i18n'
 
 export const PageSidebar = memo(function PageSidebar({
   pages,
-  disabled = false
+  disabled = false,
+  onAddPage,
+  onRetryFailedPage
 }: {
   pages: SessionPreviewPage[]
   disabled?: boolean
+  onAddPage?: () => void
+  onRetryFailedPage?: (page: SessionPreviewPage) => void
 }): React.JSX.Element {
   const navigate = useNavigate()
   const t = useT()
@@ -21,6 +26,36 @@ export const PageSidebar = memo(function PageSidebar({
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const thumbnailVersions = useSessionDetailUiStore((state) => state.thumbnailVersions)
   const setSelectedPageNumber = useSessionDetailUiStore((state) => state.setSelectedPageNumber)
+  const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
+  const wasAddingRef = useRef(false)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const resetSessionRuntimeState = useSessionStore((state) => state.resetRuntimeState)
+
+  // Keep selected thumbnail in view when add-page completes (isAddingPage: true -> false).
+  // Fallback to bottom if selected thumbnail is not found yet.
+  useEffect(() => {
+    if (wasAddingRef.current && !isAddingPage && viewportRef.current) {
+      const viewport = viewportRef.current
+      const selectedNode =
+        selectedPageNumber != null
+          ? viewport.querySelector<HTMLElement>(`[data-page-number="${selectedPageNumber}"]`)
+          : null
+
+      if (selectedNode) {
+        selectedNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      } else {
+        viewport.scrollTop = viewport.scrollHeight
+      }
+    }
+    wasAddingRef.current = isAddingPage
+  }, [isAddingPage, selectedPageNumber, pages.length])
+
+  const handleBackToSessions = (): void => {
+    useGenerateStore.getState().reset()
+    useSessionDetailUiStore.getState().resetForSessionChange()
+    resetSessionRuntimeState()
+    navigate('/sessions')
+  }
 
   return (
     <aside className="flex min-h-0 w-[220px] shrink-0 flex-col bg-[#f5f1e8] px-2.5 pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)]">
@@ -30,7 +65,7 @@ export const PageSidebar = memo(function PageSidebar({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={() => navigate('/sessions')}
+              onClick={handleBackToSessions}
               className="relative inline-flex h-8 w-8 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#f5f1e8]/72 text-[#5d6b4d] shadow-[0_4px_10px_rgba(93,107,77,0.08)] transition-colors hover:bg-[#d4e4c1]/78 hover:text-[#3e4a32] cursor-pointer"
               aria-label={t('sessionDetail.backToSessions')}
             >
@@ -43,7 +78,7 @@ export const PageSidebar = memo(function PageSidebar({
           {t('sessionDetail.pagesCount', { count: pages.length })}
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2" viewportRef={viewportRef}>
         {pages.length === 0 ? (
           <div className="flex min-h-[96px] items-center justify-center rounded-[1.25rem] bg-[#e8e0d0]/54 text-xs text-[#8a9a7b]">
             {t('sessionDetail.pagesEmpty')}
@@ -51,17 +86,49 @@ export const PageSidebar = memo(function PageSidebar({
         ) : (
           <div className="space-y-2.5">
             {pages.map((page) => (
-              <PageThumbnail
-                key={page.pageId}
-                page={page}
-                isSelected={selectedPageNumber === page.pageNumber}
-                previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
-                onSelect={disabled ? undefined : setSelectedPageNumber}
-              />
+              <div key={page.pageId} data-page-number={page.pageNumber}>
+                <PageThumbnail
+                  page={page}
+                  isSelected={selectedPageNumber === page.pageNumber}
+                  previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
+                  onSelect={disabled ? undefined : setSelectedPageNumber}
+                />
+                {page.status === 'failed' && onRetryFailedPage && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      setSelectedPageNumber(page.pageNumber)
+                      onRetryFailedPage(page)
+                    }}
+                    className="group mt-1 block w-full rounded-[1.1rem] bg-[#f3e4df]/85 p-1.5 text-left shadow-[0_8px_18px_rgba(142,90,83,0.08)] transition-all duration-200 hover:bg-[#f1ddd7] hover:shadow-[0_10px_22px_rgba(142,90,83,0.12)] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <div className="rounded-[0.9rem] border border-[#d7b5ae]/70 bg-[#fbf1ee] px-2.5 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#a36a63]">
+                        P{page.pageNumber}
+                      </div>
+                      <div className="mt-1 text-[11px] font-medium leading-4 text-[#93564f]">
+                        {t('sessionDetail.retryFailedPage')}
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
       </ScrollArea>
+      {onAddPage && (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onAddPage}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[1rem] border border-dashed border-[#b5c4a1]/60 bg-[#d4e4c1]/30 px-3 py-2 text-xs font-medium text-[#5d6b4d] transition-colors hover:bg-[#d4e4c1]/50 hover:text-[#3e4a32] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t('sessionDetail.addPage')}
+        </button>
+      )}
     </aside>
   )
 })

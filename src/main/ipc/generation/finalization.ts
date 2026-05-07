@@ -1,6 +1,7 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import type { GenerationContext, FinalizeGenerationArgs } from './types'
+import type { FinalizeContext, FinalizeGenerationArgs } from './types'
+import { derivePageNumber } from './metadata-parser'
 
 export async function finalizeGenerationSuccess(
   ctx: IpcContext,
@@ -12,7 +13,7 @@ export async function finalizeGenerationSuccess(
     lastRunId: context.runId,
     entryMode: 'multi_page',
     generatedPages: generatedPages.map((page) => ({
-      pageNumber: page.pageNumber,
+      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
       title: page.title,
       pageId: page.pageId,
       htmlPath: page.htmlPath
@@ -41,7 +42,7 @@ export async function finalizeGenerationSuccess(
 
 export async function finalizeGenerationFailure(
   ctx: IpcContext,
-  context: GenerationContext,
+  context: FinalizeContext,
   error: unknown
 ): Promise<void> {
   const { db, emitGenerateChunk } = ctx
@@ -58,7 +59,7 @@ export async function finalizeGenerationFailure(
   }
   await db.updateSessionStatus(
     context.sessionId,
-    (context.effectiveMode === 'edit' || context.effectiveMode === 'retry') &&
+    (context.effectiveMode === 'edit' || context.effectiveMode === 'retry' || context.effectiveMode === 'addPage' || context.effectiveMode === 'retrySinglePage') &&
       context.previousSessionStatus !== 'active'
       ? (context.previousSessionStatus as 'completed' | 'failed' | 'archived')
       : 'failed'

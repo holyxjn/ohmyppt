@@ -69,6 +69,7 @@ interface SessionStore {
   addMessage: (message: Message) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+  resetRuntimeState: () => void
 }
 
 const isSameRecentMessage = (left: Message, right: Message): boolean =>
@@ -192,4 +193,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
+  resetRuntimeState: () =>
+    set({
+      currentSession: null,
+      currentMessages: [],
+      currentGeneratedPages: [],
+      loading: false,
+      error: null
+    }),
 }))

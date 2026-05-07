@@ -24,6 +24,9 @@ interface SessionDetailUiStore {
   pendingAssets: UploadedAsset[]
   assetDragActive: boolean
   isUploadingAssets: boolean
+  addPageDialogOpen: boolean
+  isAddingPage: boolean
+  isRetryingSinglePage: boolean
 
   setInput: (input: string) => void
   setChatType: (chatType: SessionDetailChatType) => void
@@ -48,6 +51,10 @@ interface SessionDetailUiStore {
   setAssetDragActive: (active: boolean) => void
   setIsUploadingAssets: (isUploading: boolean) => void
   bumpThumbnailVersion: (pageId: string) => void
+  setAddPageDialogOpen: (open: boolean) => void
+  setIsAddingPage: (adding: boolean) => void
+  setIsRetryingSinglePage: (retrying: boolean) => void
+  finishAddPage: (selectedPageNumber?: number | null) => void
   resetForPageChange: () => void
   resetForSessionChange: () => void
 }
@@ -71,6 +78,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   pendingAssets: [],
   assetDragActive: false,
   isUploadingAssets: false,
+  addPageDialogOpen: false,
+  isAddingPage: false,
+  isRetryingSinglePage: false,
 
   setInput: (input) => set({ input }),
   setChatType: (chatType) => set({ chatType }),
@@ -120,6 +130,15 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
         [pageId]: (state.thumbnailVersions[pageId] || 0) + 1
       }
     })),
+  setAddPageDialogOpen: (addPageDialogOpen) => set({ addPageDialogOpen }),
+  setIsAddingPage: (isAddingPage) => set({ isAddingPage }),
+  setIsRetryingSinglePage: (isRetryingSinglePage) => set({ isRetryingSinglePage }),
+  finishAddPage: (selectedPageNumber) =>
+    set((state) => ({
+      isAddingPage: false,
+      selectedPageNumber:
+        typeof selectedPageNumber === 'undefined' ? state.selectedPageNumber : selectedPageNumber
+    })),
   resetForPageChange: () =>
     set({
       interactionMode: 'preview' as InteractionMode,
@@ -143,6 +162,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       pendingAssets: [],
       assetDragActive: false,
       isUploadingAssets: false,
-      thumbnailVersions: {}
+      thumbnailVersions: {},
+      addPageDialogOpen: false,
+      isAddingPage: false,
+      isRetryingSinglePage: false
     })
 }))

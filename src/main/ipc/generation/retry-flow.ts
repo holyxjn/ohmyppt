@@ -1,20 +1,80 @@
 import type { IpcContext } from '../context'
-import type { GenerationContext, EmitAssistantFn } from './types'
-import { uiText } from './helpers'
-import { finalizeGenerationSuccess } from './finalize'
+import type { EmitAssistantFn, RetryContext } from './types'
+import { uiText } from './generation-utils'
+import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata } from './session-metadata'
-import { buildDesignContractWithLLM, runDeepAgentDeckGeneration } from '../generate'
+import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
+import { buildDesignContractWithLLM, runDeepAgentDeckGeneration } from '../engine/generate'
+import {
+  buildRetryUserMessage,
+  buildTotalPages,
+  normalizeGeneratePayload,
+  resolveCommonContext,
+  resolveSourceDocuments
+} from './context'
+
+export async function resolveRetryContext(
+  ctx: IpcContext,
+  _event: Electron.IpcMainInvokeEvent,
+  payload: unknown
+): Promise<RetryContext> {
+  const input = normalizeGeneratePayload(payload)
+  if (!input.sessionId) throw new Error('sessionId 不能为空')
+
+  const common = await resolveCommonContext(ctx, input.sessionId)
+  const userMessage = buildRetryUserMessage(input.rawUserMessage)
+  const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
+    sessionId: input.sessionId,
+    projectDir: common.projectDir,
+    rawDocPaths: input.rawDocPaths,
+    mode: 'retry',
+    sessionRecord: common.sessionRecord
+  })
+
+  return {
+    sessionId: input.sessionId,
+    userMessage,
+    requestedType: 'deck',
+    effectiveMode: 'retry',
+    selectedPageId: undefined,
+    htmlPath: undefined,
+    selector: undefined,
+    elementTag: undefined,
+    elementText: undefined,
+    session: common.session,
+    sessionRecord: common.sessionRecord,
+    previousSessionStatus: common.previousSessionStatus,
+    entry: common.entry,
+    runId: common.runId,
+    styleId: common.styleId,
+    styleSkill: common.styleSkill,
+    userProvidedOutlineTitles: [],
+    totalPages: buildTotalPages(common.sessionRecord),
+    provider: common.provider,
+    apiKey: common.apiKey,
+    model: common.model,
+    modelTimeouts: common.modelTimeouts,
+    providerBaseUrl: common.providerBaseUrl,
+    projectId: common.projectId,
+    messageScope: 'main',
+    messagePageId: undefined,
+    imagePaths: [],
+    sourceDocumentPaths,
+    topic: common.topic,
+    deckTitle: common.deckTitle,
+    appLocale: common.appLocale
+  }
+}
 
 export async function executeRetryFailedPages(
   ctx: IpcContext,
   emitAssistant: EmitAssistantFn,
-  context: GenerationContext
+  context: RetryContext
 ): Promise<void> {
   const {
     db,
@@ -447,7 +507,7 @@ export async function executeRetryFailedPages(
     lastRunId: context.runId,
     entryMode: 'multi_page',
     generatedPages: mergedGeneratedPages.map((page) => ({
-      pageNumber: page.pageNumber,
+      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
       title: page.title,
       pageId: page.pageId,
       htmlPath: page.htmlPath
