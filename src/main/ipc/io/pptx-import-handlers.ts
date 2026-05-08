@@ -9,6 +9,7 @@ import { derivePageNumber } from '../generation/metadata-parser'
 import { extractStyleFromExistingHtml } from '../../utils/style-pptx-import'
 import { createStyleSkill } from '../../utils/style-skills'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { buildDesignContractWithLLM } from '../engine/generate'
 import { customAlphabet } from 'nanoid'
 
 const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
@@ -174,6 +175,20 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         })
         await db.updateSessionStyleId(sessionId, styleId)
         log.info('[pptx:import] auto style extracted', { sessionId, styleId })
+
+        // Generate design contract from the extracted styleSkill
+        const designContract = await buildDesignContractWithLLM({
+          provider: activeModel.provider,
+          apiKey: activeModel.apiKey,
+          model: activeModel.model,
+          baseUrl: activeModel.baseUrl,
+          styleId,
+          styleSkillPrompt: styleResult.styleSkill,
+          modelTimeoutMs: modelTimeouts.document,
+          totalPages: imported.pageCount
+        })
+        await db.updateSessionDesignContract(sessionId, designContract)
+        log.info('[pptx:import] design contract generated', { sessionId })
       } catch (styleError) {
         log.warn('[pptx:import] auto style extraction failed, import continues', {
           sessionId,
