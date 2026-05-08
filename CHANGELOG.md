@@ -1,6 +1,18 @@
 # 更新日志 / Changelog
 
 
+## 2026-05-08
+
+### 中文
+
+ - 新增风格提取：导入文件或 PPTX 后，自动提取配色、字体和布局风格，保存为独立的风格 Skill。
+ - 优化 PPTX 导入：导入 PPTX 后自动提取原稿视觉风格Skill保存到系统中，新增页面时自动继承原 PPTX 的配色、字体和布局。
+
+### English
+
+- Added style extraction: imported files and PPTX presentations automatically have their visual style extracted and saved as a reusable Style Skill.
+- Improved PPTX import: newly added pages now inherit the imported PPTX's original colors, typography, and layout.
+
 ## 2026-05-07
 
 ### 中文
