@@ -217,7 +217,7 @@ export const zh = {
     savedOverride: '已保存为覆盖内置风格',
     savedCustom: '自定义风格已更新',
     saveFailed: '保存失败',
-    importStyle: '导入解析',
+    importStyle: '导入文件解析',
     importing: '解析中...',
     importHint: '支持导入文件或 PPTX 提取风格：.md/.txt/.html（≤{textMaxSize}MB）、.pptx（≤{pptxMaxSize}MB）。',
     importSuccess: '导入并解析成功',

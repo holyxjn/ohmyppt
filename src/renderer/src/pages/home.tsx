@@ -107,11 +107,16 @@ export function HomePage(): ReactElement {
 
   useEffect(() => {
     ipc
-      .getStyles()
-      .then(({ categories }) => {
-        const flat = Object.values(categories).flat()
-        setStyleOptions(flat)
-        setSelectedStyleId(flat.length > 0 ? flat[0].id : '')
+      .listStyles()
+      .then(({ items }) => {
+        const sorted = [...items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || (b.createdAt || 0) - (a.createdAt || 0))
+        const options = sorted.map((item) => ({
+          id: item.id,
+          label: item.label,
+          description: item.description
+        }))
+        setStyleOptions(options)
+        setSelectedStyleId(options.length > 0 ? options[0].id : '')
       })
       .catch((err) => {
         error(t('home.styleLoadFailed'), {

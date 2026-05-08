@@ -41,13 +41,14 @@ export async function parseStylePptx(args: {
     const imported = await importPptxToEditableHtml({
       filePath: sourcePath,
       projectDir: taskDir,
-      title: path.basename(sourcePath, path.extname(sourcePath))
+      title: path.basename(sourcePath, path.extname(sourcePath)),
+      maxPages: MAX_IMPORT_PAGES
     })
 
-    const allPages = imported.pages.length > MAX_IMPORT_PAGES
-      ? imported.pages.slice(0, MAX_IMPORT_PAGES)
-      : imported.pages
-    const samplePages = selectSamplePagePaths(allPages.map((page) => `/${path.basename(page.htmlPath)}`))
+    const samplePages = selectSamplePagePaths(
+      imported.pages.map((page) => `/${path.basename(page.htmlPath)}`),
+      sourcePath
+    )
     const response = await runStylePptxImportAgent({
       provider: args.provider,
       apiKey: args.apiKey,
@@ -89,7 +90,7 @@ export async function parseStylePptx(args: {
   }
 }
 
-function selectSamplePagePaths(pagePaths: string[]): string[] {
+function selectSamplePagePaths(pagePaths: string[], filePath: string): string[] {
   if (pagePaths.length <= 4) return pagePaths
   const sorted = [...pagePaths].sort()
   const first = sorted[0]
@@ -103,19 +104,21 @@ function selectSamplePagePaths(pagePaths: string[]): string[] {
     pagePaths.length <= 10 ? 2 : pagePaths.length <= 20 ? 3 : 4
   )
 
-  const selected = new Set<string>([first, last])
-  const seedHex = crypto.createHash('sha1').update(sorted.join('|')).digest('hex').slice(0, 8)
+  const seedHex = crypto.createHash('sha1').update(filePath).digest('hex').slice(0, 8)
   let seed = Number.parseInt(seedHex, 16) || 1
   const nextRand = (): number => {
     seed = (seed * 1664525 + 1013904223) % 4294967296
     return seed / 4294967296
   }
 
-  while (selected.size < 2 + middleCount && middle.length > 0) {
-    const index = Math.floor(nextRand() * middle.length)
-    selected.add(middle[index])
+  const shuffledMiddle = [...middle]
+  for (let i = shuffledMiddle.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(nextRand() * (i + 1))
+    const tmp = shuffledMiddle[i]
+    shuffledMiddle[i] = shuffledMiddle[j]
+    shuffledMiddle[j] = tmp
   }
-  return Array.from(selected)
+  return [first, ...shuffledMiddle.slice(0, middleCount), last]
 }
 
 async function runStylePptxImportAgent(args: {
