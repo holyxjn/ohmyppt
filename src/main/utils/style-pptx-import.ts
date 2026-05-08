@@ -90,7 +90,7 @@ export async function parseStylePptx(args: {
   }
 }
 
-function selectSamplePagePaths(pagePaths: string[], filePath: string): string[] {
+export function selectSamplePagePaths(pagePaths: string[], filePath: string): string[] {
   if (pagePaths.length <= 4) return pagePaths
   const sorted = [...pagePaths].sort()
   const first = sorted[0]
@@ -186,7 +186,7 @@ async function runStylePptxImportAgent(args: {
   return latestAssistantStateText.length > messageBuffer.length ? latestAssistantStateText : messageBuffer
 }
 
-function parseStyleImportResponse(response: unknown): StyleParseResult {
+export function parseStyleImportResponse(response: unknown): StyleParseResult {
   const text = extractModelText(response) || (typeof response === 'string' ? response : JSON.stringify(response))
   const jsonText = extractJsonBlock(text).trim()
   if (!jsonText) throw new Error('LLM 返回格式异常：未找到 JSON')
@@ -218,7 +218,7 @@ function parseStyleImportResponse(response: unknown): StyleParseResult {
   }
 }
 
-async function retryFixJson(args: {
+export async function retryFixJson(args: {
   provider: string
   apiKey: string
   model: string
@@ -242,6 +242,54 @@ ${args.brokenResponse}`
     signal: AbortSignal.timeout(resolveModelTimeoutMs(args.modelTimeoutMs, 'document'))
   })
   return extractModelText(result)
+}
+
+export async function extractStyleFromExistingHtml(args: {
+  projectDir: string
+  pageHtmlPaths: string[]
+  sourceFilePath: string
+  provider: string
+  apiKey: string
+  model: string
+  baseUrl: string
+  modelTimeoutMs: number
+}): Promise<StyleParseResult> {
+  const samplePages = selectSamplePagePaths(
+    args.pageHtmlPaths.map((p) => `/${path.basename(p)}`),
+    args.sourceFilePath
+  )
+
+  const response = await runStylePptxImportAgent({
+    provider: args.provider,
+    apiKey: args.apiKey,
+    model: args.model,
+    baseUrl: args.baseUrl,
+    modelTimeoutMs: args.modelTimeoutMs,
+    workspaceDir: args.projectDir,
+    prompt: buildStylePptxImportPrompt({
+      deckRootPath: '/',
+      indexPath: '/index.html',
+      samplePagePaths: samplePages
+    })
+  })
+
+  try {
+    return parseStyleImportResponse(response)
+  } catch (parseError) {
+    const reason = parseError instanceof Error ? parseError.message : String(parseError)
+    log.info('[styles:extractFromHtml] first parse failed, retrying with fix prompt', { reason })
+
+    const fixedResponse = await retryFixJson({
+      provider: args.provider,
+      apiKey: args.apiKey,
+      model: args.model,
+      baseUrl: args.baseUrl,
+      modelTimeoutMs: args.modelTimeoutMs,
+      brokenResponse: response,
+      parseError: reason
+    })
+    return parseStyleImportResponse(fixedResponse)
+  }
 }
 
 function extractAssistantTextsFromState(data: unknown): string[] {

@@ -35,8 +35,8 @@ export const en = {
     uploadDocumentTooltip:
       'Supports txt, md, csv, and docx up to {maxSize}MB. Parsing fills in the topic, page count, and detailed brief; generation will still reference the original document content.',
     importPptx: 'Import PPTX for AI editing',
-    importingPptx: 'Importing...',
-    importPptxTooltip: 'Import a .pptx file up to {maxSize}MB and convert it into editable pages.',
+    importingPptx: 'Importing and parsing...',
+    importPptxTooltip: 'Import a .pptx file up to {maxSize}MB, convert it into editable pages, and automatically parse it into a new template style.',
     parsed: 'Parsed',
     localOnly: 'All documents stay local and are only parsed into AI-readable context.',
     topic: 'Topic',

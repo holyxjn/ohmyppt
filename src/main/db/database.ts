@@ -266,6 +266,15 @@ export class PPTDatabase {
       .run()
   }
 
+  async updateSessionStyleId(sessionId: string, styleId: string): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .update(schema.sessions)
+      .set({ styleId, updatedAt: now })
+      .where(eq(schema.sessions.id, sessionId))
+      .run()
+  }
+
   async updateSessionDesignContract(sessionId: string, designContract: unknown): Promise<void> {
     await this.db
       .update(schema.sessions)

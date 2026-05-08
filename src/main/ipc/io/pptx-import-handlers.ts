@@ -6,6 +6,12 @@ import crypto from 'crypto'
 import type { IpcContext } from '../context'
 import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
 import { derivePageNumber } from '../generation/metadata-parser'
+import { extractStyleFromExistingHtml } from '../../utils/style-pptx-import'
+import { createStyleSkill } from '../../utils/style-skills'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { customAlphabet } from 'nanoid'
+
+const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
 
 type PptxImportPayload = {
   filePath?: unknown
@@ -141,6 +147,39 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         warningCount: imported.warnings.length,
         projectDir
       })
+
+      // --- Auto style extraction (non-blocking) ---
+      try {
+        const activeModel = await resolveActiveModelConfig(ctx)
+        const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+        const styleResult = await extractStyleFromExistingHtml({
+          projectDir,
+          pageHtmlPaths: imported.pages.map((p) => path.basename(p.htmlPath)),
+          sourceFilePath: sourcePath,
+          provider: activeModel.provider,
+          apiKey: activeModel.apiKey,
+          model: activeModel.model,
+          baseUrl: activeModel.baseUrl,
+          modelTimeoutMs: modelTimeouts.document
+        })
+
+        const styleId = `style-${nanoidLower()}`
+        await createStyleSkill({
+          id: styleId,
+          label: styleResult.label,
+          description: styleResult.description,
+          category: styleResult.category,
+          aliases: styleResult.aliases,
+          prompt: styleResult.styleSkill
+        })
+        await db.updateSessionStyleId(sessionId, styleId)
+        log.info('[pptx:import] auto style extracted', { sessionId, styleId })
+      } catch (styleError) {
+        log.warn('[pptx:import] auto style extraction failed, import continues', {
+          sessionId,
+          message: styleError instanceof Error ? styleError.message : String(styleError)
+        })
+      }
 
       return {
         sessionId,
