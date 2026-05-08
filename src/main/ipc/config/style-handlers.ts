@@ -14,6 +14,7 @@ import {
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
 import { parseStyleFile } from '../../utils/style-import'
+import { parseStylePptx } from '../../utils/style-pptx-import'
 
 const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
 
@@ -143,6 +144,24 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       baseUrl: activeModel.baseUrl,
       modelTimeoutMs: modelTimeouts.document,
       workspaceDir: styleImportDir
+    })
+  })
+
+  ipcMain.handle('styles:parsePptx', async (_event, payload) => {
+    const filePath = typeof payload?.filePath === 'string' ? payload.filePath.trim() : ''
+    if (!filePath) throw new Error('文件路径为空')
+    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+    const tmpRootDir = path.join(await ctx.resolveStoragePath(), 'tmpStyle')
+    await fs.promises.mkdir(tmpRootDir, { recursive: true })
+    return await parseStylePptx({
+      filePath,
+      provider: activeModel.provider,
+      apiKey: activeModel.apiKey,
+      model: activeModel.model,
+      baseUrl: activeModel.baseUrl,
+      modelTimeoutMs: modelTimeouts.document,
+      tmpRootDir
     })
   })
 

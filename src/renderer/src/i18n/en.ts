@@ -226,7 +226,8 @@ export const en = {
     saveFailed: 'Save failed',
     importStyle: 'Import and parse',
     importing: 'Parsing...',
-    importHint: 'Local files only. Supports .md/.txt/.html, max {maxSize}MB per file.',
+    importHint:
+      'Import files or extract style from PPTX: .md/.txt/.html (≤{textMaxSize}MB), .pptx (≤{pptxMaxSize}MB).',
     importSuccess: 'Style imported and parsed',
     importFailed: 'Failed to import style',
     fileTooLargeTitle: 'File too large',

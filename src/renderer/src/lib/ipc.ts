@@ -298,6 +298,8 @@ export const ipc = {
   listStyles: () => getIpc().invoke('styles:list') as Promise<{ items: StyleListItem[] }>,
   parseStyleFile: (payload: { filePath: string }) =>
     getIpc().invoke('styles:parseFile', payload) as Promise<StyleParseResult>,
+  parseStylePptx: (payload: { filePath: string }) =>
+    getIpc().invoke('styles:parsePptx', payload) as Promise<StyleParseResult>,
   createStyle: (payload: {
     label: string
     description: string

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { ipc } from '@renderer/lib/ipc'
 import { useToastStore } from '../store'
-import { Plus, PencilLine, RefreshCw } from 'lucide-react'
+import { Plus, PencilLine } from 'lucide-react'
 import { useT } from '../i18n'
 
 type StyleSummary = {
@@ -21,27 +21,20 @@ type StyleSummary = {
 export function StylesPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [styles, setStyles] = useState<StyleSummary[]>([])
-  const [loading, setLoading] = useState(false)
-  const { error, success } = useToastStore()
+  const { error } = useToastStore()
   const t = useT()
 
-  const loadStyles = useCallback(async (showSuccess = false): Promise<void> => {
-    setLoading(true)
+  const loadStyles = useCallback(async (): Promise<void> => {
     try {
       const { items } = await ipc.listStyles()
       const sorted = [...items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
       setStyles(sorted)
-      if (showSuccess) {
-        success(t('styles.refreshed'), { description: t('styles.refreshedDescription', { count: sorted.length }) })
-      }
     } catch (e) {
       error(t('styles.loadFailed'), {
         description: e instanceof Error ? e.message : t('common.retryLater'),
       })
-    } finally {
-      setLoading(false)
     }
-  }, [error, success, t])
+  }, [error, t])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -52,28 +45,20 @@ export function StylesPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-6xl p-6">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styles.eyebrow')}</p>
-          <h1 className="organic-serif mt-2 text-[32px] font-semibold leading-none text-[#3e4a32]">{t('styles.title')}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{t('styles.description')}</p>
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styles.eyebrow')}</p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="organic-serif text-[32px] font-semibold leading-none text-[#3e4a32]">{t('styles.title')}</h1>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+            <Button size="sm" className="min-w-[112px]" onClick={() => navigate('/styles/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('styles.newStyle')}
+            </Button>
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="min-w-[108px]"
-            onClick={() => void loadStyles(true)}
-            disabled={loading}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            {t('styles.refresh')}
-          </Button>
-          <Button size="sm" className="min-w-[112px]" onClick={() => navigate('/styles/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('styles.newStyle')}
-          </Button>
-        </div>
+        <p className="mt-2 text-sm text-muted-foreground">{t('styles.description')}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

@@ -219,7 +219,7 @@ export const zh = {
     saveFailed: '保存失败',
     importStyle: '导入解析',
     importing: '解析中...',
-    importHint: '仅本地文件解析，支持 .md/.txt/.html，单文件不超过 {maxSize}MB。',
+    importHint: '支持导入文件或 PPTX 提取风格：.md/.txt/.html（≤{textMaxSize}MB）、.pptx（≤{pptxMaxSize}MB）。',
     importSuccess: '导入并解析成功',
     importFailed: '导入解析失败',
     fileTooLargeTitle: '文件过大',

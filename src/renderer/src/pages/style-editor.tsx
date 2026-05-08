@@ -10,8 +10,12 @@ import ReactMarkdown from 'react-markdown'
 import { ArrowLeft, Eye, Import, Loader2, Pencil, Save, Trash2 } from 'lucide-react'
 import { useT } from '../i18n'
 
-const MAX_STYLE_FILE_SIZE_MB = 1
-const MAX_STYLE_FILE_SIZE_BYTES = MAX_STYLE_FILE_SIZE_MB * 1024 * 1024
+const MAX_STYLE_TEXT_FILE_SIZE_MB = 1
+const MAX_STYLE_PPTX_FILE_SIZE_MB = 80
+const MAX_STYLE_TEXT_FILE_SIZE_BYTES = MAX_STYLE_TEXT_FILE_SIZE_MB * 1024 * 1024
+const MAX_STYLE_PPTX_FILE_SIZE_BYTES = MAX_STYLE_PPTX_FILE_SIZE_MB * 1024 * 1024
+
+const isPptxFileName = (name: string): boolean => /\.pptx$/i.test(name.trim())
 
 export function StyleEditorPage(): React.JSX.Element {
   const navigate = useNavigate()
@@ -162,9 +166,12 @@ export function StyleEditorPage(): React.JSX.Element {
     if (!file) return
     if (!(await ensureUploadPrerequisites())) return
 
-    if (file.size > MAX_STYLE_FILE_SIZE_BYTES) {
+    const isPptx = isPptxFileName(file.name || '')
+    const maxSizeBytes = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_BYTES : MAX_STYLE_TEXT_FILE_SIZE_BYTES
+    const maxSizeMb = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_MB : MAX_STYLE_TEXT_FILE_SIZE_MB
+    if (file.size > maxSizeBytes) {
       error(t('styleEditor.fileTooLargeTitle'), {
-        description: t('styleEditor.fileTooLarge', { maxSize: MAX_STYLE_FILE_SIZE_MB })
+        description: t('styleEditor.fileTooLarge', { maxSize: maxSizeMb })
       })
       return
     }
@@ -177,7 +184,7 @@ export function StyleEditorPage(): React.JSX.Element {
 
     setImporting(true)
     try {
-      const result = await ipc.parseStyleFile({ filePath })
+      const result = isPptx ? await ipc.parseStylePptx({ filePath }) : await ipc.parseStyleFile({ filePath })
       setLabelInput(result.label)
       setDescriptionInput(result.description)
       setMarkdownInput(result.styleSkill)
@@ -226,16 +233,20 @@ export function StyleEditorPage(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styleEditor.eyebrow')}</p>
-          <h1 className="organic-serif mt-2 text-[42px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
+    <div className="mx-auto w-full max-w-6xl p-6">
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styleEditor.eyebrow')}</p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="organic-serif text-[32px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+            <Button size="sm" variant="secondary" className="min-w-[112px]" onClick={() => navigate('/styles')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {t('styleEditor.backToList')}
+            </Button>
+          </div>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => navigate('/styles')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          {t('styleEditor.backToList')}
-        </Button>
       </div>
 
       {loading || !draft ? (
@@ -262,14 +273,17 @@ export function StyleEditorPage(): React.JSX.Element {
                 {importing ? t('styleEditor.importing') : t('styleEditor.importStyle')}
               </Button>
               <p className="text-xs text-muted-foreground">
-                {t('styleEditor.importHint', { maxSize: MAX_STYLE_FILE_SIZE_MB })}
+                {t('styleEditor.importHint', {
+                  textMaxSize: MAX_STYLE_TEXT_FILE_SIZE_MB,
+                  pptxMaxSize: MAX_STYLE_PPTX_FILE_SIZE_MB
+                })}
               </p>
             </div>
           ) : null}
           <input
             ref={styleFileInputRef}
             type="file"
-            accept=".md,.txt,.html,.htm"
+            accept=".md,.txt,.html,.htm,.pptx"
             multiple={false}
             className="hidden"
             onChange={(e) => void handleStyleFileSelected(e.target.files)}

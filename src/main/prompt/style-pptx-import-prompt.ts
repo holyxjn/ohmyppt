@@ -1,0 +1,82 @@
+const CATEGORY_GUIDE = [
+  { zh: '浅色 · 沉静', en: 'light-calm' },
+  { zh: '深色 · 沉稳', en: 'dark-steady' },
+  { zh: '大胆 · 宣言', en: 'bold-statement' },
+  { zh: '自然 · 有机', en: 'natural-organic' },
+  { zh: '活力 · 创意', en: 'vibrant-creative' },
+  { zh: '自定义', en: 'custom' }
+]
+
+export function buildStylePptxImportPrompt(args: {
+  deckRootPath: string
+  indexPath: string
+  samplePagePaths: string[]
+}): string {
+  const categoryTable = CATEGORY_GUIDE.map((item) => `- ${item.zh} => ${item.en}`).join('\n')
+  const sampleList = args.samplePagePaths.map((item) => `- ${item}`).join('\n')
+  return [
+    '你是 PPT 视觉风格解析专家。现在你拿到的是由 PPTX 转换得到的 HTML 页面目录。',
+    '你必须先 grep，再 read_file，最后再输出 JSON。',
+    '',
+    '工作步骤（必须按顺序）：',
+    '1. 先用 grep 在整个目录检索样式线索：color/background/font-family/gradient。',
+    '2. 再用 read_file 精读以下关键文件：index.html + 指定抽样页。',
+    '3. 综合提取配色、字体、布局比例、视觉氛围，生成标准风格 JSON。',
+    '',
+    '读取根目录：',
+    args.deckRootPath,
+    '',
+    '必须精读文件：',
+    `- ${args.indexPath}`,
+    sampleList || '- 无',
+    '',
+    '输出结构：',
+    '{',
+    '  "label": "风格显示名，如 暗夜科技",',
+    '  "description": "一句话描述风格特征，20 字以内",',
+    '  "category": "分类标签（必须从给定中文枚举中选一个）",',
+    '  "aliases": ["搜索别名1", "别名2"],',
+    '  "styleSkill": "完整的 Markdown 风格技能文本"',
+    '}',
+    '',
+    'category 映射：',
+    categoryTable,
+    '',
+    'styleSkill 模板要求：',
+    '## 主题色',
+    '- 主题色：标题 <hex> / 正文 <hex> / 强调 <hex>, <hex>',
+    '- 背景：<CSS gradient 或 纯色>',
+    '- 卡片：<rgba>，边框 <color>',
+    '',
+    '# <label>',
+    '',
+    '**分类**: <category 英文标识>',
+    '',
+    '## 视觉特征',
+    '- <提取的视觉特征要点>',
+    '',
+    '## 适用场景',
+    '<提取的适用场景>',
+    '',
+    '## 布局建议',
+    '- 保持风格一致性',
+    '- 使用主题色系统定义的颜色',
+    '- 注意文字层级和留白',
+    '',
+    '## 动画建议',
+    '`<动画名称>` / `<动画名称>` / `<动画名称>`',
+    '',
+    '## 字体建议',
+    '<字体推荐>',
+    '',
+    '## 不要做',
+    '<该风格应避免的设计元素>',
+    '',
+    '规则：',
+    '1. 优先使用 grep/read_file 中出现的真实颜色和字体。',
+    '2. 如果字段缺失，可根据整体视觉语义做合理补全。',
+    '3. category 字段必须输出中文枚举值；styleSkill 中的分类必须输出对应英文标识。',
+    '4. 只输出 JSON，且使用 ```json ... ``` 包裹。',
+    '5. 不要输出任何解释性文字。'
+  ].join('\n')
+}

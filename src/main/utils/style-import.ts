@@ -159,7 +159,16 @@ function parseStyleImportResponse(response: unknown): StyleParseResult {
   const text = extractModelText(response) || (typeof response === 'string' ? response : JSON.stringify(response))
   const jsonText = extractJsonBlock(text).trim()
   if (!jsonText) throw new Error('LLM 返回格式异常：未找到 JSON')
-  const parsed = JSON.parse(jsonText) as Record<string, unknown>
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(jsonText)
+  } catch (parseError) {
+    const hint = jsonText.length > 200 ? `${jsonText.slice(0, 200)}...` : jsonText
+    const reason = parseError instanceof Error ? parseError.message : String(parseError)
+    log.warn('[styles:parseFile] JSON parse failed', { reason, jsonPreview: hint })
+    throw new Error(`LLM 返回的 JSON 格式异常：${reason}`)
+  }
 
   const label = String(parsed.label || '').trim()
   const styleSkill = String(parsed.styleSkill || '').trim()
