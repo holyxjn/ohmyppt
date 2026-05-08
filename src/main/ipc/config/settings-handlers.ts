@@ -54,6 +54,38 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     }))
   })
 
+  ipcMain.handle('settings:validateUploadPrerequisites', async () => {
+    const locale = await readAppLocale(ctx)
+    const settings = await db.getAllSettings()
+    const storagePath =
+      typeof settings.storage_path === 'string' && settings.storage_path.trim().length > 0
+        ? settings.storage_path.trim()
+        : ''
+    const activeModel = (await db.listModelConfigs()).find((config) => config.active === 1)
+    const hasModel = !!activeModel
+    const hasApiKey = typeof activeModel?.apiKey === 'string' && decryptApiKey(activeModel.apiKey).trim().length > 0
+    const hasModelName = typeof activeModel?.model === 'string' && activeModel.model.trim().length > 0
+
+    const missing: Array<'storagePath' | 'activeModel' | 'apiKey' | 'model'> = []
+    if (!storagePath) missing.push('storagePath')
+    if (!hasModel) missing.push('activeModel')
+    if (hasModel && !hasApiKey) missing.push('apiKey')
+    if (hasModel && !hasModelName) missing.push('model')
+
+    return {
+      ready: missing.length === 0,
+      missing,
+      message:
+        missing.length === 0
+          ? ''
+          : uiText(
+              locale,
+              '请先前往系统设置完成模型与存储目录配置。',
+              'Please complete model and storage configuration in Settings first.'
+            )
+    }
+  })
+
   ipcMain.handle('settings:save', async (_event, settings) => {
     log.info('[settings:save] received', {
       hasStoragePath:

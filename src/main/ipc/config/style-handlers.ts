@@ -1,5 +1,8 @@
 import { ipcMain } from 'electron'
+import fs from 'fs'
+import path from 'path'
 import log from 'electron-log/main.js'
+import { customAlphabet } from 'nanoid'
 import {
   listStyleCatalog,
   getStyleDetail,
@@ -9,14 +12,21 @@ import {
   deleteStyleSkill
 } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
+import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
+import { parseStyleFile } from '../../utils/style-import'
 
-type StylePayload = {
-  id: string
+const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
+
+type StyleBasePayload = {
   label: string
   description: string
   category: string
   aliases: string[]
   prompt: string
+}
+
+type StylePayload = StyleBasePayload & {
+  id: string
 }
 
 export function registerStyleHandlers(ctx: IpcContext): void {
@@ -72,13 +82,9 @@ export function registerStyleHandlers(ctx: IpcContext): void {
     }
   })
 
-  const parseStylePayload = (payload: unknown): StylePayload => {
+  const parseBasePayload = (payload: unknown): StyleBasePayload => {
     const record =
       payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
-    log.info('[styles:payload] requested', {
-      styleId: record.id || ''
-    })
-    const id = String(record.id || '').trim()
     const label = String(record.label || '').trim()
     const description = String(record.description || '').trim()
     const category = String(record.category || '').trim()
@@ -88,14 +94,13 @@ export function registerStyleHandlers(ctx: IpcContext): void {
           .map((alias: unknown) => String(alias || '').trim())
           .filter((alias: string) => alias.length > 0)
       : []
-    if (!id || !label) {
-      throw new Error('保存风格失败：id 与 label 必填。')
+    if (!label) {
+      throw new Error('保存风格失败：label 必填。')
     }
     if (!styleSkill) {
       throw new Error('保存风格失败：styleSkill 不能为空。')
     }
     return {
-      id,
       label,
       description,
       category,
@@ -104,14 +109,58 @@ export function registerStyleHandlers(ctx: IpcContext): void {
     }
   }
 
+  const parseCreatePayload = (payload: unknown): StyleBasePayload => {
+    log.info('[styles:create] payload requested')
+    return parseBasePayload(payload)
+  }
+
+  const parseUpdatePayload = (payload: unknown): StylePayload => {
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const id = String(record.id || '').trim()
+    if (!id) {
+      throw new Error('保存风格失败：id 必填。')
+    }
+    log.info('[styles:update] payload requested', { styleId: id })
+    return {
+      ...parseBasePayload(payload),
+      id
+    }
+  }
+
+  ipcMain.handle('styles:parseFile', async (_event, payload) => {
+    const filePath = typeof payload?.filePath === 'string' ? payload.filePath.trim() : ''
+    if (!filePath) throw new Error('文件路径为空')
+    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+    const styleImportDir = path.join(await ctx.resolveStoragePath(), 'style-import')
+    await fs.promises.mkdir(styleImportDir, { recursive: true })
+    return await parseStyleFile({
+      filePath,
+      provider: activeModel.provider,
+      apiKey: activeModel.apiKey,
+      model: activeModel.model,
+      baseUrl: activeModel.baseUrl,
+      modelTimeoutMs: modelTimeouts.document,
+      workspaceDir: styleImportDir
+    })
+  })
+
   ipcMain.handle('styles:create', async (_event, payload) => {
-    const parsed = parseStylePayload(payload)
-    const result = await createStyleSkill(parsed)
+    const parsed = parseCreatePayload(payload)
+    let id = `style-${nanoidLower()}`
+    while (hasStyleSkill(id)) {
+      id = `style-${nanoidLower()}`
+    }
+    const result = await createStyleSkill({
+      ...parsed,
+      id
+    })
     return { success: true, ...result }
   })
 
   ipcMain.handle('styles:update', async (_event, payload) => {
-    const parsed = parseStylePayload(payload)
+    const parsed = parseUpdatePayload(payload)
     const result = await updateStyleSkill(parsed)
     return { success: true, ...result }
   })
