@@ -58,6 +58,14 @@ export interface StyleListItem {
   updatedAt?: number
 }
 
+export interface StyleParseResult {
+  label: string
+  description: string
+  category: string
+  aliases: string[]
+  styleSkill: string
+}
+
 export interface GenerateRunStateSnapshot {
   sessionId: string
   runId: string | null
@@ -154,6 +162,12 @@ export interface ModelConfig {
   updatedAt: number
 }
 
+export interface UploadPrerequisitesResult {
+  ready: boolean
+  missing: Array<'storagePath' | 'activeModel' | 'apiKey' | 'model'>
+  message?: string
+}
+
 export const ipc = {
   createSession: (payload: CreateSessionPayload) =>
     getIpc().invoke('session:create', payload) as Promise<{ sessionId: string }>,
@@ -228,6 +242,8 @@ export const ipc = {
     getIpc().invoke('export:pptx', { sessionId, ...options }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
+  validateUploadPrerequisites: () =>
+    getIpc().invoke('settings:validateUploadPrerequisites') as Promise<UploadPrerequisitesResult>,
   saveSettings: (settings: Record<string, unknown>) =>
     getIpc().invoke('settings:save', settings) as Promise<{ success: boolean }>,
   upsertModelConfig: (payload: {
@@ -280,8 +296,11 @@ export const ipc = {
   getStyleDetail: (styleId: string) =>
     getIpc().invoke('styles:getDetail', styleId) as Promise<StyleDetail>,
   listStyles: () => getIpc().invoke('styles:list') as Promise<{ items: StyleListItem[] }>,
+  parseStyleFile: (payload: { filePath: string }) =>
+    getIpc().invoke('styles:parseFile', payload) as Promise<StyleParseResult>,
+  parseStylePptx: (payload: { filePath: string }) =>
+    getIpc().invoke('styles:parsePptx', payload) as Promise<StyleParseResult>,
   createStyle: (payload: {
-    id: string
     label: string
     description: string
     category?: string

@@ -3,10 +3,10 @@ import {
   ExternalLink,
   FileDown,
   FileSearch,
+  FileText,
   Image as ImageIcon,
   Loader2,
-  Presentation,
-  Square
+  Presentation
 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
@@ -75,16 +75,12 @@ export function SessionToolbar({
               {t('sessionDetail.exportPptxDefault')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onExportPptx({ exportImages: false, exportShapes: false })}>
-              <Presentation className={dropdownItemIconClass} />
+              <FileText className={dropdownItemIconClass} />
               {t('sessionDetail.exportPptxTextOnly')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onExportPptx({ exportImages: true, exportShapes: false })}>
               <ImageIcon className={dropdownItemIconClass} />
               {t('sessionDetail.exportPptxWithImages')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: false, exportShapes: true })}>
-              <Square className={dropdownItemIconClass} />
-              {t('sessionDetail.exportPptxWithShapes')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

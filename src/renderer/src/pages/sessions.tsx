@@ -103,15 +103,19 @@ export function SessionsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-6xl p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('sessions.eyebrow')}</p>
-          <h1 className="organic-serif mt-2 text-[32px] font-semibold leading-none text-[#3e4a32]">{t('sessions.title')}</h1>
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('sessions.eyebrow')}</p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="organic-serif text-[32px] font-semibold leading-none text-[#3e4a32]">{t('sessions.title')}</h1>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+            <Button size="sm" className="min-w-[112px]" onClick={() => navigate('/')}>
+              <FolderOpen className="mr-2 h-4 w-4" />
+              {t('sessions.newSession')}
+            </Button>
+          </div>
         </div>
-        <Button onClick={() => navigate('/')}>
-          <FolderOpen className="mr-2 h-4 w-4" />
-          {t('sessions.newSession')}
-        </Button>
       </div>
 
       {sessions.length === 0 ? (

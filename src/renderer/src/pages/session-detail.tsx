@@ -854,7 +854,7 @@ export function SessionDetailPage(): React.JSX.Element {
                 canRevealFile={Boolean(selectedPage?.htmlPath)}
                 onExportPdf={() => void handleExportPdf()}
                 onExportPng={() => void handleExportPng()}
-                onExportPptx={() => void handleExportPptx()}
+                onExportPptx={(options) => void handleExportPptx(options)}
                 onOpenPreview={() => void openProjectPreview()}
                 onRevealFile={() => {
                   if (selectedPage?.htmlPath) {

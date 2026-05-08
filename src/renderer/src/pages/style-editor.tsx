@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -7,10 +7,15 @@ import { ScrollArea } from '../components/ui/ScrollArea'
 import { useToastStore } from '../store'
 import { ipc, type StyleDetail } from '@renderer/lib/ipc'
 import ReactMarkdown from 'react-markdown'
-import { ArrowLeft, Eye, Pencil, Save, Trash2 } from 'lucide-react'
+import { ArrowLeft, Eye, Import, Loader2, Pencil, Save, Trash2 } from 'lucide-react'
 import { useT } from '../i18n'
 
-const createNewStyleId = (): string => `custom-${Math.random().toString(36).slice(2, 8)}`
+const MAX_STYLE_TEXT_FILE_SIZE_MB = 1
+const MAX_STYLE_PPTX_FILE_SIZE_MB = 80
+const MAX_STYLE_TEXT_FILE_SIZE_BYTES = MAX_STYLE_TEXT_FILE_SIZE_MB * 1024 * 1024
+const MAX_STYLE_PPTX_FILE_SIZE_BYTES = MAX_STYLE_PPTX_FILE_SIZE_MB * 1024 * 1024
+
+const isPptxFileName = (name: string): boolean => /\.pptx$/i.test(name.trim())
 
 export function StyleEditorPage(): React.JSX.Element {
   const navigate = useNavigate()
@@ -24,7 +29,9 @@ export function StyleEditorPage(): React.JSX.Element {
   const [markdownInput, setMarkdownInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
+  const styleFileInputRef = useRef<HTMLInputElement | null>(null)
   const { success, error, warning, info } = useToastStore()
   const t = useT()
 
@@ -33,9 +40,8 @@ export function StyleEditorPage(): React.JSX.Element {
       setLoading(true)
       try {
         if (isNew) {
-          const nextId = createNewStyleId()
           const initial: StyleDetail = {
-            id: nextId,
+            id: '',
             label: t('styleEditor.defaultLabel'),
             description: t('styleEditor.defaultDescription'),
             aliases: [],
@@ -68,16 +74,19 @@ export function StyleEditorPage(): React.JSX.Element {
     void run()
   }, [error, isNew, styleId, t])
 
-  const currentStyleName = useMemo(() => draft?.label || (isNew ? t('styleEditor.newStyle') : styleId), [draft, isNew, styleId, t])
+  const currentStyleName = useMemo(
+    () => (isNew ? t('styleEditor.createTitle') : t('styleEditor.editTitle')),
+    [isNew, t]
+  )
 
   const handleSave = async (): Promise<void> => {
     if (!draft) return
-    const nextStyleId = draft.id.trim().toLowerCase()
     const nextLabel = labelInput.trim()
     const nextDescription = descriptionInput.trim()
     const nextMarkdown = markdownInput.trim()
+    const shouldCreate = isNew || !loadedRecordId
 
-    if (!nextStyleId) {
+    if (!shouldCreate && !draft.id.trim()) {
       warning(t('styleEditor.invalidStyleId'), { description: t('styleEditor.backAndRetry') })
       return
     }
@@ -91,42 +100,113 @@ export function StyleEditorPage(): React.JSX.Element {
     }
     setSaving(true)
     try {
-      const payload = {
-        id: nextStyleId,
+      const createPayload = {
         label: nextLabel,
         description: nextDescription,
         category: draft.category || t('styleEditor.defaultCategory'),
-        styleSkill: nextMarkdown,
+        aliases: draft.aliases || [],
+        styleSkill: nextMarkdown
       }
-      const shouldCreate = isNew || !loadedRecordId
       const result = shouldCreate
-        ? await ipc.createStyle(payload)
-        : await ipc.updateStyle(payload)
+        ? await ipc.createStyle(createPayload)
+        : await ipc.updateStyle({
+            ...createPayload,
+            id: draft.id.trim().toLowerCase()
+          })
       setLoadedRecordId(result.id)
       success(t('styleEditor.saved'), {
-        description: result.source === 'override' ? t('styleEditor.savedOverride') : t('styleEditor.savedCustom'),
+        description:
+          result.source === 'override' ? t('styleEditor.savedOverride') : t('styleEditor.savedCustom')
       })
       setDraft((prev) =>
         prev
           ? {
               ...prev,
-              id: payload.id,
-              label: payload.label,
-              description: payload.description,
-              category: payload.category,
-              styleSkill: payload.styleSkill,
+              id: result.id,
+              label: createPayload.label,
+              description: createPayload.description,
+              category: createPayload.category,
+              aliases: createPayload.aliases,
+              styleSkill: createPayload.styleSkill
             }
           : prev
       )
-      if (styleId !== result.id) {
-        navigate(`/styles/${result.id}`, { replace: true })
-      }
+      navigate('/styles', { replace: true })
     } catch (e) {
       error(t('styleEditor.saveFailed'), {
         description: e instanceof Error ? e.message : t('common.retryLater'),
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const ensureUploadPrerequisites = async (): Promise<boolean> => {
+    const validation = await ipc.validateUploadPrerequisites()
+    if (validation.ready) return true
+    warning(t('home.settingsRequiredTitle'), {
+      description: validation.message || t('home.settingsRequired'),
+      action: {
+        label: t('home.goToSettings'),
+        onClick: () => navigate('/settings')
+      }
+    })
+    return false
+  }
+
+  const handleImportStyleClick = async (): Promise<void> => {
+    if (importing) return
+    if (!(await ensureUploadPrerequisites())) return
+    styleFileInputRef.current?.click()
+  }
+
+  const handleStyleFileSelected = async (files: FileList | null): Promise<void> => {
+    const file = files?.[0]
+    if (styleFileInputRef.current) styleFileInputRef.current.value = ''
+    if (!file) return
+    if (!(await ensureUploadPrerequisites())) return
+
+    const isPptx = isPptxFileName(file.name || '')
+    const maxSizeBytes = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_BYTES : MAX_STYLE_TEXT_FILE_SIZE_BYTES
+    const maxSizeMb = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_MB : MAX_STYLE_TEXT_FILE_SIZE_MB
+    if (file.size > maxSizeBytes) {
+      error(t('styleEditor.fileTooLargeTitle'), {
+        description: t('styleEditor.fileTooLarge', { maxSize: maxSizeMb })
+      })
+      return
+    }
+
+    const filePath = window.electron?.getPathForFile?.(file) || ''
+    if (!filePath) {
+      error(t('styleEditor.filePathFailedTitle'), { description: t('styleEditor.filePathFailed') })
+      return
+    }
+
+    setImporting(true)
+    try {
+      const result = isPptx ? await ipc.parseStylePptx({ filePath }) : await ipc.parseStyleFile({ filePath })
+      setLabelInput(result.label)
+      setDescriptionInput(result.description)
+      setMarkdownInput(result.styleSkill)
+      setDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              label: result.label,
+              description: result.description,
+              category: result.category,
+              aliases: result.aliases,
+              styleSkill: result.styleSkill
+            }
+          : prev
+      )
+      success(t('styleEditor.importSuccess'))
+    } catch (e) {
+      error(t('styleEditor.importFailed'), {
+        description: e instanceof Error ? e.message : t('common.retryLater')
+      })
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -153,16 +233,20 @@ export function StyleEditorPage(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styleEditor.eyebrow')}</p>
-          <h1 className="organic-serif mt-2 text-[42px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
+    <div className="mx-auto w-full max-w-6xl p-6">
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styleEditor.eyebrow')}</p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="organic-serif text-[32px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+            <Button size="sm" variant="secondary" className="min-w-[112px]" onClick={() => navigate('/styles')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {t('styleEditor.backToList')}
+            </Button>
+          </div>
         </div>
-        <Button variant="secondary" onClick={() => navigate('/styles')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          {t('styleEditor.backToList')}
-        </Button>
       </div>
 
       {loading || !draft ? (
@@ -170,11 +254,45 @@ export function StyleEditorPage(): React.JSX.Element {
           <CardContent className="py-10 text-sm text-muted-foreground">{t('styleEditor.loading')}</CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('styleEditor.skillMarkdown')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <>
+          {isNew ? (
+            <div className="mb-4 space-y-2">
+              <Button
+                size="sm"
+                variant="outline"
+                  onClick={() => {
+                    void handleImportStyleClick()
+                  }}
+                disabled={importing}
+              >
+                {importing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Import className="mr-2 h-4 w-4" />
+                )}
+                {importing ? t('styleEditor.importing') : t('styleEditor.importStyle')}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {t('styleEditor.importHint', {
+                  textMaxSize: MAX_STYLE_TEXT_FILE_SIZE_MB,
+                  pptxMaxSize: MAX_STYLE_PPTX_FILE_SIZE_MB
+                })}
+              </p>
+            </div>
+          ) : null}
+          <input
+            ref={styleFileInputRef}
+            type="file"
+            accept=".md,.txt,.html,.htm,.pptx"
+            multiple={false}
+            className="hidden"
+            onChange={(e) => void handleStyleFileSelected(e.target.files)}
+          />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t('styleEditor.skillMarkdown')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium">{t('styleEditor.name')}</label>
@@ -292,8 +410,9 @@ export function StyleEditorPage(): React.JSX.Element {
                 mode: draft.source === 'builtin' ? t('styleEditor.builtinMode') : draft.source || ''
               })}
             </p>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   )

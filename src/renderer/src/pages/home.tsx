@@ -107,11 +107,16 @@ export function HomePage(): ReactElement {
 
   useEffect(() => {
     ipc
-      .getStyles()
-      .then(({ categories }) => {
-        const flat = Object.values(categories).flat()
-        setStyleOptions(flat)
-        setSelectedStyleId(flat.length > 0 ? flat[0].id : '')
+      .listStyles()
+      .then(({ items }) => {
+        const sorted = [...items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || (b.createdAt || 0) - (a.createdAt || 0))
+        const options = sorted.map((item) => ({
+          id: item.id,
+          label: item.label,
+          description: item.description
+        }))
+        setStyleOptions(options)
+        setSelectedStyleId(options.length > 0 ? options[0].id : '')
       })
       .catch((err) => {
         error(t('home.styleLoadFailed'), {
@@ -172,25 +177,28 @@ export function HomePage(): ReactElement {
     }
   }
 
-  const hasStoragePath = (settings?.storagePath || '').trim().length > 0
+  const ensureUploadPrerequisites = async (): Promise<boolean> => {
+    const validation = await ipc.validateUploadPrerequisites()
+    if (validation.ready) return true
+    warning(t('home.settingsRequiredTitle'), {
+      description: validation.message || t('home.settingsRequired'),
+      action: {
+        label: t('home.goToSettings'),
+        onClick: () => navigate('/settings')
+      }
+    })
+    return false
+  }
 
-  const handleParseDocumentClick = (): void => {
+  const handleParseDocumentClick = async (): Promise<void> => {
     if (parsingDocument) return
+    if (!(await ensureUploadPrerequisites())) return
     documentInputRef.current?.click()
   }
 
-  const handleImportPptxClick = (): void => {
+  const handleImportPptxClick = async (): Promise<void> => {
     if (importingPptx) return
-    if (!hasStoragePath) {
-      warning(t('home.pptxStorageRequiredTitle'), {
-        description: t('home.pptxStorageRequired'),
-        action: {
-          label: t('home.goToSettings'),
-          onClick: () => navigate('/settings')
-        }
-      })
-      return
-    }
+    if (!(await ensureUploadPrerequisites())) return
     pptxInputRef.current?.click()
   }
 
@@ -200,6 +208,7 @@ export function HomePage(): ReactElement {
       documentInputRef.current.value = ''
     }
     if (selectedFiles.length === 0) return
+    if (!(await ensureUploadPrerequisites())) return
     if (selectedFiles.length > 1) {
       const message = t('home.documentSingleOnly')
       setDocumentParseError(message)
@@ -268,6 +277,7 @@ export function HomePage(): ReactElement {
       pptxInputRef.current.value = ''
     }
     if (selectedFiles.length === 0) return
+    if (!(await ensureUploadPrerequisites())) return
     if (selectedFiles.length > 1) {
       error(t('home.pptxSingleOnlyTitle'), {
         description: t('home.pptxSingleOnly')
@@ -294,17 +304,6 @@ export function HomePage(): ReactElement {
       })
       return
     }
-    if (!hasStoragePath) {
-      warning(t('home.pptxStorageRequiredTitle'), {
-        description: t('home.pptxStorageRequired'),
-        action: {
-          label: t('home.goToSettings'),
-          onClick: () => navigate('/settings')
-        }
-      })
-      return
-    }
-
     setImportingPptx(true)
     setPptxImportProgress(t('home.pptxPreparing'))
     try {
@@ -368,7 +367,9 @@ export function HomePage(): ReactElement {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={handleParseDocumentClick}
+                        onClick={() => {
+                          void handleParseDocumentClick()
+                        }}
                         disabled={parsingDocument || importingPptx}
                         className="shrink-0"
                       >
@@ -393,7 +394,9 @@ export function HomePage(): ReactElement {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={handleImportPptxClick}
+                        onClick={() => {
+                          void handleImportPptxClick()
+                        }}
                         disabled={importingPptx || parsingDocument}
                         className="shrink-0"
                       >

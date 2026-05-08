@@ -1077,6 +1077,7 @@ export async function importPptxToEditableHtml(args: {
   filePath: string
   projectDir: string
   title?: string
+  maxPages?: number
   onProgress?: ImportProgress
 }): Promise<ImportedPptxDeck> {
   const fileName = path.basename(args.filePath)
@@ -1100,31 +1101,36 @@ export async function importPptxToEditableHtml(args: {
   if (slides.length === 0) {
     throw new Error('PPTX 中没有可导入的幻灯片')
   }
+  const rawMaxPages = typeof args.maxPages === 'number' ? Math.floor(args.maxPages) : null
+  const maxPages = rawMaxPages && rawMaxPages > 0 ? rawMaxPages : null
+  const effectiveSlides = maxPages && maxPages < slides.length
+    ? slides.slice(0, maxPages)
+    : slides
   args.onProgress?.({
     stage: 'media',
     progress: 24,
     label: '正在整理图片和页面元素',
-    totalPages: slides.length
+    totalPages: effectiveSlides.length
   })
   const registry: ImageRegistry = { index: 0, byKey: new Map() }
   const pages: ImportedPptxPage[] = []
   const allWarnings: ImportWarning[] = []
   const textValidator = new PptxTextValidator()
   try {
-    for (let i = 0; i < slides.length; i += 1) {
+    for (let i = 0; i < effectiveSlides.length; i += 1) {
       const pageNumber = i + 1
       const pageId = `page-${pageNumber}`
-      const pageTitle = titleFromSlide(slides[i], pageNumber)
+      const pageTitle = titleFromSlide(effectiveSlides[i], pageNumber)
       args.onProgress?.({
         stage: 'pages',
-        progress: 25 + Math.round((pageNumber / slides.length) * 58),
-        label: `正在导入并校验第 ${pageNumber} / ${slides.length} 页`,
+        progress: 25 + Math.round((pageNumber / effectiveSlides.length) * 58),
+        label: `正在导入并校验第 ${pageNumber} / ${effectiveSlides.length} 页`,
         pageNumber,
-        totalPages: slides.length
+        totalPages: effectiveSlides.length
       })
       const htmlPath = path.join(args.projectDir, `${pageId}.html`)
       const rendered = await buildSlideHtml({
-        slide: slides[i],
+        slide: effectiveSlides[i],
         pageNumber,
         pageId,
         title: pageTitle,

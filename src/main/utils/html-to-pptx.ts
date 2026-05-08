@@ -730,6 +730,47 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     });
   }
 
+  // 用已提取的 dataUri 去重，避免 background-image 与 img/canvas 重复提取
+  const seenDataUris = new Set(images.map((img) => img.dataUri));
+
+  // 提取 CSS background-image 中的图片（仅 data URI 内联图片）
+  const bgImageCandidates = []
+  for (const el of pageElement.querySelectorAll('*')) {
+    if (bgImageCandidates.length >= maxImages) break
+    const style = window.getComputedStyle(el)
+    const bg = style.backgroundImage || ''
+    if (!/^url\\(/i.test(bg) || !/data:image\\//i.test(bg)) continue
+    bgImageCandidates.push({ el, style })
+  }
+
+  for (const { el, style } of bgImageCandidates) {
+    if (images.length >= maxImages) break
+    const { rect, x, y, w, h } = elementToBox(el)
+    if (!isVisible(el, style, rect)) continue
+
+    const bgMatch = (style.backgroundImage || '').match(
+      /url\\(["']?(data:image\\/[^;]+;base64,[^"')]+)["']?\\)/i
+    )
+    if (!bgMatch) continue
+    const dataUri = bgMatch[1]
+    if (!/^data:image\\/(?:png|jpeg|jpg|gif);base64,/i.test(dataUri)) continue
+    if (maxImageDataUriLength > 128 && dataUri.length > maxImageDataUriLength) continue
+    if (seenDataUris.has(dataUri)) continue
+    seenDataUris.add(dataUri)
+
+    images.push({
+      dataUri,
+      mimeType:
+        dataUri.match(/^data:(image\\/(?:png|jpeg|jpg|gif));base64,/i)?.[1] || 'image/png',
+      x,
+      y,
+      w,
+      h,
+      alt: '',
+      rotate: parseRotate(style)
+    })
+  }
+
   return { backgroundColor, shapes, texts, images };
 })()
 `
