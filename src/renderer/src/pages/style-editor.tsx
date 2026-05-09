@@ -5,17 +5,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Input, Textarea } from '../components/ui/Input'
 import { ScrollArea } from '../components/ui/ScrollArea'
 import { useToastStore } from '../store'
-import { ipc, type StyleDetail } from '@renderer/lib/ipc'
+import { ipc, type StyleDetail, type StyleParseResult } from '@renderer/lib/ipc'
 import ReactMarkdown from 'react-markdown'
 import { ArrowLeft, Eye, Import, Loader2, Pencil, Save, Trash2 } from 'lucide-react'
 import { useT } from '../i18n'
 
 const MAX_STYLE_TEXT_FILE_SIZE_MB = 1
 const MAX_STYLE_PPTX_FILE_SIZE_MB = 80
+const MAX_STYLE_IMAGE_SIZE_MB = 5
 const MAX_STYLE_TEXT_FILE_SIZE_BYTES = MAX_STYLE_TEXT_FILE_SIZE_MB * 1024 * 1024
 const MAX_STYLE_PPTX_FILE_SIZE_BYTES = MAX_STYLE_PPTX_FILE_SIZE_MB * 1024 * 1024
+const MAX_STYLE_IMAGE_SIZE_BYTES = MAX_STYLE_IMAGE_SIZE_MB * 1024 * 1024
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 const isPptxFileName = (name: string): boolean => /\.pptx$/i.test(name.trim())
+const isImageFileName = (name: string): boolean => /\.(png|jpe?g|webp)$/i.test(name.trim())
+const getImageMimeTypeFromFileName = (name: string): string => {
+  const normalized = name.trim().toLowerCase()
+  if (normalized.endsWith('.png')) return 'image/png'
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg'
+  if (normalized.endsWith('.webp')) return 'image/webp'
+  return ''
+}
 
 export function StyleEditorPage(): React.JSX.Element {
   const navigate = useNavigate()
@@ -160,46 +171,84 @@ export function StyleEditorPage(): React.JSX.Element {
     styleFileInputRef.current?.click()
   }
 
+  const applyParsedStyle = (result: StyleParseResult): void => {
+    setLabelInput(result.label)
+    setDescriptionInput(result.description)
+    setMarkdownInput(result.styleSkill)
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            label: result.label,
+            description: result.description,
+            category: result.category,
+            aliases: result.aliases,
+            styleSkill: result.styleSkill
+          }
+        : prev
+    )
+  }
+
+  const parseSelectedStyleFile = async (file: File): Promise<StyleParseResult> => {
+    const isPptx = isPptxFileName(file.name || '')
+    const maxSizeBytes = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_BYTES : MAX_STYLE_TEXT_FILE_SIZE_BYTES
+    const maxSizeMb = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_MB : MAX_STYLE_TEXT_FILE_SIZE_MB
+    if (file.size > maxSizeBytes) {
+      throw new Error(t('styleEditor.fileTooLarge', { maxSize: maxSizeMb }))
+    }
+
+    const filePath = window.electron?.getPathForFile?.(file) || ''
+    if (!filePath) {
+      throw new Error(t('styleEditor.filePathFailed'))
+    }
+
+    return isPptx ? await ipc.parseStylePptx({ filePath }) : await ipc.parseStyleFile({ filePath })
+  }
+
+  const parseSelectedStyleImage = async (file: File): Promise<StyleParseResult> => {
+    const hintedMimeType = (file.type || '').toLowerCase()
+    const fallbackMimeType = getImageMimeTypeFromFileName(file.name || '')
+    if (!SUPPORTED_IMAGE_MIME_TYPES.has(hintedMimeType) && !fallbackMimeType) {
+      throw new Error(t('styleEditor.imageFormatInvalid'))
+    }
+    if (file.size > MAX_STYLE_IMAGE_SIZE_BYTES) {
+      throw new Error(t('styleEditor.fileTooLarge', { maxSize: MAX_STYLE_IMAGE_SIZE_MB }))
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error(t('styleEditor.imageReadFailed')))
+      reader.readAsDataURL(file)
+    })
+    const match = dataUrl.match(/^data:([^;]*);base64,(.+)$/)
+    if (!match) {
+      throw new Error(t('styleEditor.imageReadFailed'))
+    }
+    const dataUrlMimeType = String(match[1] || '').trim().toLowerCase()
+    const mimeType = SUPPORTED_IMAGE_MIME_TYPES.has(dataUrlMimeType)
+      ? dataUrlMimeType
+      : SUPPORTED_IMAGE_MIME_TYPES.has(hintedMimeType)
+        ? hintedMimeType
+        : fallbackMimeType
+    const imageBase64 = String(match[2] || '').trim()
+    if (!mimeType || !imageBase64) {
+      throw new Error(t('styleEditor.imageReadFailed'))
+    }
+    return await ipc.parseStyleImage({ imageBase64, mimeType })
+  }
+
   const handleStyleFileSelected = async (files: FileList | null): Promise<void> => {
     const file = files?.[0]
     if (styleFileInputRef.current) styleFileInputRef.current.value = ''
     if (!file) return
     if (!(await ensureUploadPrerequisites())) return
 
-    const isPptx = isPptxFileName(file.name || '')
-    const maxSizeBytes = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_BYTES : MAX_STYLE_TEXT_FILE_SIZE_BYTES
-    const maxSizeMb = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_MB : MAX_STYLE_TEXT_FILE_SIZE_MB
-    if (file.size > maxSizeBytes) {
-      error(t('styleEditor.fileTooLargeTitle'), {
-        description: t('styleEditor.fileTooLarge', { maxSize: maxSizeMb })
-      })
-      return
-    }
-
-    const filePath = window.electron?.getPathForFile?.(file) || ''
-    if (!filePath) {
-      error(t('styleEditor.filePathFailedTitle'), { description: t('styleEditor.filePathFailed') })
-      return
-    }
-
     setImporting(true)
     try {
-      const result = isPptx ? await ipc.parseStylePptx({ filePath }) : await ipc.parseStyleFile({ filePath })
-      setLabelInput(result.label)
-      setDescriptionInput(result.description)
-      setMarkdownInput(result.styleSkill)
-      setDraft((prev) =>
-        prev
-          ? {
-              ...prev,
-              label: result.label,
-              description: result.description,
-              category: result.category,
-              aliases: result.aliases,
-              styleSkill: result.styleSkill
-            }
-          : prev
-      )
+      const isImage = SUPPORTED_IMAGE_MIME_TYPES.has((file.type || '').toLowerCase()) || isImageFileName(file.name || '')
+      const result = isImage ? await parseSelectedStyleImage(file) : await parseSelectedStyleFile(file)
+      applyParsedStyle(result)
       success(t('styleEditor.importSuccess'))
     } catch (e) {
       error(t('styleEditor.importFailed'), {
@@ -260,9 +309,9 @@ export function StyleEditorPage(): React.JSX.Element {
               <Button
                 size="sm"
                 variant="outline"
-                  onClick={() => {
-                    void handleImportStyleClick()
-                  }}
+                onClick={() => {
+                  void handleImportStyleClick()
+                }}
                 disabled={importing}
               >
                 {importing ? (
@@ -275,7 +324,8 @@ export function StyleEditorPage(): React.JSX.Element {
               <p className="text-xs text-muted-foreground">
                 {t('styleEditor.importHint', {
                   textMaxSize: MAX_STYLE_TEXT_FILE_SIZE_MB,
-                  pptxMaxSize: MAX_STYLE_PPTX_FILE_SIZE_MB
+                  pptxMaxSize: MAX_STYLE_PPTX_FILE_SIZE_MB,
+                  imageMaxSize: MAX_STYLE_IMAGE_SIZE_MB
                 })}
               </p>
             </div>
@@ -283,7 +333,7 @@ export function StyleEditorPage(): React.JSX.Element {
           <input
             ref={styleFileInputRef}
             type="file"
-            accept=".md,.txt,.html,.htm,.pptx"
+            accept=".md,.txt,.html,.htm,.pptx,image/png,image/jpeg,image/webp"
             multiple={false}
             className="hidden"
             onChange={(e) => void handleStyleFileSelected(e.target.files)}

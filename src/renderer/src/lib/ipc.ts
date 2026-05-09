@@ -300,6 +300,8 @@ export const ipc = {
     getIpc().invoke('styles:parseFile', payload) as Promise<StyleParseResult>,
   parseStylePptx: (payload: { filePath: string }) =>
     getIpc().invoke('styles:parsePptx', payload) as Promise<StyleParseResult>,
+  parseStyleImage: (payload: { imageBase64: string; mimeType: string }) =>
+    getIpc().invoke('styles:parseImage', payload) as Promise<StyleParseResult>,
   createStyle: (payload: {
     label: string
     description: string
