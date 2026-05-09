@@ -17,6 +17,9 @@ type StyleSource = 'builtin' | 'custom' | 'override'
 type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
+type SessionOperationType = 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+type SessionOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
+type SessionOperationStatus = 'committing' | 'completed' | 'failed' | 'noop'
 
 export interface Session {
   id: string
@@ -32,6 +35,9 @@ export interface Session {
   created_at: number
   updated_at: number
   metadata: string | null
+  designContract?: string | null
+  currentOperationId?: string | null
+  currentCommit?: string | null
 }
 
 export interface Message {
@@ -41,6 +47,7 @@ export interface Message {
   page_id: string | null
   selector: string | null
   image_paths: string[] | null
+  video_paths: string[] | null
   role: MessageRole
   content: string
   type: MessageType
@@ -134,6 +141,26 @@ export interface ModelConfigRow {
   active: number
   createdAt: number
   updatedAt: number
+}
+
+export interface SessionOperationRecord {
+  id: string
+  session_id: string
+  type: SessionOperationType
+  status: SessionOperationStatus
+  scope: SessionOperationScope | null
+  prompt: string | null
+  parent_operation_id: string | null
+  before_commit: string | null
+  after_commit: string | null
+  target_operation_id: string | null
+  target_commit: string | null
+  changed_files_json: string
+  changed_pages_json: string
+  tracked_files_json: string
+  metadata_json: string
+  created_at: number
+  completed_at: number | null
 }
 
 export class PPTDatabase {
@@ -233,6 +260,22 @@ export class PPTDatabase {
       .where(eq(schema.sessions.id, sessionId))
       .get()
     return result as unknown as Session | undefined
+  }
+
+  async updateSessionHistoryPointer(args: {
+    sessionId: string
+    operationId: string | null
+    commit: string | null
+  }): Promise<void> {
+    await this.db
+      .update(schema.sessions)
+      .set({
+        currentOperationId: args.operationId,
+        currentCommit: args.commit,
+        updatedAt: Math.floor(Date.now() / 1000)
+      })
+      .where(eq(schema.sessions.id, args.sessionId))
+      .run()
   }
 
   async updateSessionStatus(sessionId: string, status: SessionStatus): Promise<void> {
@@ -501,6 +544,145 @@ export class PPTDatabase {
     return Array.from(latestByPageId.values()).sort((a, b) => a.page_number - b.page_number)
   }
 
+  // ========== Session History ==========
+
+  private normalizeSessionOperationRow(row: Record<string, unknown>): SessionOperationRecord {
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      type: String(row.type || 'edit') as SessionOperationType,
+      status: String(row.status || 'completed') as SessionOperationStatus,
+      scope:
+        typeof (row.scope ?? row.scope) === 'string'
+          ? (String(row.scope) as SessionOperationScope)
+          : null,
+      prompt:
+        typeof row.prompt === 'string' && row.prompt.trim().length > 0
+          ? String(row.prompt)
+          : null,
+      parent_operation_id:
+        typeof (row.parentOperationId ?? row.parent_operation_id) === 'string'
+          ? String(row.parentOperationId ?? row.parent_operation_id)
+          : null,
+      before_commit:
+        typeof (row.beforeCommit ?? row.before_commit) === 'string'
+          ? String(row.beforeCommit ?? row.before_commit)
+          : null,
+      after_commit:
+        typeof (row.afterCommit ?? row.after_commit) === 'string'
+          ? String(row.afterCommit ?? row.after_commit)
+          : null,
+      target_operation_id:
+        typeof (row.targetOperationId ?? row.target_operation_id) === 'string'
+          ? String(row.targetOperationId ?? row.target_operation_id)
+          : null,
+      target_commit:
+        typeof (row.targetCommit ?? row.target_commit) === 'string'
+          ? String(row.targetCommit ?? row.target_commit)
+          : null,
+      changed_files_json: String(row.changedFilesJson ?? row.changed_files_json ?? '[]'),
+      changed_pages_json: String(row.changedPagesJson ?? row.changed_pages_json ?? '[]'),
+      tracked_files_json: String(row.trackedFilesJson ?? row.tracked_files_json ?? '[]'),
+      metadata_json: String(row.metadataJson ?? row.metadata_json ?? '{}'),
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      completed_at:
+        typeof (row.completedAt ?? row.completed_at) === 'number'
+          ? Number(row.completedAt ?? row.completed_at)
+          : null
+    }
+  }
+
+  async createSessionOperation(data: {
+    id: string
+    sessionId: string
+    type: SessionOperationType
+    status?: SessionOperationStatus
+    scope?: SessionOperationScope | null
+    prompt?: string | null
+    parentOperationId?: string | null
+    beforeCommit?: string | null
+    targetOperationId?: string | null
+    targetCommit?: string | null
+    metadata?: unknown
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.sessionOperations)
+      .values({
+        id: data.id,
+        sessionId: data.sessionId,
+        type: data.type,
+        status: data.status || 'committing',
+        scope: data.scope || null,
+        prompt: data.prompt || null,
+        parentOperationId: data.parentOperationId || null,
+        beforeCommit: data.beforeCommit || null,
+        afterCommit: null,
+        targetOperationId: data.targetOperationId || null,
+        targetCommit: data.targetCommit || null,
+        changedFilesJson: '[]',
+        changedPagesJson: '[]',
+        trackedFilesJson: '[]',
+        metadataJson: data.metadata ? JSON.stringify(data.metadata) : '{}',
+        createdAt: now,
+        completedAt: null
+      })
+      .run()
+  }
+
+  async completeSessionOperation(data: {
+    id: string
+    status: 'completed' | 'noop' | 'failed'
+    afterCommit?: string | null
+    changedFiles?: unknown[]
+    changedPages?: unknown[]
+    trackedFiles?: string[]
+    metadata?: unknown
+  }): Promise<void> {
+    await this.db
+      .update(schema.sessionOperations)
+      .set({
+        status: data.status,
+        afterCommit: data.afterCommit || null,
+        changedFilesJson: JSON.stringify(data.changedFiles || []),
+        changedPagesJson: JSON.stringify(data.changedPages || []),
+        trackedFilesJson: JSON.stringify(data.trackedFiles || []),
+        metadataJson: JSON.stringify(data.metadata || {}),
+        completedAt: Math.floor(Date.now() / 1000)
+      })
+      .where(eq(schema.sessionOperations.id, data.id))
+      .run()
+  }
+
+  async getSessionOperation(operationId: string): Promise<SessionOperationRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.sessionOperations)
+      .where(eq(schema.sessionOperations.id, operationId))
+      .get()
+    return row ? this.normalizeSessionOperationRow(row as Record<string, unknown>) : undefined
+  }
+
+  async listSessionOperations(
+    sessionId: string,
+    options?: { limit?: number; includeNoop?: boolean }
+  ): Promise<SessionOperationRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.sessionOperations)
+      .where(eq(schema.sessionOperations.sessionId, sessionId))
+      .orderBy(desc(schema.sessionOperations.createdAt))
+      .limit(Math.max(1, Math.min(200, Math.floor(options?.limit || 50))))
+      .all()
+    return rows
+      .map((row) => this.normalizeSessionOperationRow(row as Record<string, unknown>))
+      .filter((row) =>
+        options?.includeNoop
+          ? row.status === 'completed' || row.status === 'noop'
+          : row.status === 'completed'
+      )
+  }
+
   // ========== Messages ==========
 
   async getSessionMessages(
@@ -536,14 +718,14 @@ export class PPTDatabase {
     return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>))
   }
 
-  private normalizeImagePaths(value: unknown): string[] | null {
+  private normalizeAssetPaths(value: unknown, prefix: './images/' | './videos/'): string[] | null {
     if (typeof value !== 'string' || value.trim().length === 0) return null
     try {
       const parsed = JSON.parse(value) as unknown
       if (!Array.isArray(parsed)) return null
       const valid = parsed
         .map((item) => String(item || '').trim())
-        .filter((item) => item.startsWith('./images/'))
+        .filter((item) => item.startsWith(prefix))
         .slice(0, 10)
       return valid.length > 0 ? valid : null
     } catch {
@@ -553,7 +735,9 @@ export class PPTDatabase {
 
   private normalizeMessageRow(message: Record<string, unknown>): Message {
     const rawImagePaths = message.imagePaths ?? message.image_paths ?? null
-    const imagePaths = this.normalizeImagePaths(rawImagePaths)
+    const rawVideoPaths = message.videoPaths ?? message.video_paths ?? null
+    const imagePaths = this.normalizeAssetPaths(rawImagePaths, './images/')
+    const videoPaths = this.normalizeAssetPaths(rawVideoPaths, './videos/')
     return {
       id: String(message.id || ''),
       session_id: String(message.sessionId ?? message.session_id ?? ''),
@@ -567,6 +751,7 @@ export class PPTDatabase {
           ? message.selector.trim()
           : null,
       image_paths: imagePaths,
+      video_paths: videoPaths,
       role: String(message.role || 'system') as MessageRole,
       content: String(message.content || ''),
       type: String(message.type || 'text') as MessageType,
@@ -602,6 +787,7 @@ export class PPTDatabase {
       page_id?: string | null
       selector?: string | null
       image_paths?: string[] | null
+      video_paths?: string[] | null
     }
   ): Promise<string> {
     const id = crypto.randomUUID()
@@ -627,7 +813,16 @@ export class PPTDatabase {
             .filter((item) => item.startsWith('./images/'))
             .slice(0, 10)
         : []
+    const videoPathsRaw = Array.isArray(message.video_paths) ? message.video_paths : []
+    const videoPaths =
+      videoPathsRaw.length > 0
+        ? videoPathsRaw
+            .map((item) => String(item || '').trim())
+            .filter((item) => item.startsWith('./videos/'))
+            .slice(0, 10)
+        : []
     const imagePathsJson = imagePaths.length > 0 ? JSON.stringify(imagePaths) : null
+    const videoPathsJson = videoPaths.length > 0 ? JSON.stringify(videoPaths) : null
     if (chatScope === 'page' && !pageId) {
       throw new Error('page chat message requires page_id')
     }
@@ -641,6 +836,7 @@ export class PPTDatabase {
         pageId,
         selector,
         imagePaths: imagePathsJson,
+        videoPaths: videoPathsJson,
         role: message.role,
         content: message.content,
         type: message.type || 'text',

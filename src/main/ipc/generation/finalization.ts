@@ -1,7 +1,9 @@
 import log from 'electron-log/main.js'
+import path from 'path'
 import type { IpcContext } from '../context'
 import type { FinalizeContext, FinalizeGenerationArgs } from './types'
 import { derivePageNumber } from './metadata-parser'
+import { recordHistoryOperationSafe } from '../../history/git-history-service'
 
 export async function finalizeGenerationSuccess(
   ctx: IpcContext,
@@ -9,6 +11,7 @@ export async function finalizeGenerationSuccess(
 ): Promise<void> {
   const { db, emitGenerateChunk } = ctx
   const { context, indexPath, totalPages, generatedPages } = args
+  const contextWithPrompt = context as FinalizeContext & { userMessage?: unknown }
   await db.updateSessionMetadata(context.sessionId, {
     lastRunId: context.runId,
     entryMode: 'multi_page',
@@ -26,6 +29,25 @@ export async function finalizeGenerationSuccess(
   }
   await db.updateProjectStatus(context.projectId, 'draft')
   await db.updateSessionStatus(context.sessionId, 'completed')
+  await recordHistoryOperationSafe(db, {
+    sessionId: context.sessionId,
+    projectDir: path.dirname(indexPath),
+    type:
+      context.effectiveMode === 'addPage'
+        ? 'addPage'
+        : context.effectiveMode === 'retry'
+          ? 'retry'
+          : context.effectiveMode === 'retrySinglePage'
+            ? 'retry'
+            : 'generate',
+    scope: context.effectiveMode === 'retrySinglePage' ? 'page' : 'session',
+    prompt: typeof contextWithPrompt.userMessage === 'string' ? contextWithPrompt.userMessage : null,
+    metadata: {
+      runId: context.runId,
+      effectiveMode: context.effectiveMode,
+      totalPages
+    }
+  })
   log.info('[generate:start] completed', {
     sessionId: context.sessionId,
     styleId: context.styleId,

@@ -17,6 +17,7 @@ import {
   resolveCommonContext,
   resolveSourceDocuments
 } from './context'
+import { ensureHistoryBaselineSafe } from '../../history/git-history-service'
 
 export async function resolveRetryContext(
   ctx: IpcContext,
@@ -64,6 +65,7 @@ export async function resolveRetryContext(
     messageScope: 'main',
     messagePageId: undefined,
     imagePaths: [],
+    videoPaths: [],
     sourceDocumentPaths,
     topic: common.topic,
     deckTitle: common.deckTitle,
@@ -89,6 +91,7 @@ export async function executeRetryFailedPages(
   }
 
   const indexPath = path.join(context.entry.projectDir, 'index.html')
+  await ensureHistoryBaselineSafe(db, context.sessionId, context.entry.projectDir)
   const emitRetryChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
   let savedDesignContract: DesignContract | undefined
   const sessionRecord = (context.session || {}) as Record<string, unknown>

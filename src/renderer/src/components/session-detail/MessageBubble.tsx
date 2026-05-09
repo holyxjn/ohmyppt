@@ -1,5 +1,5 @@
 import dayjs from 'dayjs'
-import { Image as ImageIcon } from 'lucide-react'
+import { Image as ImageIcon, Video } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { Message } from '@renderer/store/sessionStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
@@ -24,6 +24,13 @@ export function MessageBubble({
         .filter((item) => item.startsWith('./images/'))
         .slice(0, 10)
     : []
+  const videoPaths = Array.isArray(message.video_paths)
+    ? message.video_paths
+        .map((item) => String(item || '').trim())
+        .filter((item) => item.startsWith('./videos/'))
+        .slice(0, 10)
+    : []
+  const mediaPaths = [...imagePaths, ...videoPaths]
 
   return (
     <div className={cn('flex w-full min-w-0', isUser ? 'justify-end' : 'justify-start')}>
@@ -52,20 +59,24 @@ export function MessageBubble({
               </TooltipContent>
             </Tooltip>
           )}
-          {isUser && imagePaths.length > 0 && (
+          {isUser && mediaPaths.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {imagePaths.map((imagePath) => (
-                <Tooltip key={imagePath}>
+              {mediaPaths.map((mediaPath) => (
+                <Tooltip key={mediaPath}>
                   <TooltipTrigger asChild>
                     <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#c7d9b4]/62 bg-[#e6f1dc]/72 px-1.5 py-0.5 text-[10px] font-medium text-[#4b5f3b]">
-                      <ImageIcon className="h-3 w-3 shrink-0" />
+                      {mediaPath.startsWith('./videos/') ? (
+                        <Video className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <ImageIcon className="h-3 w-3 shrink-0" />
+                      )}
                       <span className="min-w-0 max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap">
-                        {imagePath}
+                        {mediaPath}
                       </span>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent className="whitespace-pre-wrap break-all">
-                    {imagePath}
+                    {mediaPath}
                   </TooltipContent>
                 </Tooltip>
               ))}

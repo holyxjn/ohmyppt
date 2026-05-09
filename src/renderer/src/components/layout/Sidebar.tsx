@@ -1,13 +1,33 @@
+import { useEffect, useState } from 'react'
 import { cn } from '@renderer/lib/utils'
 import { Home, FolderOpen, Settings, Plus, ArrowLeft, SwatchBook } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import logoUrl from '@renderer/assets/images/logo.png'
 import { useT } from '@renderer/i18n'
+import { ipc } from '@renderer/lib/ipc'
 
 export function Sidebar(): React.JSX.Element {
   const location = useLocation()
   const t = useT()
   const isDetailPage = location.pathname.startsWith('/sessions/') && location.pathname !== '/sessions'
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    let disposed = false
+    void ipc
+      .getAppVersion()
+      .then((result) => {
+        if (!disposed) {
+          setAppVersion(String(result?.version || ''))
+        }
+      })
+      .catch(() => {
+        if (!disposed) setAppVersion('')
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   const navItems = [
     { path: '/', icon: Home, label: t('nav.home') },
@@ -59,10 +79,13 @@ export function Sidebar(): React.JSX.Element {
       <div className="px-4 pb-4">
         <Link
           to="/"
-          className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-[#6f8159] to-[#4f613f] px-4 py-3 text-sm font-medium text-white shadow-lg shadow-[#5d6b4d]/30 transition-all hover:translate-y-[-1px]"
+          className="flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-[#6f8159] to-[#4f613f] px-4 py-3 text-sm font-medium text-white shadow-lg shadow-[#5d6b4d]/30 transition-all hover:translate-y-[-1px]"
         >
-          <Plus className="w-4 h-4" />
-          {t('nav.newPresentation')}
+          <span className="flex items-center gap-3">
+            <Plus className="w-4 h-4" />
+            {t('nav.newPresentation')}
+          </span>
+          {appVersion ? <span className="text-[12px] font-normal text-white/80">v{appVersion}</span> : null}
         </Link>
       </div>
     </aside>

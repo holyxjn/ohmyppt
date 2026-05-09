@@ -11,6 +11,7 @@ import { createStyleSkill } from '../../utils/style-skills'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import { buildDesignContractWithLLM } from '../engine/generate'
 import { customAlphabet } from 'nanoid'
+import { recordHistoryOperationSafe } from '../../history/git-history-service'
 
 const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
 
@@ -134,6 +135,19 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         warnings: imported.warnings.slice(0, 30)
       })
       await db.updateProjectStatus(projectId, 'draft')
+      await recordHistoryOperationSafe(db, {
+        sessionId,
+        projectDir,
+        type: 'import',
+        scope: 'session',
+        prompt: `导入 PPTX：${originalFileName}`,
+        metadata: {
+          runId,
+          source: 'pptx-import',
+          originalFileName,
+          pageCount: imported.pageCount
+        }
+      })
 
       sendProgress({
         stage: 'completed',

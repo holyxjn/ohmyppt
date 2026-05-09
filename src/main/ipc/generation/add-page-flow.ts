@@ -13,6 +13,7 @@ import { planNewPage } from '../engine/generate'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
+import { ensureHistoryBaselineSafe } from '../../history/git-history-service'
 
 // ── Independent AddPage context (not shared with generation/retry/edit) ──
 
@@ -94,6 +95,7 @@ export async function executeAddPageGeneration(
   const emitChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
   const sessionRecord = context.sessionRecord
   const indexPath = path.join(context.projectDir, 'index.html')
+  await ensureHistoryBaselineSafe(db, context.sessionId, context.projectDir)
 
   // ── Step 1: Read designContract from session independent field ──
   let designContract: DesignContract | undefined

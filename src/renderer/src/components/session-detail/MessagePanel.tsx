@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { FileText, Image as ImageIcon, Loader2, Plus, Send, StopCircle, X } from 'lucide-react'
+import { FileText, Image as ImageIcon, Loader2, Plus, Send, StopCircle, Video, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionStore } from '@renderer/store/sessionStore'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
@@ -41,7 +41,7 @@ export function MessagePanel({
   progress: PanelProgress | null
   error: string | null
   onDropFiles: (files: File[]) => void
-  onChooseAssets: () => void
+  onChooseAssets: (assetType: 'image' | 'video') => void
   onSend: () => void
   onCancel: () => void
   cleanMessageContent: (content: string) => string
@@ -77,7 +77,7 @@ export function MessagePanel({
       ? t('sessionDetail.assetPlaceholder')
       : chatType === 'page'
         ? t('sessionDetail.pagePlaceholder')
-        : t('sessionDetail.mainDisabledPlaceholder')
+        : t('sessionDetail.mainPlaceholder')
   const displayLabel = (() => {
     const raw = selectorLabel || selectedSelector || ''
     const last = raw.split(/\s+/).pop() || raw
@@ -211,7 +211,7 @@ export function MessagePanel({
         )}
         {chatType === 'main' && (
           <div className="mb-2 rounded-[1rem] border border-[#ded2bd]/65 bg-[#f4ebdc]/70 px-2.5 py-2 text-xs text-[#6a5c48]">
-            {t('sessionDetail.mainDisabled')}
+            {t('sessionDetail.mainDeckHint')}
           </div>
         )}
         {pendingAssets.length > 0 && (
@@ -222,7 +222,11 @@ export function MessagePanel({
                 className="flex max-w-full items-center gap-1.5 rounded-full border border-[#c7d9b4]/66 bg-[#e6f1dc]/76 px-2 py-1 text-[11px] text-[#405333] shadow-[0_3px_8px_rgba(93,107,77,0.06)]"
                 title={`${asset.originalName}\n${asset.relativePath}`}
               >
-                <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                {asset.mimeType.startsWith('video/') ? (
+                  <Video className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                )}
                 <span className="min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap">
                   {asset.originalName || asset.fileName}
                 </span>
@@ -243,12 +247,12 @@ export function MessagePanel({
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && chatType !== 'main') {
+            if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
               onSend()
             }
           }}
-          disabled={isGenerating || chatType === 'main'}
+          disabled={isGenerating}
           rows={4}
           className="min-h-[96px] resize-none rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-3 py-2 text-[13px] leading-5 text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
         />
@@ -258,7 +262,7 @@ export function MessagePanel({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  disabled={isGenerating || isUploadingAssets || chatType === 'main'}
+                  disabled={isGenerating || isUploadingAssets}
                   className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] border border-[#c7d9b4]/66 bg-[#e6f1dc]/80 text-[#526942] shadow-[0_4px_10px_rgba(93,107,77,0.09)] transition-colors hover:bg-[#d7e8c8] disabled:pointer-events-none disabled:opacity-45"
                   aria-label={t('sessionDetail.addAsset')}
                   title={t('sessionDetail.addAsset')}
@@ -271,9 +275,13 @@ export function MessagePanel({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-40">
-                <DropdownMenuItem onSelect={onChooseAssets}>
+                <DropdownMenuItem onSelect={() => onChooseAssets('image')}>
                   <ImageIcon className="h-4 w-4" />
                   {t('sessionDetail.chooseImage')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onChooseAssets('video')}>
+                  <Video className="h-4 w-4" />
+                  {t('sessionDetail.chooseVideo')}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
                   <FileText className="h-4 w-4" />
@@ -300,7 +308,6 @@ export function MessagePanel({
             <Button
               onClick={onSend}
               disabled={
-                chatType === 'main' ||
                 (!input.trim() && pendingAssets.length === 0) ||
                 ((selectedSelector ? 'page' : chatType) === 'page' && !selectedPageExists)
               }

@@ -9,6 +9,50 @@ import type { AnyFlowContext, EmitAssistantFn } from './types'
 export const uiText = (locale: 'zh' | 'en', zh: string, en: string): string =>
   locale === 'en' ? en : zh
 
+export const isEditValidationRetryableError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error || '')
+  return /HTML 验证失败|HTML 落盘校验失败|页面编辑结果验证失败/i.test(message)
+}
+
+export const buildEditValidationRetryMessage = (originalMessage: string, detail: string): string =>
+  [
+    originalMessage,
+    '',
+    'Retry requirement:',
+    `- The previous edit failed validation: ${detail}`,
+    '- Retry once and fix the validation error directly.',
+    '- Only modify the affected page HTML. Keep the page scaffold, runtime scripts, and balanced tags valid.',
+    '- Do not modify index.html.'
+  ].join('\n')
+
+export type EditedPageDescriptor = {
+  pageNumber: number
+  title: string
+  pageId: string
+  html: string
+  htmlPath: string
+}
+
+export type InvalidEditedPage = {
+  page: EditedPageDescriptor
+  reason: string
+}
+
+export const validateChangedPages = (
+  changedPageDescriptors: EditedPageDescriptor[]
+): InvalidEditedPage[] =>
+  changedPageDescriptors
+    .map((page) => {
+      const validation = validatePersistedPageHtml(page.html, page.pageId)
+      return validation.valid
+        ? null
+        : {
+            page,
+            reason: validation.errors.join('; ')
+          }
+    })
+    .filter((item): item is InvalidEditedPage => Boolean(item))
+
 type DeckGenerationArgs = Parameters<typeof runDeepAgentDeckGeneration>[0]
 type DeckGenerationResult = Awaited<ReturnType<typeof runDeepAgentDeckGeneration>>
 
@@ -29,7 +73,10 @@ type GeneratePagesWithRetryArgs = {
   buildRetryRunArgs?: (runArgs: DeckGenerationArgs) => DeckGenerationArgs
 }
 
-function buildFallbackFailedPages(runArgs: DeckGenerationArgs, reason: string): DeckGenerationResult['failedPages'] {
+function buildFallbackFailedPages(
+  runArgs: DeckGenerationArgs,
+  reason: string
+): DeckGenerationResult['failedPages'] {
   if (Array.isArray(runArgs.pageTasks) && runArgs.pageTasks.length > 0) {
     return runArgs.pageTasks.map((task) => ({
       pageId: task.pageId,
@@ -91,7 +138,9 @@ export function createGenerationPageCallbacks(
   return { onPageCompleted, onPageFailed }
 }
 
-export async function generatePagesWithRetry(args: GeneratePagesWithRetryArgs): Promise<DeckGenerationResult> {
+export async function generatePagesWithRetry(
+  args: GeneratePagesWithRetryArgs
+): Promise<DeckGenerationResult> {
   const {
     runArgs,
     emitChunk,

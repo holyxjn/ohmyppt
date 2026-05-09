@@ -5,6 +5,15 @@ import type { DragEditorMovePayload } from '../components/preview/drag-editor-sc
 import type { TextEditorSelectionPayload } from '../components/preview/text-editor-types'
 import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
+import { Button } from '../components/ui/Button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../components/ui/Dialog'
 import { MessagePanel } from '../components/session-detail/MessagePanel'
 import { PageSidebar } from '../components/session-detail/PageSidebar'
 import { PreviewStage } from '../components/session-detail/PreviewStage'
@@ -14,6 +23,7 @@ import type { ChatType, SessionPreviewPage } from '../components/session-detail/
 import { useSessionStore, useGenerateStore } from '../store'
 import { useSessionDetailUiStore } from '../store/sessionDetailStore'
 import type { GenerateChunkEvent } from '@shared/generation.js'
+import type { HistoryVersion } from '@shared/history.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
@@ -104,6 +114,11 @@ export function SessionDetailPage(): React.JSX.Element {
   const [textSelection, setTextSelection] = useState<TextEditorSelectionPayload | null>(null)
   const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyVersions, setHistoryVersions] = useState<HistoryVersion[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyRollbackId, setHistoryRollbackId] = useState<string | null>(null)
+  const [rollbackConfirmVersion, setRollbackConfirmVersion] = useState<HistoryVersion | null>(null)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
   const [addPageInput, setAddPageInput] = useState('')
@@ -146,6 +161,71 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!currentSession) return false
     return getEditorGate(currentSession).canEdit
   }, [currentSession])
+  const sessionStatus =
+    currentSession && typeof (currentSession as { status?: unknown }).status === 'string'
+      ? String((currentSession as { status?: unknown }).status)
+      : ''
+  const historyDisabled =
+    isGenerating ||
+    isAddingPage ||
+    isRetryingSinglePage ||
+    historyRollbackId !== null ||
+    sessionStatus === 'active'
+
+  const formatHistoryTime = (value: number): string => {
+    const date = new Date(value > 1e12 ? value : value * 1000)
+    if (Number.isNaN(date.getTime())) return ''
+    return date.toLocaleString(undefined, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  const loadHistoryVersions = async (): Promise<void> => {
+    if (!id) return
+    setHistoryLoading(true)
+    try {
+      const versions = await ipc.listHistoryVersions({ sessionId: id, limit: 10 })
+      setHistoryVersions(versions)
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('sessionDetail.historyLoadFailed'))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const handleOpenHistory = async (): Promise<void> => {
+    if (!id || historyDisabled) return
+    setHistoryOpen(true)
+    await loadHistoryVersions()
+  }
+
+  const handleRollbackHistory = async (version: HistoryVersion): Promise<void> => {
+    if (!id || version.isCurrent || historyDisabled) return
+    setHistoryRollbackId(version.id)
+    setRollbackConfirmVersion(null)
+    try {
+      await ipc.rollbackToHistoryVersion({ sessionId: id, versionId: version.id })
+      await loadSession(id)
+      useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
+      useSessionDetailUiStore.getState().bumpPreviewKey()
+      setPreviewRefreshKey((key) => key + 1)
+      await loadHistoryVersions()
+      toastSuccess(t('sessionDetail.historyRollbackSuccess'))
+      setHistoryOpen(false)
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('sessionDetail.historyRollbackFailed'))
+    } finally {
+      setHistoryRollbackId(null)
+    }
+  }
+
+  const requestRollbackHistory = (version: HistoryVersion): void => {
+    if (version.isCurrent || historyDisabled || historyRollbackId) return
+    setRollbackConfirmVersion(version)
+  }
 
   useEffect(() => {
     if (!id) return
@@ -341,22 +421,29 @@ export function SessionDetailPage(): React.JSX.Element {
     if (file.type.startsWith('image/')) return true
     return /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)
   }
+  const isSupportedVideoFile = (file: File): boolean => {
+    if (/^video\/(mp4|webm|ogg)$/i.test(file.type)) return true
+    return /\.(mp4|webm|ogg)$/i.test(file.name)
+  }
+  const isSupportedMediaFile = (file: File): boolean => {
+    return isSupportedImageFile(file) || isSupportedVideoFile(file)
+  }
 
   const uploadFiles = async (files: File[]): Promise<void> => {
     if (!id || files.length === 0) return
-    const imageFiles = files.filter(isSupportedImageFile).slice(0, 10)
-    if (imageFiles.length === 0) {
-      toastWarning(t('sessionDetail.imageOnly'))
+    const mediaFiles = files.filter((file) => isSupportedMediaFile(file)).slice(0, 10)
+    if (mediaFiles.length === 0) {
+      toastWarning(t('sessionDetail.mediaOnly'))
       return
     }
-    const payloadFiles = imageFiles
+    const payloadFiles = mediaFiles
       .map((file) => ({
         path: window.electron?.getPathForFile?.(file) || '',
         name: file.name
       }))
       .filter((file) => file.path)
     if (payloadFiles.length === 0) {
-      toastError(t('sessionDetail.imagePathFailed'))
+      toastError(t('sessionDetail.mediaPathFailed'))
       return
     }
     useSessionDetailUiStore.getState().setIsUploadingAssets(true)
@@ -374,11 +461,11 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleChooseAssets = async (): Promise<void> => {
+  const handleChooseAssets = async (assetType: 'image' | 'video'): Promise<void> => {
     if (!id || useSessionDetailUiStore.getState().isUploadingAssets) return
     useSessionDetailUiStore.getState().setIsUploadingAssets(true)
     try {
-      const result = await ipc.chooseAndUploadAssets(id)
+      const result = await ipc.chooseAndUploadAssets(id, assetType)
       if (result.cancelled) return
       if (result.assets.length > 0) {
         useSessionDetailUiStore.getState().addPendingAssets(result.assets)
@@ -395,13 +482,15 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!id) return
     if (sendingMessageRef.current || isGenerating) return
     const detailState = useSessionDetailUiStore.getState()
-    if (detailState.chatType === 'main') {
-      toastInfo(t('sessionDetail.switchToPageFirst'))
-      return
-    }
     if (!detailState.input.trim() && detailState.pendingAssets.length === 0) return
     const content = detailState.input.trim() || t('sessionDetail.useUploadedAssets')
     const assetsForMessage = detailState.pendingAssets
+    const imagePaths = assetsForMessage
+      .map((asset) => asset.relativePath)
+      .filter((item) => item.startsWith('./images/'))
+    const videoPaths = assetsForMessage
+      .map((asset) => asset.relativePath)
+      .filter((item) => item.startsWith('./videos/'))
     const hasSelector = Boolean(detailState.selectedSelector?.trim())
     const selectorForMessage = hasSelector ? detailState.selectedSelector!.trim() : null
     const effectiveChatType: 'main' | 'page' = hasSelector ? 'page' : detailState.chatType
@@ -427,7 +516,8 @@ export function SessionDetailPage(): React.JSX.Element {
         chat_scope: effectiveChatType,
         page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
         selector: effectiveChatType === 'page' ? selectorForMessage : null,
-        image_paths: assetsForMessage.map((asset) => asset.relativePath),
+        image_paths: imagePaths,
+        video_paths: videoPaths,
         role: 'user',
         content,
         type: 'text',
@@ -451,7 +541,8 @@ export function SessionDetailPage(): React.JSX.Element {
         selector: selectorForMessage || undefined,
         elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
         elementText: hasSelector ? detailState.elementText || undefined : undefined,
-        imagePaths: assetsForMessage.map((asset) => asset.relativePath)
+        imagePaths,
+        videoPaths
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : t('generating.failed')
@@ -745,6 +836,17 @@ export function SessionDetailPage(): React.JSX.Element {
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       useSessionDetailUiStore.getState().setInteractionMode('preview')
       const totalCount = dragEdits.length + textEdits.length
+      await ipc.recordHistorySnapshot({
+        sessionId: id,
+        type: 'edit',
+        scope: 'selector',
+        prompt: t('sessionDetail.manualAdjustHistory'),
+        metadata: {
+          pageId: selectedPage.pageId,
+          dragCount: dragEdits.length,
+          textCount: textEdits.length
+        }
+      })
       toastSuccess(t('sessionDetail.adjustmentsSaved', { count: totalCount }))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('sessionDetail.layoutSaveFailed'))
@@ -850,11 +952,13 @@ export function SessionDetailPage(): React.JSX.Element {
             <div className="app-no-drag flex items-center gap-1.5">
               <SessionToolbar
                 hasPages={normalizedOrderedPages.length > 0}
+                historyDisabled={historyDisabled}
                 canPreview={Boolean(selectedPage?.htmlPath || normalizedOrderedPages[0]?.htmlPath)}
                 canRevealFile={Boolean(selectedPage?.htmlPath)}
                 onExportPdf={() => void handleExportPdf()}
                 onExportPng={() => void handleExportPng()}
                 onExportPptx={(options) => void handleExportPptx(options)}
+                onOpenHistory={() => void handleOpenHistory()}
                 onOpenPreview={() => void openProjectPreview()}
                 onRevealFile={() => {
                   if (selectedPage?.htmlPath) {
@@ -901,13 +1005,110 @@ export function SessionDetailPage(): React.JSX.Element {
               progress={progress}
               error={error}
               onDropFiles={(files) => void uploadFiles(files)}
-              onChooseAssets={() => void handleChooseAssets()}
+              onChooseAssets={(assetType) => void handleChooseAssets(assetType)}
               onSend={() => void handleSend()}
               onCancel={() => void handleCancel()}
               cleanMessageContent={cleanMessageContent}
             />
           )}
         </div>
+
+        {historyOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="flex max-h-[78vh] w-[560px] flex-col rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-[#e8e0d0] px-5 py-4">
+                <div>
+                  <h3 className="text-base font-semibold text-[#2f3a2a]">
+                    {t('sessionDetail.historyTitle')}
+                  </h3>
+                  <p className="mt-1 text-xs text-[#8a9a7b]">
+                    {t('sessionDetail.historyRecent')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="rounded-lg px-2 py-1 text-sm text-[#6f7d62] hover:bg-[#f2efe7]"
+                  disabled={Boolean(historyRollbackId)}
+                >
+                  {t('common.cancel')}
+                </button>
+              </div>
+              <div className="min-h-[220px] overflow-y-auto px-5 py-4">
+                {historyLoading ? (
+                  <div className="flex h-40 items-center justify-center text-sm text-[#8a9a7b]">
+                    {t('sessionDetail.historyLoading')}
+                  </div>
+                ) : historyVersions.length === 0 ? (
+                  <div className="flex h-40 flex-col items-center justify-center text-center">
+                    <p className="text-sm font-medium text-[#3e4a32]">
+                      {t('sessionDetail.historyEmptyTitle')}
+                    </p>
+                    <p className="mt-2 text-xs text-[#8a9a7b]">
+                      {t('sessionDetail.historyEmptyDescription')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {historyVersions.map((version) => {
+                      const rollbackDisabled =
+                        version.isCurrent ||
+                        !version.isRestorable ||
+                        historyDisabled ||
+                        Boolean(historyRollbackId)
+                      return (
+                        <div
+                          key={version.id}
+                          className="rounded-xl border border-[#e8e0d0] bg-[#faf8f2] px-4 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-[#2f3a2a]">
+                                  {version.title}
+                                </p>
+                                {version.isCurrent && (
+                                  <span className="rounded-full bg-[#d4e4c1] px-2 py-0.5 text-[10px] font-medium text-[#3e4a32]">
+                                    {t('sessionDetail.historyCurrent')}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-1 text-xs text-[#8a9a7b]">
+                                {formatHistoryTime(version.createdAt)}
+                              </p>
+                              <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[#5d6b4d]">
+                                {version.description}
+                              </p>
+                              {version.changedPages.length > 0 && (
+                                <p className="mt-2 text-[11px] text-[#7b6d55]">
+                                  {t('sessionDetail.historyChangedPages', {
+                                    pages: version.changedPages.join('、')
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                            {!version.isCurrent && (
+                              <button
+                                type="button"
+                                disabled={rollbackDisabled}
+                                onClick={() => requestRollbackHistory(version)}
+                                className="shrink-0 rounded-lg bg-[#3e4a32] px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-[#2f3a2a] disabled:cursor-not-allowed disabled:bg-[#c8c0b3]"
+                              >
+                                {historyRollbackId === version.id
+                                  ? t('sessionDetail.historyRollingBack')
+                                  : t('sessionDetail.historyRollback')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Add Page Dialog */}
         {addPageDialogOpen && (
@@ -995,6 +1196,38 @@ export function SessionDetailPage(): React.JSX.Element {
             </div>
           </div>
         )}
+        <Dialog
+          open={Boolean(rollbackConfirmVersion)}
+          onOpenChange={(open) => {
+            if (!open && !historyRollbackId) setRollbackConfirmVersion(null)
+          }}
+        >
+          <DialogContent showClose={false}>
+            <DialogHeader>
+              <DialogTitle>{t('sessionDetail.historyRollback')}</DialogTitle>
+              <DialogDescription>{t('sessionDetail.historyRollbackConfirm')}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRollbackConfirmVersion(null)}
+                disabled={Boolean(historyRollbackId)}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => rollbackConfirmVersion && void handleRollbackHistory(rollbackConfirmVersion)}
+                disabled={Boolean(historyRollbackId)}
+              >
+                {historyRollbackId ? t('sessionDetail.historyRollingBack') : t('sessionDetail.historyRollback')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   )

@@ -327,6 +327,22 @@ export const validatePersistedPageHtml = (
     }
   })
 
+  $('video').each((index, node) => {
+    const video = $(node)
+    const missingAttrs = ['autoplay', 'muted', 'loop', 'playsinline'].filter(
+      (attr) => video.attr(attr) === undefined
+    )
+    if (video.attr('controls') !== undefined) {
+      errors.push(`第 ${index + 1} 个 video 禁止包含 controls 属性`)
+    }
+    if (missingAttrs.length > 0) {
+      errors.push(`第 ${index + 1} 个 video 缺少属性：${missingAttrs.join(', ')}`)
+    }
+    if ((video.attr('preload') || '').toLowerCase() !== 'auto') {
+      errors.push(`第 ${index + 1} 个 video 必须设置 preload="auto"`)
+    }
+  })
+
   return { valid: errors.length === 0, errors }
 }
 

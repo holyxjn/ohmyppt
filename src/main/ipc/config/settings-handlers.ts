@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain } from 'electron'
 import log from 'electron-log/main.js'
 import { resolveModel } from '../../agent'
 import type { IpcContext } from '../context'
@@ -24,6 +24,10 @@ const normalizeProvider = (provider: unknown): 'anthropic' | 'openai' =>
 
 export function registerSettingsHandlers(ctx: IpcContext): void {
   const { mainWindow, db, encryptApiKey, decryptApiKey } = ctx
+
+  ipcMain.handle('app:getVersion', async () => {
+    return { version: app.getVersion() }
+  })
 
   ipcMain.handle('settings:get', async () => {
     log.info('[settings:get] requested')

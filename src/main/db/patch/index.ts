@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS messages (
   page_id TEXT,
   selector TEXT,
   image_paths TEXT,
+  video_paths TEXT,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   type TEXT,
@@ -52,7 +53,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   metadata TEXT,
-  design_contract TEXT
+  design_contract TEXT,
+  current_operation_id TEXT,
+  current_commit TEXT
 );
 
 ${MESSAGES_TABLE_SQL}
@@ -155,6 +158,28 @@ CREATE TABLE IF NOT EXISTS styles (
   updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_styles_style ON styles(style);
+
+CREATE TABLE IF NOT EXISTS session_operations (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'completed',
+  scope TEXT,
+  prompt TEXT,
+  parent_operation_id TEXT,
+  before_commit TEXT,
+  after_commit TEXT,
+  target_operation_id TEXT,
+  target_commit TEXT,
+  changed_files_json TEXT NOT NULL DEFAULT '[]',
+  changed_pages_json TEXT NOT NULL DEFAULT '[]',
+  tracked_files_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_session_operations_session_created ON session_operations(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_session_operations_session_status ON session_operations(session_id, status, created_at);
 `
 
 const getRowValue = (row: unknown, key: string): unknown => {
@@ -271,6 +296,42 @@ const enforceSessionsSchema = async (client: LibSqlClient): Promise<void> => {
   if (!columns.has('reference_document_path')) {
     await client.execute('ALTER TABLE sessions ADD COLUMN reference_document_path TEXT')
   }
+  if (!columns.has('current_operation_id')) {
+    await client.execute('ALTER TABLE sessions ADD COLUMN current_operation_id TEXT')
+  }
+  if (!columns.has('current_commit')) {
+    await client.execute('ALTER TABLE sessions ADD COLUMN current_commit TEXT')
+  }
+}
+
+const enforceSessionOperationsSchema = async (client: LibSqlClient): Promise<void> => {
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS session_operations (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      scope TEXT,
+      prompt TEXT,
+      parent_operation_id TEXT,
+      before_commit TEXT,
+      after_commit TEXT,
+      target_operation_id TEXT,
+      target_commit TEXT,
+      changed_files_json TEXT NOT NULL DEFAULT '[]',
+      changed_pages_json TEXT NOT NULL DEFAULT '[]',
+      tracked_files_json TEXT NOT NULL DEFAULT '[]',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      completed_at INTEGER
+    )
+  `)
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_session_operations_session_created ON session_operations(session_id, created_at)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_session_operations_session_status ON session_operations(session_id, status, created_at)'
+  )
 }
 
 const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
@@ -287,6 +348,9 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
   }
   if (!columns.has('image_paths')) {
     await client.execute('ALTER TABLE messages ADD COLUMN image_paths TEXT')
+  }
+  if (!columns.has('video_paths')) {
+    await client.execute('ALTER TABLE messages ADD COLUMN video_paths TEXT')
   }
   if (!columns.has('type')) {
     await client.execute('ALTER TABLE messages ADD COLUMN type TEXT')
@@ -590,6 +654,7 @@ export const runDatabasePatches = async (args: {
   await enforceModelConfigsSchema(client)
   await enforceMessagesSchema(client)
   await enforceGenerationSchema(client)
+  await enforceSessionOperationsSchema(client)
   await client.execute('PRAGMA foreign_keys = ON;')
   await ensureDefaultSettings(client)
   await patchGenerationRecordsFromMetadata({ client, db, resolveStoragePath })

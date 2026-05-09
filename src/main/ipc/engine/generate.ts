@@ -17,7 +17,7 @@ import type { GenerateChunkEvent } from '@shared/generation'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { resolveModelTimeoutMs, type ModelTimeoutProfile } from '@shared/model-timeout'
 import { progressLabel, progressText } from '@shared/progress'
-import type { DesignContract, OutlineItem } from '../../tools/types'
+import type { DeckEditScope, DesignContract, OutlineItem } from '../../tools/types'
 import { isPlaceholderPageHtml } from '../../tools/html-utils'
 import { extractModelText, extractJsonBlock, sleep } from '../utils'
 import {
@@ -1367,7 +1367,7 @@ export const runDeepAgentDeckGeneration = async (args: {
   }
 }
 
-export const runDeepAgentEdit = async (args: {
+type RunDeepAgentEditBaseArgs = {
   sessionId: string
   provider: string
   apiKey: string
@@ -1387,18 +1387,34 @@ export const runDeepAgentEdit = async (args: {
   indexPath: string
   pageFileMap: Record<string, string>
   designContract?: DesignContract
-  editScope: 'main' | 'page'
-  selectedPageId?: string
-  selectedPageNumber?: number
-  selectedSelector?: string
-  elementTag?: string
-  elementText?: string
   existingPageIds?: string[]
   agentManager: AgentManager
   emit?: (chunk: GenerateChunkEvent) => void
   runId?: string
   signal?: AbortSignal
-}): Promise<string> => {
+}
+
+type RunDeepAgentScopedEditArgs = RunDeepAgentEditBaseArgs & {
+  editScope: DeckEditScope
+  selectedPageId?: string
+  selectedPageNumber?: number
+  selectedSelector?: string
+  elementTag?: string
+  elementText?: string
+}
+
+type RunDeepAgentPageEditArgs = RunDeepAgentEditBaseArgs & {
+  editScope: Exclude<DeckEditScope, 'deck'>
+  selectedPageId?: string
+  selectedPageNumber?: number
+  selectedSelector?: string
+  elementTag?: string
+  elementText?: string
+}
+
+type RunDeepAgentDeckAllPageEditArgs = RunDeepAgentEditBaseArgs
+
+const runDeepAgentScopedEdit = async (args: RunDeepAgentScopedEditArgs): Promise<string> => {
   const editAgent = createSessionEditAgent({
     provider: args.provider,
     apiKey: args.apiKey,
@@ -1429,7 +1445,11 @@ export const runDeepAgentEdit = async (args: {
       elementText: args.elementText,
       existingPageIds: args.existingPageIds,
       allowedPageIds:
-        args.editScope === 'page' && args.selectedPageId ? [args.selectedPageId] : undefined
+        args.editScope === 'page' && args.selectedPageId
+          ? [args.selectedPageId]
+          : args.editScope === 'deck'
+            ? Object.keys(args.pageFileMap)
+            : undefined
     }
   })
   args.agentManager.setAgent(args.sessionId, editAgent)
@@ -1445,17 +1465,23 @@ export const runDeepAgentEdit = async (args: {
       provider: args.provider,
       model: args.model,
       detail:
-        args.editScope === 'main'
+        args.editScope === 'presentation-container'
           ? uiText(
               args.appLocale,
-              '仅修改 index.html 总览壳，不会改动 page 页面内容',
-              'Only modifying the index.html overview shell; page content will not be changed'
+              '仅修改演示容器配置，不会改动 page 页面内容',
+              'Only modifying the presentation container; page content will not be changed'
             )
-          : uiText(
-              args.appLocale,
-              '仅修改目标页面，不会重排整套内容',
-              'Only modifying the target page; the whole deck will not be rearranged'
-            )
+          : args.editScope === 'deck'
+            ? uiText(
+                args.appLocale,
+                '正在按主会话指令修改一个或多个 page 页面，index.html 不会被修改',
+                'Editing one or more page files from the main-session instruction; index.html will not be modified'
+              )
+            : uiText(
+                args.appLocale,
+                '仅修改目标页面，不会重排整套内容',
+                'Only modifying the target page; the whole deck will not be rearranged'
+              )
     }
   })
 
@@ -1565,3 +1591,19 @@ export const runDeepAgentEdit = async (args: {
 
   return finalAssistantText
 }
+
+export const runDeepAgentEdit = async (args: RunDeepAgentPageEditArgs): Promise<string> =>
+  runDeepAgentScopedEdit(args)
+
+export const runDeepAgentDeckAllPageEdit = async (
+  args: RunDeepAgentDeckAllPageEditArgs
+): Promise<string> =>
+  runDeepAgentScopedEdit({
+    ...args,
+    editScope: 'deck',
+    selectedPageId: undefined,
+    selectedPageNumber: undefined,
+    selectedSelector: undefined,
+    elementTag: undefined,
+    elementText: undefined
+  })

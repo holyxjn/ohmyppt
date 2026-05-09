@@ -35,6 +35,7 @@ export type NormalizedGenerateInput = {
   sessionId: string
   rawUserMessage: string
   rawImagePaths: string[]
+  rawVideoPaths: string[]
   rawDocPaths: string[]
   requestedType?: 'deck' | 'page'
   selectedPageId?: string
@@ -54,6 +55,12 @@ export function normalizeGeneratePayload(payload: unknown): NormalizedGenerateIn
     ? input.imagePaths
         .map((item) => String(item || '').trim())
         .filter((item) => item.startsWith('./images/'))
+        .slice(0, 10)
+    : []
+  const rawVideoPaths = Array.isArray(input?.videoPaths)
+    ? input.videoPaths
+        .map((item) => String(item || '').trim())
+        .filter((item) => item.startsWith('./videos/'))
         .slice(0, 10)
     : []
   const rawDocPaths = Array.isArray(input?.docPaths)
@@ -91,6 +98,7 @@ export function normalizeGeneratePayload(payload: unknown): NormalizedGenerateIn
     sessionId,
     rawUserMessage,
     rawImagePaths,
+    rawVideoPaths,
     rawDocPaths,
     requestedType,
     selectedPageId,
