@@ -241,8 +241,8 @@ export const ipc = {
     getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
   importPptx: (payload: PptxImportPayload) =>
     getIpc().invoke('pptx:import', payload) as Promise<PptxImportResult>,
-  chooseAndUploadAssets: (sessionId: string) =>
-    getIpc().invoke('assets:chooseAndUpload', { sessionId }) as Promise<{
+  chooseAndUploadAssets: (sessionId: string, assetType: 'image' | 'video' = 'image') =>
+    getIpc().invoke('assets:chooseAndUpload', { sessionId, assetType }) as Promise<{
       assets: UploadedAsset[]
       cancelled?: boolean
     }>,

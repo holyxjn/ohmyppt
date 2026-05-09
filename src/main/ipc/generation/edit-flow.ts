@@ -33,7 +33,8 @@ export async function resolveEditContext(
 
   const common = await resolveCommonContext(ctx, input.sessionId)
   const imagePaths = input.rawImagePaths
-  const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt(imagePaths)}`
+  const videoPaths = input.rawVideoPaths
+  const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt(imagePaths, videoPaths)}`
   const chatType: GenerateChatType = input.chatType
   const chatPageId =
     chatType === 'page'
@@ -50,7 +51,8 @@ export async function resolveEditContext(
     chat_scope: chatType,
     page_id: chatType === 'page' ? chatPageId : undefined,
     selector: chatType === 'page' ? input.selector : undefined,
-    image_paths: imagePaths
+    image_paths: imagePaths,
+    video_paths: videoPaths
   })
   await db.updateSessionStatus(input.sessionId, 'active')
 
@@ -82,6 +84,7 @@ export async function resolveEditContext(
     messageScope: chatType,
     messagePageId: chatType === 'page' ? chatPageId : undefined,
     imagePaths,
+    videoPaths,
     sourceDocumentPaths: [],
     topic: common.topic,
     deckTitle: common.deckTitle,

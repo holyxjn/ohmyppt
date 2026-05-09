@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS messages (
   page_id TEXT,
   selector TEXT,
   image_paths TEXT,
+  video_paths TEXT,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   type TEXT,
@@ -347,6 +348,9 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
   }
   if (!columns.has('image_paths')) {
     await client.execute('ALTER TABLE messages ADD COLUMN image_paths TEXT')
+  }
+  if (!columns.has('video_paths')) {
+    await client.execute('ALTER TABLE messages ADD COLUMN video_paths TEXT')
   }
   if (!columns.has('type')) {
     await client.execute('ALTER TABLE messages ADD COLUMN type TEXT')

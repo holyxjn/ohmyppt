@@ -25,6 +25,7 @@ export interface Message {
   page_id: string | null
   selector?: string | null
   image_paths?: string[] | null
+  video_paths?: string[] | null
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   type: string

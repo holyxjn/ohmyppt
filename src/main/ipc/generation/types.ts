@@ -48,6 +48,7 @@ export type GenerationContext = {
   messageScope: GenerateChatType
   messagePageId?: string
   imagePaths: string[]
+  videoPaths: string[]
   sourceDocumentPaths: string[]
   topic: string
   deckTitle: string

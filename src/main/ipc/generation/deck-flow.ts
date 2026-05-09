@@ -78,6 +78,7 @@ export async function resolveDeckContext(
     messageScope: 'main',
     messagePageId: undefined,
     imagePaths: [],
+    videoPaths: [],
     sourceDocumentPaths,
     topic: common.topic,
     deckTitle: common.deckTitle,

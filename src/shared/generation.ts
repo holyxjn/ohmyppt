@@ -64,6 +64,7 @@ export interface GenerateStartPayload {
   elementTag?: string
   elementText?: string
   imagePaths?: string[]
+  videoPaths?: string[]
   docPaths?: string[]
 }
 

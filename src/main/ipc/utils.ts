@@ -18,12 +18,11 @@ export const normalizeSession = (session: Record<string, unknown> | null | undef
 };
 
 export const normalizeMessage = (message: Record<string, unknown>) => {
-  const normalizedImagePaths = (() => {
-    const raw = message.image_paths ?? message.imagePaths;
+  const normalizeAssetPaths = (raw: unknown, prefix: "./images/" | "./videos/") => {
     if (Array.isArray(raw)) {
       return raw
         .map((item) => String(item || "").trim())
-        .filter((item) => item.startsWith("./images/"))
+        .filter((item) => item.startsWith(prefix))
         .slice(0, 10);
     }
     if (typeof raw === "string" && raw.trim().length > 0) {
@@ -32,7 +31,7 @@ export const normalizeMessage = (message: Record<string, unknown>) => {
         if (Array.isArray(parsed)) {
           return parsed
             .map((item) => String(item || "").trim())
-            .filter((item) => item.startsWith("./images/"))
+            .filter((item) => item.startsWith(prefix))
             .slice(0, 10);
         }
       } catch {
@@ -40,7 +39,16 @@ export const normalizeMessage = (message: Record<string, unknown>) => {
       }
     }
     return [] as string[];
-  })();
+  };
+
+  const normalizedImagePaths = normalizeAssetPaths(
+    message.image_paths ?? message.imagePaths,
+    "./images/"
+  );
+  const normalizedVideoPaths = normalizeAssetPaths(
+    message.video_paths ?? message.videoPaths,
+    "./videos/"
+  );
 
   return {
   ...message,
@@ -48,6 +56,7 @@ export const normalizeMessage = (message: Record<string, unknown>) => {
   chat_scope: message.chat_scope ?? message.chatScope ?? "main",
   page_id: message.page_id ?? message.pageId ?? null,
   image_paths: normalizedImagePaths,
+  video_paths: normalizedVideoPaths,
   tool_name: message.tool_name ?? message.toolName ?? null,
   tool_call_id: message.tool_call_id ?? message.toolCallId ?? null,
   token_count: message.token_count ?? message.tokenCount ?? null,

@@ -27,7 +27,7 @@ export function buildEditAgentSystemPrompt(
     : 'Target page: infer from the user message.'
   const targetPagePath =
     context.selectedPageId && context.pageFileMap[context.selectedPageId]
-      ? context.pageFileMap[context.selectedPageId]
+      ? `/${context.selectedPageId}.html`
       : undefined
   const selectorInfo = context.selectedSelector
     ? `Target element selector: ${context.selectedSelector}`
@@ -124,7 +124,7 @@ export function buildEditAgentSystemPrompt(
     '- 你必须通过工具实际修改文件，不能只在回复中描述修改',
     hasSelector ? '## Selector 精准修改协议（本次强约束）' : '',
     hasSelector
-      ? '1. 先根据 selectedPageId/selectedPagePath 锁定目标文件，再按 selectedSelector 定位目标节点'
+      ? '1. 先根据 selectedPageId/selectedPagePath 锁定目标文件，再按 selectedSelector 定位目标节点；文件工具只能使用 /page-x.html 这样的虚拟路径'
       : '',
     hasSelector ? '2. 修改范围仅限 selector 命中节点；若必须扩展，只允许向上 1 层父容器' : '',
     hasSelector ? '3. 禁止改动其他同级模块、禁止全局替换 class、禁止重排整页布局' : '',
@@ -154,6 +154,9 @@ export function buildEditAgentSystemPrompt(
     '',
     hasSelector ? '## 精准局部编辑规范（Selector 已指定，必须遵守）' : '',
     hasSelector ? '- 用 read_file 读取目标页面 HTML 源码（虚拟路径：/<pageId>.html）' : '',
+    hasSelector
+      ? '- 禁止把宿主机绝对路径传给 read_file/edit_file/write_file，否则会写到错误的虚拟嵌套路径'
+      : '',
     hasSelector
       ? '- 用 grep 在源码中搜索选择器的关键部分（如类名、data-block-id）或 elementText 中的文本'
       : '',

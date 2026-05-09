@@ -9,15 +9,15 @@
 - 新增图片导入风格：风格编辑页支持直接导入图片，自动提取配色、字体、版式、组件等视觉规则并回填表单。
 - 新增版本历史：每次生成或编辑自动记录历史版本，支持查看和回退到任意历史版本，即使改错也能回退到之前版本。
 - 新增主会话编辑：主会话现在可以统一修改一个或多个页面，不再仅限于单页编辑，即使改错也能回退到之前版本。
+- 新增视频素材插入：会话详情页支持上传 mp4/webm/ogg 视频素材，并可在页面编辑中引用本地视频路径插入到指定位置。
 - 优化删除提示：会话列表删除和历史版本回退等操作改为弹窗二次确认，不再使用浏览器原生弹窗。
 
 ### English
 
-- Added image-based creation: upload an image (png/jpg/jpeg/webp) on the Home page to auto-generate a presentation brief from its content and extract its visual style as a custom Style Skill, all prefilled in the creation form.
-- Added image style import: the Style Editor now accepts image files and automatically extracts colors, typography, layout, and component styles to fill the form.
-- Added version history: every generation or edit is automatically recorded, with the ability to view and roll back to any previous version.
-- Added main-session editing: the main session can now edit one or more pages at once, no longer limited to single-page edits; the index.html presentation shell is never modified.
-- Improved delete confirmations: session deletion and history rollback now use dialog-based confirmation instead of native browser alerts.
+- Added image-based creation and image style import.
+- Added version history and main-session editing.
+- Added video assets for page edits (mp4/webm/ogg).
+- Improved delete and rollback confirmations.
 
 ## 2026-05-08
 

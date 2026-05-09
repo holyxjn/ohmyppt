@@ -89,14 +89,18 @@ export interface IpcContext {
   isPathInside: (targetPath: string, rootPath: string) => boolean
   toSafeAssetBaseName: (value: string) => string
   resolveSessionProjectDir: (sessionId: string) => Promise<string>
-  formatImagePathsForPrompt: (imagePaths?: string[]) => string
+  formatImagePathsForPrompt: (imagePaths?: string[], videoPaths?: string[]) => string
   buildAssetTimestamp: () => string
   uploadSessionFiles: (
     sessionId: string,
     files: Array<{ path?: unknown; name?: unknown }>,
-    target: 'images' | 'docs'
+    target: 'images' | 'videos' | 'docs'
   ) => Promise<UploadedAsset[]>
   uploadImageAssets: (
+    sessionId: string,
+    files: Array<{ path?: unknown; name?: unknown }>
+  ) => Promise<UploadedAsset[]>
+  uploadMediaAssets: (
     sessionId: string,
     files: Array<{ path?: unknown; name?: unknown }>
   ) => Promise<UploadedAsset[]>
@@ -151,6 +155,7 @@ export function createIpcContext(
   const MAX_SESSION_RUN_EVENTS = 500
   const FINISHED_SESSION_RUN_STATE_TTL_MS = 30 * 60 * 1000
   const ALLOWED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'])
+  const ALLOWED_VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.ogg'])
   const ALLOWED_DOC_EXTENSIONS = new Set(['.md', '.txt', '.text'])
   const IMAGE_MIME_BY_EXT: Record<string, string> = {
     '.png': 'image/png',
@@ -164,6 +169,11 @@ export function createIpcContext(
     '.md': 'text/markdown',
     '.txt': 'text/plain',
     '.text': 'text/plain'
+  }
+  const VIDEO_MIME_BY_EXT: Record<string, string> = {
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.ogg': 'video/ogg'
   }
   const getPageSourceUrl = (htmlPath?: string): string | undefined => {
     if (!htmlPath || !fs.existsSync(htmlPath)) return undefined
@@ -616,24 +626,37 @@ export function createIpcContext(
     return path.resolve(await resolveStoragePath(), sessionId)
   }
 
-  const formatImagePathsForPrompt = (imagePaths?: string[]): string => {
+  const formatImagePathsForPrompt = (imagePaths?: string[], videoPaths?: string[]): string => {
     const validPaths = Array.isArray(imagePaths)
       ? imagePaths
           .map((item) => String(item || '').trim())
           .filter((item) => item.startsWith('./images/'))
           .slice(0, 10)
       : []
-    if (validPaths.length === 0) return ''
+    const validVideoPaths = Array.isArray(videoPaths)
+      ? videoPaths
+          .map((item) => String(item || '').trim())
+          .filter((item) => item.startsWith('./videos/'))
+          .slice(0, 10)
+      : []
+    if (validPaths.length === 0 && validVideoPaths.length === 0) return ''
     return [
       '',
-      '本次消息可用图片路径：',
+      validPaths.length > 0 ? '本次消息可用图片路径：' : '',
       ...validPaths.map((imagePath, index) => `- ${index + 1}. ${imagePath}`),
-      '',
-      '图片使用规则：',
-      '- 如需使用图片，请引用上面的相对路径。',
+      validPaths.length > 0 ? '' : '',
+      validVideoPaths.length > 0 ? '本次消息可用视频路径：' : '',
+      ...validVideoPaths.map((videoPath, index) => `- ${index + 1}. ${videoPath}`),
+      validVideoPaths.length > 0 ? '' : '',
+      '素材使用规则：',
+      '- 如需使用图片或视频，请引用上面的相对路径。',
       '- 禁止使用 file://、绝对路径或 base64。',
-      '- 不要重新引入远程图片资源，优先使用这些本地图片。'
-    ].join('\n')
+      '- 不要重新引入远程资源，优先使用这些本地素材。',
+      '- 插入视频时必须使用 HTML <video> 标签，并包含 autoplay muted loop playsinline preload="auto"。',
+      '- 插入视频时不要添加 controls 属性，确保页面内不显示控制条。'
+    ]
+      .filter(Boolean)
+      .join('\n')
   }
 
   const buildAssetTimestamp = (): string => {
@@ -652,7 +675,7 @@ export function createIpcContext(
   const uploadSessionFiles = async (
     sessionId: string,
     files: Array<{ path?: unknown; name?: unknown }>,
-    target: 'images' | 'docs'
+    target: 'images' | 'videos' | 'docs'
   ): Promise<UploadedAsset[]> => {
     if (!sessionId) throw new Error('sessionId 不能为空')
     if (files.length === 0) return []
@@ -680,6 +703,9 @@ export function createIpcContext(
       if (target === 'docs' && !ALLOWED_DOC_EXTENSIONS.has(ext)) {
         throw new Error('暂只支持 md、txt 文档素材')
       }
+      if (target === 'videos' && !ALLOWED_VIDEO_EXTENSIONS.has(ext)) {
+        throw new Error('暂只支持 mp4、webm、ogg 视频素材')
+      }
 
       const originalName =
         typeof file.name === 'string' && file.name.trim().length > 0
@@ -702,6 +728,8 @@ export function createIpcContext(
         mimeType:
           target === 'images'
             ? IMAGE_MIME_BY_EXT[ext] || 'application/octet-stream'
+            : target === 'videos'
+              ? VIDEO_MIME_BY_EXT[ext] || 'application/octet-stream'
             : DOC_MIME_BY_EXT[ext] || 'text/plain',
         size: stat.size,
         createdAt: Math.floor(Date.now() / 1000)
@@ -722,6 +750,35 @@ export function createIpcContext(
     sessionId: string,
     files: Array<{ path?: unknown; name?: unknown }>
   ): Promise<UploadedAsset[]> => uploadSessionFiles(sessionId, files, 'images')
+
+  const uploadMediaAssets = async (
+    sessionId: string,
+    files: Array<{ path?: unknown; name?: unknown }>
+  ): Promise<UploadedAsset[]> => {
+    const mediaAssets: UploadedAsset[] = []
+    const imageFiles: Array<{ path?: unknown; name?: unknown }> = []
+    const videoFiles: Array<{ path?: unknown; name?: unknown }> = []
+    for (const file of files) {
+      const sourcePath = typeof file.path === 'string' ? file.path.trim() : ''
+      const ext = path.extname(sourcePath).toLowerCase()
+      if (ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+        imageFiles.push(file)
+        continue
+      }
+      if (ALLOWED_VIDEO_EXTENSIONS.has(ext)) {
+        videoFiles.push(file)
+        continue
+      }
+      throw new Error('暂只支持 png/jpg/webp/gif/svg 图片，或 mp4/webm/ogg 视频素材')
+    }
+    if (imageFiles.length > 0) {
+      mediaAssets.push(...(await uploadSessionFiles(sessionId, imageFiles, 'images')))
+    }
+    if (videoFiles.length > 0) {
+      mediaAssets.push(...(await uploadSessionFiles(sessionId, videoFiles, 'videos')))
+    }
+    return mediaAssets
+  }
 
   const resolveExistingFileRealPath = async (filePath: string): Promise<string> => {
     const absolutePath = path.resolve(filePath)
@@ -855,9 +912,11 @@ export function createIpcContext(
   const ensureSessionAssets = async (projectDir: string): Promise<void> => {
     const assetsDir = path.join(projectDir, 'assets')
     const imagesDir = path.join(projectDir, 'images')
+    const videosDir = path.join(projectDir, 'videos')
     const docsDir = path.join(projectDir, 'docs')
     await fs.promises.mkdir(assetsDir, { recursive: true })
     await fs.promises.mkdir(imagesDir, { recursive: true })
+    await fs.promises.mkdir(videosDir, { recursive: true })
     await fs.promises.mkdir(docsDir, { recursive: true })
     await Promise.all(
       SESSION_ASSET_FILE_NAMES.map(async (fileName) => {
@@ -878,6 +937,7 @@ export function createIpcContext(
       projectDir,
       assetsDir,
       imagesDir,
+      videosDir,
       docsDir,
       count: SESSION_ASSET_FILE_NAMES.length + SESSION_ASSET_DIR_NAMES.length,
       env: is.dev ? 'dev' : 'prod'
@@ -1208,6 +1268,7 @@ export function createIpcContext(
     buildAssetTimestamp,
     uploadSessionFiles,
     uploadImageAssets,
+    uploadMediaAssets,
     resolveExistingFileRealPath,
     resolveWritableFileRealPath,
     resolveAllowedRoots,

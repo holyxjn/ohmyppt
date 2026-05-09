@@ -47,6 +47,7 @@ export interface Message {
   page_id: string | null
   selector: string | null
   image_paths: string[] | null
+  video_paths: string[] | null
   role: MessageRole
   content: string
   type: MessageType
@@ -717,14 +718,14 @@ export class PPTDatabase {
     return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>))
   }
 
-  private normalizeImagePaths(value: unknown): string[] | null {
+  private normalizeAssetPaths(value: unknown, prefix: './images/' | './videos/'): string[] | null {
     if (typeof value !== 'string' || value.trim().length === 0) return null
     try {
       const parsed = JSON.parse(value) as unknown
       if (!Array.isArray(parsed)) return null
       const valid = parsed
         .map((item) => String(item || '').trim())
-        .filter((item) => item.startsWith('./images/'))
+        .filter((item) => item.startsWith(prefix))
         .slice(0, 10)
       return valid.length > 0 ? valid : null
     } catch {
@@ -734,7 +735,9 @@ export class PPTDatabase {
 
   private normalizeMessageRow(message: Record<string, unknown>): Message {
     const rawImagePaths = message.imagePaths ?? message.image_paths ?? null
-    const imagePaths = this.normalizeImagePaths(rawImagePaths)
+    const rawVideoPaths = message.videoPaths ?? message.video_paths ?? null
+    const imagePaths = this.normalizeAssetPaths(rawImagePaths, './images/')
+    const videoPaths = this.normalizeAssetPaths(rawVideoPaths, './videos/')
     return {
       id: String(message.id || ''),
       session_id: String(message.sessionId ?? message.session_id ?? ''),
@@ -748,6 +751,7 @@ export class PPTDatabase {
           ? message.selector.trim()
           : null,
       image_paths: imagePaths,
+      video_paths: videoPaths,
       role: String(message.role || 'system') as MessageRole,
       content: String(message.content || ''),
       type: String(message.type || 'text') as MessageType,
@@ -783,6 +787,7 @@ export class PPTDatabase {
       page_id?: string | null
       selector?: string | null
       image_paths?: string[] | null
+      video_paths?: string[] | null
     }
   ): Promise<string> {
     const id = crypto.randomUUID()
@@ -808,7 +813,16 @@ export class PPTDatabase {
             .filter((item) => item.startsWith('./images/'))
             .slice(0, 10)
         : []
+    const videoPathsRaw = Array.isArray(message.video_paths) ? message.video_paths : []
+    const videoPaths =
+      videoPathsRaw.length > 0
+        ? videoPathsRaw
+            .map((item) => String(item || '').trim())
+            .filter((item) => item.startsWith('./videos/'))
+            .slice(0, 10)
+        : []
     const imagePathsJson = imagePaths.length > 0 ? JSON.stringify(imagePaths) : null
+    const videoPathsJson = videoPaths.length > 0 ? JSON.stringify(videoPaths) : null
     if (chatScope === 'page' && !pageId) {
       throw new Error('page chat message requires page_id')
     }
@@ -822,6 +836,7 @@ export class PPTDatabase {
         pageId,
         selector,
         imagePaths: imagePathsJson,
+        videoPaths: videoPathsJson,
         role: message.role,
         content: message.content,
         type: message.type || 'text',

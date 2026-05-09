@@ -25,6 +25,7 @@ export const messages = sqliteTable('messages', {
   pageId: text('page_id'),
   selector: text('selector'),
   imagePaths: text('image_paths'),
+  videoPaths: text('video_paths'),
   role: text('role').notNull(),
   content: text('content').notNull(),
   type: text('type'),

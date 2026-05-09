@@ -189,6 +189,43 @@ export const FIT_SCRIPT = `<script id="ppt-page-fit">
 })();
 </script>`
 
+export const VIDEO_AUTOPLAY_SCRIPT = `<script id="ppt-video-autoplay">
+(() => {
+  const playVideos = () => {
+    document.querySelectorAll("video").forEach((video) => {
+      video.muted = true;
+      video.defaultMuted = true;
+      video.autoplay = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.removeAttribute("controls");
+      const attempt = () => {
+        const result = video.play();
+        if (result && typeof result.catch === "function") {
+          result.catch(() => {});
+        }
+      };
+      if (video.readyState >= 2) {
+        attempt();
+      } else {
+        video.addEventListener("canplay", attempt, { once: true });
+        video.load();
+      }
+    });
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", playVideos, { once: true });
+  } else {
+    playVideos();
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) playVideos();
+  });
+  window.addEventListener("pageshow", playVideos);
+})();
+</script>`
+
 const DEFAULT_MOTION_SCRIPT = `<script id="ppt-default-motion">
 (() => {
   const search = new URLSearchParams(window.location.search);
@@ -522,7 +559,18 @@ function preprocessPageHtml(html: string): string {
       parent.attr('class', Array.from(parentClassSet).join(' '))
     })
 
-    // 3. Strip unsafe hidden states (opacity-0, visibility:hidden)
+    // 3. Normalize embedded videos for kiosk-style slide playback.
+    $('video').each((_, node) => {
+      const video = $(node)
+      video.removeAttr('controls')
+      video.attr('autoplay', '')
+      video.attr('muted', '')
+      video.attr('loop', '')
+      video.attr('playsinline', '')
+      video.attr('preload', 'auto')
+    })
+
+    // 4. Strip unsafe hidden states (opacity-0, visibility:hidden)
     $('*').each((_, node) => {
       const el = $(node)
 
@@ -608,6 +656,7 @@ function buildScaffoldDocument(args: {
       </div>
     </main>
     ${FIT_SCRIPT}
+    ${VIDEO_AUTOPLAY_SCRIPT}
     ${motionScript}
   </body>
 </html>`

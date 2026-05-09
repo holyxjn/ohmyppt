@@ -24,7 +24,7 @@ export function buildDeckAgentSystemPrompt(
     : 'This run may modify all pages.'
   const targetPagePath =
     context.selectedPageId && context.pageFileMap[context.selectedPageId]
-      ? context.pageFileMap[context.selectedPageId]
+      ? `/${context.selectedPageId}.html`
       : undefined
   const isSinglePageTask =
     Boolean(context.selectedPageId) ||

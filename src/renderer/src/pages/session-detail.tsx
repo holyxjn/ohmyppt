@@ -421,22 +421,29 @@ export function SessionDetailPage(): React.JSX.Element {
     if (file.type.startsWith('image/')) return true
     return /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)
   }
+  const isSupportedVideoFile = (file: File): boolean => {
+    if (/^video\/(mp4|webm|ogg)$/i.test(file.type)) return true
+    return /\.(mp4|webm|ogg)$/i.test(file.name)
+  }
+  const isSupportedMediaFile = (file: File): boolean => {
+    return isSupportedImageFile(file) || isSupportedVideoFile(file)
+  }
 
   const uploadFiles = async (files: File[]): Promise<void> => {
     if (!id || files.length === 0) return
-    const imageFiles = files.filter(isSupportedImageFile).slice(0, 10)
-    if (imageFiles.length === 0) {
-      toastWarning(t('sessionDetail.imageOnly'))
+    const mediaFiles = files.filter((file) => isSupportedMediaFile(file)).slice(0, 10)
+    if (mediaFiles.length === 0) {
+      toastWarning(t('sessionDetail.mediaOnly'))
       return
     }
-    const payloadFiles = imageFiles
+    const payloadFiles = mediaFiles
       .map((file) => ({
         path: window.electron?.getPathForFile?.(file) || '',
         name: file.name
       }))
       .filter((file) => file.path)
     if (payloadFiles.length === 0) {
-      toastError(t('sessionDetail.imagePathFailed'))
+      toastError(t('sessionDetail.mediaPathFailed'))
       return
     }
     useSessionDetailUiStore.getState().setIsUploadingAssets(true)
@@ -454,11 +461,11 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleChooseAssets = async (): Promise<void> => {
+  const handleChooseAssets = async (assetType: 'image' | 'video'): Promise<void> => {
     if (!id || useSessionDetailUiStore.getState().isUploadingAssets) return
     useSessionDetailUiStore.getState().setIsUploadingAssets(true)
     try {
-      const result = await ipc.chooseAndUploadAssets(id)
+      const result = await ipc.chooseAndUploadAssets(id, assetType)
       if (result.cancelled) return
       if (result.assets.length > 0) {
         useSessionDetailUiStore.getState().addPendingAssets(result.assets)
@@ -478,6 +485,12 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!detailState.input.trim() && detailState.pendingAssets.length === 0) return
     const content = detailState.input.trim() || t('sessionDetail.useUploadedAssets')
     const assetsForMessage = detailState.pendingAssets
+    const imagePaths = assetsForMessage
+      .map((asset) => asset.relativePath)
+      .filter((item) => item.startsWith('./images/'))
+    const videoPaths = assetsForMessage
+      .map((asset) => asset.relativePath)
+      .filter((item) => item.startsWith('./videos/'))
     const hasSelector = Boolean(detailState.selectedSelector?.trim())
     const selectorForMessage = hasSelector ? detailState.selectedSelector!.trim() : null
     const effectiveChatType: 'main' | 'page' = hasSelector ? 'page' : detailState.chatType
@@ -503,7 +516,8 @@ export function SessionDetailPage(): React.JSX.Element {
         chat_scope: effectiveChatType,
         page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
         selector: effectiveChatType === 'page' ? selectorForMessage : null,
-        image_paths: assetsForMessage.map((asset) => asset.relativePath),
+        image_paths: imagePaths,
+        video_paths: videoPaths,
         role: 'user',
         content,
         type: 'text',
@@ -527,7 +541,8 @@ export function SessionDetailPage(): React.JSX.Element {
         selector: selectorForMessage || undefined,
         elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
         elementText: hasSelector ? detailState.elementText || undefined : undefined,
-        imagePaths: assetsForMessage.map((asset) => asset.relativePath)
+        imagePaths,
+        videoPaths
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : t('generating.failed')
@@ -990,7 +1005,7 @@ export function SessionDetailPage(): React.JSX.Element {
               progress={progress}
               error={error}
               onDropFiles={(files) => void uploadFiles(files)}
-              onChooseAssets={() => void handleChooseAssets()}
+              onChooseAssets={(assetType) => void handleChooseAssets(assetType)}
               onSend={() => void handleSend()}
               onCancel={() => void handleCancel()}
               cleanMessageContent={cleanMessageContent}

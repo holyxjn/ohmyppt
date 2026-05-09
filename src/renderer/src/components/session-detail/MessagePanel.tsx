@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { FileText, Image as ImageIcon, Loader2, Plus, Send, StopCircle, X } from 'lucide-react'
+import { FileText, Image as ImageIcon, Loader2, Plus, Send, StopCircle, Video, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionStore } from '@renderer/store/sessionStore'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
@@ -41,7 +41,7 @@ export function MessagePanel({
   progress: PanelProgress | null
   error: string | null
   onDropFiles: (files: File[]) => void
-  onChooseAssets: () => void
+  onChooseAssets: (assetType: 'image' | 'video') => void
   onSend: () => void
   onCancel: () => void
   cleanMessageContent: (content: string) => string
@@ -222,7 +222,11 @@ export function MessagePanel({
                 className="flex max-w-full items-center gap-1.5 rounded-full border border-[#c7d9b4]/66 bg-[#e6f1dc]/76 px-2 py-1 text-[11px] text-[#405333] shadow-[0_3px_8px_rgba(93,107,77,0.06)]"
                 title={`${asset.originalName}\n${asset.relativePath}`}
               >
-                <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                {asset.mimeType.startsWith('video/') ? (
+                  <Video className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                )}
                 <span className="min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap">
                   {asset.originalName || asset.fileName}
                 </span>
@@ -271,9 +275,13 @@ export function MessagePanel({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-40">
-                <DropdownMenuItem onSelect={onChooseAssets}>
+                <DropdownMenuItem onSelect={() => onChooseAssets('image')}>
                   <ImageIcon className="h-4 w-4" />
                   {t('sessionDetail.chooseImage')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onChooseAssets('video')}>
+                  <Video className="h-4 w-4" />
+                  {t('sessionDetail.chooseVideo')}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
                   <FileText className="h-4 w-4" />
