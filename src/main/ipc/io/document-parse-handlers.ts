@@ -11,6 +11,8 @@ import type { IpcContext } from '../context'
 import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { assertImageWasRead, isImageUnsupportedError } from '../../utils/style-image-import'
+import { invokeVisionModelText } from '../../utils/vision-model'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string
@@ -23,6 +25,13 @@ const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
 const MAX_PAGE_COUNT = 40
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx'])
+const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp'
+}
 const NULL_CHAR_PATTERN = new RegExp(String.fromCharCode(0), 'g')
 const CJK_PATTERN = /[\u3400-\u9fff]/
 const LATIN_WORD_PATTERN = /\b[A-Za-z][A-Za-z'-]{2,}\b/g
@@ -80,6 +89,7 @@ const assertPlanLanguageMatchesSource = async (args: {
   plan: Pick<ParsedDocumentPlanResult, 'topic' | 'briefText'>
   userText: string
 }): Promise<void> => {
+  if (args.file.type === 'image') return
   if (countCjkChars(args.userText) >= 6) return
 
   const sourceText = await fs.promises.readFile(args.file.workspacePath, 'utf-8').catch(() => '')
@@ -474,8 +484,9 @@ const prepareSourceFile = async (
   if (stat.size > MAX_DOCUMENT_SIZE) throw new Error('单个文档不能超过 10MB')
 
   const ext = path.extname(filePath).toLowerCase()
-  if (!SUPPORTED_EXTENSIONS.has(ext)) {
-    throw new Error('暂只支持 md、txt、csv、docx 文档')
+  const isImage = SUPPORTED_IMAGE_EXTENSIONS.has(ext)
+  if (!SUPPORTED_EXTENSIONS.has(ext) && !isImage) {
+    throw new Error('暂只支持 md、txt、csv、docx 文档，以及 png、jpg、jpeg、webp 图片')
   }
   log.info('[documents:parsePlan] read source file', {
     fileName: path.basename(filePath),
@@ -488,7 +499,15 @@ const prepareSourceFile = async (
       ? file.name.trim()
       : path.basename(filePath)
   const type: PreparedSourceFile['type'] =
-    ext === '.docx' ? 'docx' : ext === '.md' ? 'markdown' : ext === '.csv' ? 'csv' : 'text'
+    isImage
+      ? 'image'
+      : ext === '.docx'
+        ? 'docx'
+        : ext === '.md'
+          ? 'markdown'
+          : ext === '.csv'
+            ? 'csv'
+            : 'text'
 
   const safeBaseName = toSafeFileName(path.basename(name, ext))
   const stamp = Date.now()
@@ -500,7 +519,16 @@ const prepareSourceFile = async (
   const workspacePath = path.join(workspaceDir, workspaceName)
   let characterCount = stat.size
 
-  if (ext === '.docx') {
+  if (isImage) {
+    if (path.resolve(filePath) !== path.resolve(workspacePath)) {
+      await fs.promises.copyFile(filePath, workspacePath)
+    }
+    log.info('[documents:parsePlan] image source prepared for vision', {
+      originalName: name,
+      workspaceName,
+      size: stat.size
+    })
+  } else if (ext === '.docx') {
     const markdown = await convertDocxToMarkdown(filePath)
     if (!markdown) throw new Error(`${name} 未解析出可用文本`)
     await fs.promises.writeFile(
@@ -776,6 +804,101 @@ const runDocumentPlanAgent = async (args: {
   return messageBuffer
 }
 
+const buildImageDocumentPlanPrompt = (args: {
+  topic: string
+  pageCount: number | null
+  existingBrief: string
+  fileName: string
+  retryHint?: string
+}): string =>
+  [
+    'Analyze the attached image or screenshot and produce the fixed structure needed by the PPT creation form.',
+    'The image is attached to this same message as a multimodal image block. Do not look for a file upload tool, file path, or external attachment.',
+    'You must directly inspect the attached image content before answering.',
+    '',
+    'Return only a JSON object. Do not return Markdown, explanations, or extra fields.',
+    'Use exactly these fields: topic, pageCount, briefText.',
+    '',
+    'Interpretation rules:',
+    '- If the image is a slide, dashboard, poster, whiteboard, document screenshot, product screenshot, chart, or design mockup, infer the presentation topic and outline from visible text, chart labels, layout, and visual context.',
+    '- If visible text is limited, produce a conservative editable brief based on what can be observed. Do not invent exact numbers or facts that are not visible.',
+    '- Preserve visible names, metrics, labels, dates, and terminology when they are readable.',
+    '- Mention uncertainty explicitly inside briefText when image content is ambiguous.',
+    '- Treat the image as an input reference only. Do not assume the original image will be available during later slide generation.',
+    '- Therefore briefText must fully capture both the content reference and the visual style reference needed for generation.',
+    '',
+    'Output language rules:',
+    '- Use the dominant language visible in the image and the latest user-provided topic/brief.',
+    '- If the user explicitly asks for a language, use that language.',
+    '- If the image is primarily Chinese, use Chinese section labels such as 演示目标、受众/场景、核心观点、建议大纲、每页要点、必须保留的事实/指标/术语、风格/表达要求.',
+    '- If the image is primarily English, use English section labels.',
+    '',
+    'Field rules:',
+    '- topic: a concise title suitable for the creation form topic input.',
+    `- pageCount: an integer from 1 to ${MAX_PAGE_COUNT}.`,
+    '- briefText: a concise but structured outline suitable for the creation form detailed-brief input.',
+    '- briefText should include presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and visual/style reference.',
+    '- visual/style reference should cover approximate colors, background, typography feel, layout density, alignment, cards/shapes/borders/shadows, chart style, image/illustration style, and any mood or motion guidance that would help recreate the look.',
+    '- The recommended outline and per-page points should align with pageCount.',
+    args.pageCount
+      ? `- Prefer pageCount=${args.pageCount} unless the image strongly suggests otherwise.`
+      : '- Infer pageCount from the image structure.',
+    args.retryHint
+      ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
+      : '',
+    args.topic ? `\nUser-provided topic: ${args.topic}` : '\nThe user did not provide a topic; infer it from the image.',
+    args.existingBrief ? `\nExisting user brief:\n${args.existingBrief}` : '',
+    `\nImage file name: ${args.fileName}`,
+    '',
+    'Return format examples:',
+    '{"topic":"AI动漫产业发展分析","pageCount":7,"briefText":"演示目标：...\\n受众/场景：...\\n核心观点：...\\n建议大纲：\\n1. ...\\n每页要点：\\n第 1 页：...\\n必须保留的事实/指标/术语：...\\n风格/表达要求：..."}',
+    '{"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\nPer-page points:\\nPage 1: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
+  ].join('\n')
+
+const runImageDocumentPlanModel = async (args: {
+  provider: string
+  apiKey: string
+  model: string
+  baseUrl: string
+  modelTimeoutMs: number
+  file: PreparedSourceFile
+  topic: string
+  pageCount: number | null
+  existingBrief: string
+  retryHint?: string
+}): Promise<string> => {
+  const ext = path.extname(args.file.workspacePath).toLowerCase()
+  const mimeType = IMAGE_MIME_BY_EXTENSION[ext]
+  if (!mimeType) throw new Error('暂只支持 png、jpg、jpeg、webp 图片')
+
+  const imageBase64 = (await fs.promises.readFile(args.file.workspacePath)).toString('base64')
+  const prompt = buildImageDocumentPlanPrompt({
+    topic: args.topic,
+    pageCount: args.pageCount,
+    existingBrief: args.existingBrief,
+    fileName: args.file.name,
+    retryHint: args.retryHint
+  })
+  try {
+    return await invokeVisionModelText({
+      imageBase64,
+      mimeType,
+      prompt,
+      provider: args.provider,
+      apiKey: args.apiKey,
+      model: args.model,
+      baseUrl: args.baseUrl,
+      modelTimeoutMs: args.modelTimeoutMs,
+      logTag: 'documents:parsePlan:image'
+    })
+  } catch (error) {
+    if (isImageUnsupportedError(error)) {
+      throw new Error('当前模型不支持图片解析，请在设置中切换到支持多模态的模型')
+    }
+    throw error
+  }
+}
+
 export function registerDocumentParseHandlers(ctx: IpcContext): void {
   const { resolveStoragePath } = ctx
 
@@ -819,20 +942,34 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
     let lastError: unknown = null
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+      const retryHint = attempt > 1 && lastError instanceof Error ? lastError.message : undefined
       const responseText = (
-        await runDocumentPlanAgent({
-          provider,
-          apiKey,
-          model,
-          baseUrl,
-          modelTimeoutMs,
-          workspaceDir: docsDir,
-          file: sourceFile,
-          topic,
-          pageCount,
-          existingBrief,
-          retryHint: attempt > 1 && lastError instanceof Error ? lastError.message : undefined
-        })
+        sourceFile.type === 'image'
+          ? await runImageDocumentPlanModel({
+              provider,
+              apiKey,
+              model,
+              baseUrl,
+              modelTimeoutMs,
+              file: sourceFile,
+              topic,
+              pageCount,
+              existingBrief,
+              retryHint
+            })
+          : await runDocumentPlanAgent({
+              provider,
+              apiKey,
+              model,
+              baseUrl,
+              modelTimeoutMs,
+              workspaceDir: docsDir,
+              file: sourceFile,
+              topic,
+              pageCount,
+              existingBrief,
+              retryHint
+            })
       ).trim()
       if (!responseText) {
         lastError = new Error('文档解析完成，但模型未返回可用内容')
@@ -846,6 +983,9 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
       })
       try {
         const candidatePlan = normalizeGeneratedPlan(responseText, fallbackPlan)
+        if (sourceFile.type === 'image') {
+          assertImageWasRead(`${candidatePlan.topic}\n${candidatePlan.briefText}`)
+        }
         await assertPlanLanguageMatchesSource({
           file: sourceFile,
           plan: candidatePlan,

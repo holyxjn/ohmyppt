@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -16,16 +16,37 @@ import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
-import { ipc } from '@renderer/lib/ipc'
+import { ipc, type StyleParseResult } from '@renderer/lib/ipc'
 import { useT } from '../i18n'
+import {
+  isSupportedImageMimeType,
+  normalizeImageMimeType
+} from '@shared/image-mime'
 
 const MIN_PAGE_COUNT = 1
 const MAX_PAGE_COUNT = 40
 const DEFAULT_PAGE_COUNT = 5
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+const MAX_IMAGE_SIZE_MB = 5
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
 const MAX_PPTX_SIZE_MB = 80
 const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
+const IMAGE_STYLE_PARSE_DELAY_MS = 300
+const isImageFileName = (name: string): boolean => /\.(png|jpe?g|webp)$/i.test(name.trim())
+
+const getImageMimeTypeFromFileName = (name: string): string => {
+  const normalized = name.trim().toLowerCase()
+  if (normalized.endsWith('.png')) return 'image/png'
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg'
+  if (normalized.endsWith('.webp')) return 'image/webp'
+  return ''
+}
+
+const isSupportedImageFile = (file: File): boolean =>
+  isSupportedImageMimeType(file.type) || isImageFileName(file.name || '')
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms))
 
 const buildNeutralInitialPrompt = (args: {
   topic: string
@@ -61,6 +82,7 @@ export function HomePage(): ReactElement {
   const [importingPptx, setImportingPptx] = useState(false)
   const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
+  const [hasParsedSource, setHasParsedSource] = useState(false)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
   const pptxInputRef = useRef<HTMLInputElement | null>(null)
@@ -105,25 +127,38 @@ export function HomePage(): ReactElement {
     return n >= MIN_PAGE_COUNT && n <= MAX_PAGE_COUNT
   })()
 
-  useEffect(() => {
-    ipc
-      .listStyles()
-      .then(({ items }) => {
-        const sorted = [...items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || (b.createdAt || 0) - (a.createdAt || 0))
+  const loadStyleOptions = useCallback(
+    async (preferredStyleId?: string): Promise<void> => {
+      try {
+        const { items } = await ipc.listStyles()
+        const sorted = [...items].sort(
+          (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || (b.createdAt || 0) - (a.createdAt || 0)
+        )
         const options = sorted.map((item) => ({
           id: item.id,
           label: item.label,
           description: item.description
         }))
         setStyleOptions(options)
-        setSelectedStyleId(options.length > 0 ? options[0].id : '')
-      })
-      .catch((err) => {
+        setSelectedStyleId((current) => {
+          if (preferredStyleId && options.some((option) => option.id === preferredStyleId)) {
+            return preferredStyleId
+          }
+          if (current && options.some((option) => option.id === current)) return current
+          return options.length > 0 ? options[0].id : ''
+        })
+      } catch (err) {
         error(t('home.styleLoadFailed'), {
           description: err instanceof Error ? err.message : t('common.retryLater')
         })
-      })
-  }, [error, t])
+      }
+    },
+    [error, t]
+  )
+
+  useEffect(() => {
+    void loadStyleOptions()
+  }, [loadStyleOptions])
 
   const handleSubmit = async (): Promise<void> => {
     const validationError = validateForm()
@@ -202,6 +237,49 @@ export function HomePage(): ReactElement {
     pptxInputRef.current?.click()
   }
 
+  const parseImageStyle = async (file: File): Promise<StyleParseResult> => {
+    const hintedMimeType = normalizeImageMimeType(file.type)
+    const fallbackMimeType = getImageMimeTypeFromFileName(file.name || '')
+    if (!isSupportedImageMimeType(file.type) && !fallbackMimeType) {
+      throw new Error(t('styleEditor.imageFormatInvalid'))
+    }
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      throw new Error(t('home.imageTooLarge', { maxSize: MAX_IMAGE_SIZE_MB }))
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error(t('styleEditor.imageReadFailed')))
+      reader.readAsDataURL(file)
+    })
+    const match = dataUrl.match(/^data:([^;]*);base64,(.+)$/)
+    if (!match) throw new Error(t('styleEditor.imageReadFailed'))
+
+    const dataUrlMimeType = normalizeImageMimeType(match[1])
+    const mimeType = isSupportedImageMimeType(match[1])
+      ? dataUrlMimeType
+      : isSupportedImageMimeType(file.type)
+        ? hintedMimeType
+        : fallbackMimeType
+    const imageBase64 = String(match[2] || '').trim()
+    if (!mimeType || !imageBase64) throw new Error(t('styleEditor.imageReadFailed'))
+
+    return await ipc.parseStyleImage({ imageBase64, mimeType })
+  }
+
+  const createParsedImageStyle = async (parsedStyle: StyleParseResult): Promise<{ id: string; label: string }> => {
+    const createdStyle = await ipc.createStyle({
+      label: parsedStyle.label,
+      description: parsedStyle.description,
+      category: parsedStyle.category,
+      aliases: parsedStyle.aliases,
+      styleSkill: parsedStyle.styleSkill
+    })
+    await loadStyleOptions(createdStyle.id)
+    return { id: createdStyle.id, label: parsedStyle.label }
+  }
+
   const handleDocumentFilesSelected = async (files: FileList | null): Promise<void> => {
     const selectedFiles = Array.from(files || [])
     if (documentInputRef.current) {
@@ -218,8 +296,13 @@ export function HomePage(): ReactElement {
       return
     }
     const selectedFile = selectedFiles[0]
-    if (selectedFile.size > MAX_DOCUMENT_SIZE_BYTES) {
-      const message = t('home.documentTooLarge', { maxSize: MAX_DOCUMENT_SIZE_MB })
+    const isImage = isSupportedImageFile(selectedFile)
+    const maxSizeMb = isImage ? MAX_IMAGE_SIZE_MB : MAX_DOCUMENT_SIZE_MB
+    const maxSizeBytes = isImage ? MAX_IMAGE_SIZE_BYTES : MAX_DOCUMENT_SIZE_BYTES
+    if (selectedFile.size > maxSizeBytes) {
+      const message = isImage
+        ? t('home.imageTooLarge', { maxSize: maxSizeMb })
+        : t('home.documentTooLarge', { maxSize: maxSizeMb })
       setDocumentParseError(message)
       error(t('home.documentTooLargeTitle'), {
         description: message
@@ -246,23 +329,34 @@ export function HomePage(): ReactElement {
 
     setParsingDocument(true)
     setDocumentParseError(null)
+    setHasParsedSource(false)
     try {
-      const result = await ipc.parseDocumentPlan({
+      const planPromise = ipc.parseDocumentPlan({
         files: payloadFiles,
         topic: topic.trim(),
         pageCount: safePageCount,
         existingBrief: brief.trim()
       })
+      const imageStyleParsePromise = isImage
+        ? delay(IMAGE_STYLE_PARSE_DELAY_MS).then(() => parseImageStyle(selectedFile))
+        : Promise.resolve(null)
+      const [result, parsedImageStyle] = await Promise.all([planPromise, imageStyleParsePromise])
+      const imageStyle = parsedImageStyle ? await createParsedImageStyle(parsedImageStyle) : null
       setTopic(result.topic)
       setPageCount(String(result.pageCount))
       setBrief(result.briefText)
-      setReferenceDocumentPath(result.files[0]?.path || null)
+      const referenceFile = result.files.find((file) => file.type !== 'image')
+      setReferenceDocumentPath(referenceFile?.path || null)
+      setHasParsedSource(true)
       success(t('home.documentParsed'), {
-        description: t('home.documentParsedDescription', { count: result.files.length })
+        description: imageStyle
+          ? t('home.imageParsedWithStyle', { style: imageStyle.label })
+          : t('home.documentParsedDescription', { count: result.files.length })
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('common.retryLater')
       setDocumentParseError(message)
+      setHasParsedSource(false)
       error(t('home.documentParseFailed'), {
         description: message
       })
@@ -383,7 +477,10 @@ export function HomePage(): ReactElement {
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="start">
-                    {t('home.uploadDocumentTooltip', { maxSize: MAX_DOCUMENT_SIZE_MB })}
+                    {t('home.uploadDocumentTooltip', {
+                      maxSize: MAX_DOCUMENT_SIZE_MB,
+                      imageMaxSize: MAX_IMAGE_SIZE_MB
+                    })}
                   </TooltipContent>
                 </Tooltip>
 
@@ -414,7 +511,7 @@ export function HomePage(): ReactElement {
                   </TooltipContent>
                 </Tooltip>
 
-                {referenceDocumentPath && !parsingDocument ? (
+                {hasParsedSource && !parsingDocument ? (
                   <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-xs text-[#4f6340]">
                     {t('home.parsed')}
                   </span>
@@ -431,7 +528,7 @@ export function HomePage(): ReactElement {
           <input
             ref={documentInputRef}
             type="file"
-            accept=".md,.txt,.text,.csv,.docx"
+            accept=".md,.txt,.text,.csv,.docx,image/png,image/jpeg,image/webp"
             multiple={false}
             className="hidden"
             onChange={(event) => void handleDocumentFilesSelected(event.target.files)}

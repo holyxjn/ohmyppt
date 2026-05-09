@@ -16,10 +16,10 @@ import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-co
 import { parseStyleFile } from '../../utils/style-import'
 import { parseStyleImage } from '../../utils/style-image-import'
 import { parseStylePptx } from '../../utils/style-pptx-import'
+import { isSupportedImageMimeType, normalizeImageMimeType } from '@shared/image-mime'
 
 const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
 const MAX_STYLE_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
-const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 type StyleBasePayload = {
   label: string
@@ -170,10 +170,10 @@ export function registerStyleHandlers(ctx: IpcContext): void {
 
   ipcMain.handle('styles:parseImage', async (_event, payload) => {
     const imageBase64 = typeof payload?.imageBase64 === 'string' ? payload.imageBase64.trim() : ''
-    const mimeType =
-      typeof payload?.mimeType === 'string' ? payload.mimeType.trim().toLowerCase() : ''
+    const rawMimeType = typeof payload?.mimeType === 'string' ? payload.mimeType : ''
+    const mimeType = normalizeImageMimeType(rawMimeType)
     if (!imageBase64) throw new Error('图片数据为空')
-    if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType)) {
+    if (!isSupportedImageMimeType(rawMimeType)) {
       throw new Error(`不支持的图片格式：${mimeType || 'unknown'}`)
     }
     let imageBuffer: Buffer

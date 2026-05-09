@@ -9,6 +9,10 @@ import { ipc, type StyleDetail, type StyleParseResult } from '@renderer/lib/ipc'
 import ReactMarkdown from 'react-markdown'
 import { ArrowLeft, Eye, Import, Loader2, Pencil, Save, Trash2 } from 'lucide-react'
 import { useT } from '../i18n'
+import {
+  isSupportedImageMimeType,
+  normalizeImageMimeType
+} from '@shared/image-mime'
 
 const MAX_STYLE_TEXT_FILE_SIZE_MB = 1
 const MAX_STYLE_PPTX_FILE_SIZE_MB = 80
@@ -16,8 +20,6 @@ const MAX_STYLE_IMAGE_SIZE_MB = 5
 const MAX_STYLE_TEXT_FILE_SIZE_BYTES = MAX_STYLE_TEXT_FILE_SIZE_MB * 1024 * 1024
 const MAX_STYLE_PPTX_FILE_SIZE_BYTES = MAX_STYLE_PPTX_FILE_SIZE_MB * 1024 * 1024
 const MAX_STYLE_IMAGE_SIZE_BYTES = MAX_STYLE_IMAGE_SIZE_MB * 1024 * 1024
-const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
-
 const isPptxFileName = (name: string): boolean => /\.pptx$/i.test(name.trim())
 const isImageFileName = (name: string): boolean => /\.(png|jpe?g|webp)$/i.test(name.trim())
 const getImageMimeTypeFromFileName = (name: string): string => {
@@ -206,9 +208,9 @@ export function StyleEditorPage(): React.JSX.Element {
   }
 
   const parseSelectedStyleImage = async (file: File): Promise<StyleParseResult> => {
-    const hintedMimeType = (file.type || '').toLowerCase()
+    const hintedMimeType = normalizeImageMimeType(file.type)
     const fallbackMimeType = getImageMimeTypeFromFileName(file.name || '')
-    if (!SUPPORTED_IMAGE_MIME_TYPES.has(hintedMimeType) && !fallbackMimeType) {
+    if (!isSupportedImageMimeType(file.type) && !fallbackMimeType) {
       throw new Error(t('styleEditor.imageFormatInvalid'))
     }
     if (file.size > MAX_STYLE_IMAGE_SIZE_BYTES) {
@@ -225,10 +227,10 @@ export function StyleEditorPage(): React.JSX.Element {
     if (!match) {
       throw new Error(t('styleEditor.imageReadFailed'))
     }
-    const dataUrlMimeType = String(match[1] || '').trim().toLowerCase()
-    const mimeType = SUPPORTED_IMAGE_MIME_TYPES.has(dataUrlMimeType)
+    const dataUrlMimeType = normalizeImageMimeType(match[1])
+    const mimeType = isSupportedImageMimeType(match[1])
       ? dataUrlMimeType
-      : SUPPORTED_IMAGE_MIME_TYPES.has(hintedMimeType)
+      : isSupportedImageMimeType(file.type)
         ? hintedMimeType
         : fallbackMimeType
     const imageBase64 = String(match[2] || '').trim()
@@ -246,7 +248,7 @@ export function StyleEditorPage(): React.JSX.Element {
 
     setImporting(true)
     try {
-      const isImage = SUPPORTED_IMAGE_MIME_TYPES.has((file.type || '').toLowerCase()) || isImageFileName(file.name || '')
+      const isImage = isSupportedImageMimeType(file.type) || isImageFileName(file.name || '')
       const result = isImage ? await parseSelectedStyleImage(file) : await parseSelectedStyleFile(file)
       applyParsedStyle(result)
       success(t('styleEditor.importSuccess'))
