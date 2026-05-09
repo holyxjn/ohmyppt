@@ -439,6 +439,7 @@ export const en = {
     textSaveEmpty: 'Text cannot be empty',
     inspectActiveToast: 'AI mode active — select elements on the page for AI to modify',
     addPage: 'Add Page',
+    addPageHint: 'Auto-generated in the current style — just describe the page you want',
     addPageDescription: 'Describe the page you want to add',
     addPageGenerating: 'Generating new page...',
     addPageGenerate: 'Generate',

@@ -106,7 +106,8 @@ export function isImageUnsupportedError(error: unknown): boolean {
     /image not supported/i,
     /does not support images/i,
     /unsupported content type/i,
-    /multimodal/i,
-    /vision/i
+    /does not support (?:multimodal|vision)/i,
+    /unsupported.*(?:multimodal|vision)/i,
+    /(?:multimodal|vision).*not (?:supported|available)/i
   ].some((pattern) => pattern.test(normalized))
 }

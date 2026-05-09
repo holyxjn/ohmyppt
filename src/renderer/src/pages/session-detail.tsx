@@ -916,6 +916,9 @@ export function SessionDetailPage(): React.JSX.Element {
               <h3 className="mb-3 text-base font-semibold text-[#2f3a2a]">
                 {t('sessionDetail.addPage')}
               </h3>
+              <p className="mb-3 text-xs text-[#8a9a7b]">
+                {t('sessionDetail.addPageHint')}
+              </p>
               <textarea
                 value={addPageInput}
                 onChange={(e) => setAddPageInput(e.target.value)}

@@ -420,6 +420,7 @@ export const zh = {
     textSaveEmpty: '文字不能为空',
     inspectActiveToast: '已进入AI模式，可以在界面检选元素让AI修改',
     addPage: '新增页面',
+    addPageHint: '按照当前风格自动生成，描述你想新增的页面内容即可',
     addPageDescription: '描述想新增的页面内容',
     addPageGenerating: '正在生成新页面...',
     addPageGenerate: '生成',
