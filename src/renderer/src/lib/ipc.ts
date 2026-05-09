@@ -12,6 +12,7 @@ import type {
   UploadedAsset
 } from '@shared/generation.js'
 import type { UpdateAvailablePayload } from '@shared/app-update.js'
+import type { HistoryVersion, RollbackHistoryResult } from '@shared/history.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -223,6 +224,17 @@ export const ipc = {
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
   cancelGenerate: (sessionId: string) =>
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
+  listHistoryVersions: (payload: { sessionId: string; limit?: number }) =>
+    getIpc().invoke('history:listVersions', payload) as Promise<HistoryVersion[]>,
+  rollbackToHistoryVersion: (payload: { sessionId: string; versionId: string }) =>
+    getIpc().invoke('history:rollbackToVersion', payload) as Promise<RollbackHistoryResult>,
+  recordHistorySnapshot: (payload: {
+    sessionId: string
+    type?: 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+    scope?: 'session' | 'deck' | 'page' | 'selector' | 'shell'
+    prompt?: string
+    metadata?: Record<string, unknown>
+  }) => getIpc().invoke('history:recordSnapshot', payload) as Promise<unknown>,
   uploadAssets: (payload: UploadAssetsPayload) =>
     getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
   parseDocumentPlan: (payload: ParseDocumentPlanPayload) =>

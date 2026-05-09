@@ -10,6 +10,10 @@ import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
+import {
+  ensureHistoryBaselineSafe,
+  recordHistoryOperationSafe
+} from '../../history/git-history-service'
 
 // ── Independent RetrySinglePage context ──
 
@@ -118,6 +122,7 @@ export async function executeRetrySinglePageGeneration(
 
   const emitChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
   const indexPath = path.join(context.projectDir, 'index.html')
+  await ensureHistoryBaselineSafe(db, context.sessionId, context.projectDir)
 
   // Read designContract
   const sessionRecord = context.sessionRecord
@@ -335,6 +340,17 @@ export async function executeRetrySinglePageGeneration(
   const targetStatus = hasFailedPages ? 'failed' : 'completed'
 
   await db.updateSessionStatus(context.sessionId, targetStatus)
+  await recordHistoryOperationSafe(db, {
+    sessionId: context.sessionId,
+    projectDir: context.projectDir,
+    type: 'retry',
+    scope: 'page',
+    prompt: `重新生成第 ${context.pageNumber} 页「${context.title}」`,
+    metadata: {
+      runId: context.runId,
+      pageId: context.pageId
+    }
+  })
 
   log.info('[generate:retrySinglePage] completed', {
     sessionId: context.sessionId,

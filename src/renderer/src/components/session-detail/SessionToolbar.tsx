@@ -4,6 +4,7 @@ import {
   FileDown,
   FileSearch,
   FileText,
+  History,
   Image as ImageIcon,
   Loader2,
   Presentation
@@ -26,20 +27,24 @@ const dropdownItemIconClass = 'mr-2 h-3.5 w-3.5 text-[#6b7280]'
 
 export function SessionToolbar({
   hasPages,
+  historyDisabled = false,
   canPreview,
   canRevealFile,
   onExportPdf,
   onExportPng,
   onExportPptx,
+  onOpenHistory,
   onOpenPreview,
   onRevealFile
 }: {
   hasPages: boolean
+  historyDisabled?: boolean
   canPreview: boolean
   canRevealFile: boolean
   onExportPdf: () => void
   onExportPng: () => void
   onExportPptx: (options?: { exportImages?: boolean; exportShapes?: boolean }) => void
+  onOpenHistory: () => void
   onOpenPreview: () => void
   onRevealFile: () => void
 }): React.JSX.Element {
@@ -50,6 +55,19 @@ export function SessionToolbar({
 
   return (
     <>
+      {hasPages && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={toolbarButtonClass}
+          onClick={onOpenHistory}
+          disabled={historyDisabled || isExportingPdf || isExportingPng || isExportingPptx}
+        >
+          <History className={toolbarIconClass} />
+          {t('sessionDetail.history')}
+        </Button>
+      )}
       {hasPages && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

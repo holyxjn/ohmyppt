@@ -55,6 +55,7 @@
     "drizzle-orm": "^0.44.5",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.3.9",
+    "isomorphic-git": "^1.37.6",
     "katex": "^0.16.45",
     "lucide-react": "^0.574.0",
     "mammoth": "^1.12.0",

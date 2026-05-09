@@ -17,6 +17,10 @@ import {
   normalizeGeneratePayload,
   resolveCommonContext
 } from './context'
+import {
+  ensureHistoryBaselineSafe,
+  recordHistoryOperationSafe
+} from '../../history/git-history-service'
 
 export async function resolveEditContext(
   ctx: IpcContext,
@@ -312,6 +316,7 @@ export async function executeEditGeneration(
   const beforeIndexHtml = fs.existsSync(indexPath)
     ? await fs.promises.readFile(indexPath, 'utf-8')
     : ''
+  await ensureHistoryBaselineSafe(db, context.sessionId, context.entry.projectDir)
 
   const editSummaryFromEngine = await runDeepAgentEdit({
     sessionId: context.sessionId,
@@ -537,6 +542,20 @@ export async function executeEditGeneration(
           .join('；')
       : null
   )
+  if (remainingFailedPages.length === 0) {
+    await recordHistoryOperationSafe(db, {
+      sessionId: context.sessionId,
+      projectDir: context.entry.projectDir,
+      type: 'edit',
+      scope: selectedSelector ? 'selector' : isMainScopeEdit ? 'shell' : 'page',
+      prompt: context.userMessage,
+      metadata: {
+        runId: context.runId,
+        selectedPageId: resolvedSelectedPageId || null,
+        selector: selectedSelector || null
+      }
+    })
+  }
   log.info('[generate:start] edit completed', {
     sessionId: context.sessionId,
     styleId: context.styleId,

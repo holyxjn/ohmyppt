@@ -13,7 +13,9 @@ export const sessions = sqliteTable('sessions', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   metadata: text('metadata'),
-  designContract: text('design_contract')
+  designContract: text('design_contract'),
+  currentOperationId: text('current_operation_id'),
+  currentCommit: text('current_commit')
 })
 
 export const messages = sqliteTable('messages', {
@@ -130,6 +132,28 @@ export const styles = sqliteTable('styles', {
   updatedAt: integer('updated_at').notNull()
 })
 
+export const sessionOperations = sqliteTable('session_operations', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  status: text('status').notNull().default('completed'),
+  scope: text('scope'),
+  prompt: text('prompt'),
+  parentOperationId: text('parent_operation_id'),
+  beforeCommit: text('before_commit'),
+  afterCommit: text('after_commit'),
+  targetOperationId: text('target_operation_id'),
+  targetCommit: text('target_commit'),
+  changedFilesJson: text('changed_files_json').notNull().default('[]'),
+  changedPagesJson: text('changed_pages_json').notNull().default('[]'),
+  trackedFilesJson: text('tracked_files_json').notNull().default('[]'),
+  metadataJson: text('metadata_json').notNull().default('{}'),
+  createdAt: integer('created_at').notNull(),
+  completedAt: integer('completed_at')
+})
+
 export type Session = typeof sessions.$inferSelect
 export type Message = typeof messages.$inferSelect
 export type Project = typeof projects.$inferSelect
@@ -138,6 +162,7 @@ export type GenerationPage = typeof generationPages.$inferSelect
 export type ModelConfig = typeof modelConfigs.$inferSelect
 export type MemorySummary = typeof memorySummaries.$inferSelect
 export type UserPreference = typeof userPreferences.$inferSelect
+export type SessionOperation = typeof sessionOperations.$inferSelect
 
 export type SessionStatus = 'active' | 'completed' | 'failed' | 'archived'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
@@ -146,3 +171,6 @@ export type ChatScope = 'main' | 'page'
 export type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 export type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 export type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type SessionOperationType = 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+export type SessionOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
+export type SessionOperationStatus = 'committing' | 'completed' | 'failed' | 'noop'

@@ -14,6 +14,7 @@ import type { ChatType, SessionPreviewPage } from '../components/session-detail/
 import { useSessionStore, useGenerateStore } from '../store'
 import { useSessionDetailUiStore } from '../store/sessionDetailStore'
 import type { GenerateChunkEvent } from '@shared/generation.js'
+import type { HistoryVersion } from '@shared/history.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
@@ -104,6 +105,10 @@ export function SessionDetailPage(): React.JSX.Element {
   const [textSelection, setTextSelection] = useState<TextEditorSelectionPayload | null>(null)
   const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyVersions, setHistoryVersions] = useState<HistoryVersion[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyRollbackId, setHistoryRollbackId] = useState<string | null>(null)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
   const [addPageInput, setAddPageInput] = useState('')
@@ -146,6 +151,67 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!currentSession) return false
     return getEditorGate(currentSession).canEdit
   }, [currentSession])
+  const sessionStatus =
+    currentSession && typeof (currentSession as { status?: unknown }).status === 'string'
+      ? String((currentSession as { status?: unknown }).status)
+      : ''
+  const historyDisabled =
+    isGenerating ||
+    isAddingPage ||
+    isRetryingSinglePage ||
+    historyRollbackId !== null ||
+    sessionStatus === 'active'
+
+  const formatHistoryTime = (value: number): string => {
+    const date = new Date(value > 1e12 ? value : value * 1000)
+    if (Number.isNaN(date.getTime())) return ''
+    return date.toLocaleString(undefined, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  const loadHistoryVersions = async (): Promise<void> => {
+    if (!id) return
+    setHistoryLoading(true)
+    try {
+      const versions = await ipc.listHistoryVersions({ sessionId: id, limit: 10 })
+      setHistoryVersions(versions)
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('sessionDetail.historyLoadFailed'))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const handleOpenHistory = async (): Promise<void> => {
+    if (!id || historyDisabled) return
+    setHistoryOpen(true)
+    await loadHistoryVersions()
+  }
+
+  const handleRollbackHistory = async (version: HistoryVersion): Promise<void> => {
+    if (!id || version.isCurrent || historyDisabled) return
+    const ok = window.confirm(t('sessionDetail.historyRollbackConfirm'))
+    if (!ok) return
+    setHistoryRollbackId(version.id)
+    try {
+      await ipc.rollbackToHistoryVersion({ sessionId: id, versionId: version.id })
+      await loadSession(id)
+      useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
+      useSessionDetailUiStore.getState().bumpPreviewKey()
+      setPreviewRefreshKey((key) => key + 1)
+      await loadHistoryVersions()
+      toastSuccess(t('sessionDetail.historyRollbackSuccess'))
+      setHistoryOpen(false)
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('sessionDetail.historyRollbackFailed'))
+    } finally {
+      setHistoryRollbackId(null)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -745,6 +811,17 @@ export function SessionDetailPage(): React.JSX.Element {
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       useSessionDetailUiStore.getState().setInteractionMode('preview')
       const totalCount = dragEdits.length + textEdits.length
+      await ipc.recordHistorySnapshot({
+        sessionId: id,
+        type: 'edit',
+        scope: 'selector',
+        prompt: t('sessionDetail.manualAdjustHistory'),
+        metadata: {
+          pageId: selectedPage.pageId,
+          dragCount: dragEdits.length,
+          textCount: textEdits.length
+        }
+      })
       toastSuccess(t('sessionDetail.adjustmentsSaved', { count: totalCount }))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('sessionDetail.layoutSaveFailed'))
@@ -850,11 +927,13 @@ export function SessionDetailPage(): React.JSX.Element {
             <div className="app-no-drag flex items-center gap-1.5">
               <SessionToolbar
                 hasPages={normalizedOrderedPages.length > 0}
+                historyDisabled={historyDisabled}
                 canPreview={Boolean(selectedPage?.htmlPath || normalizedOrderedPages[0]?.htmlPath)}
                 canRevealFile={Boolean(selectedPage?.htmlPath)}
                 onExportPdf={() => void handleExportPdf()}
                 onExportPng={() => void handleExportPng()}
                 onExportPptx={(options) => void handleExportPptx(options)}
+                onOpenHistory={() => void handleOpenHistory()}
                 onOpenPreview={() => void openProjectPreview()}
                 onRevealFile={() => {
                   if (selectedPage?.htmlPath) {
@@ -908,6 +987,103 @@ export function SessionDetailPage(): React.JSX.Element {
             />
           )}
         </div>
+
+        {historyOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="flex max-h-[78vh] w-[560px] flex-col rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-[#e8e0d0] px-5 py-4">
+                <div>
+                  <h3 className="text-base font-semibold text-[#2f3a2a]">
+                    {t('sessionDetail.historyTitle')}
+                  </h3>
+                  <p className="mt-1 text-xs text-[#8a9a7b]">
+                    {t('sessionDetail.historyRecent')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="rounded-lg px-2 py-1 text-sm text-[#6f7d62] hover:bg-[#f2efe7]"
+                  disabled={Boolean(historyRollbackId)}
+                >
+                  {t('common.cancel')}
+                </button>
+              </div>
+              <div className="min-h-[220px] overflow-y-auto px-5 py-4">
+                {historyLoading ? (
+                  <div className="flex h-40 items-center justify-center text-sm text-[#8a9a7b]">
+                    {t('sessionDetail.historyLoading')}
+                  </div>
+                ) : historyVersions.length === 0 ? (
+                  <div className="flex h-40 flex-col items-center justify-center text-center">
+                    <p className="text-sm font-medium text-[#3e4a32]">
+                      {t('sessionDetail.historyEmptyTitle')}
+                    </p>
+                    <p className="mt-2 text-xs text-[#8a9a7b]">
+                      {t('sessionDetail.historyEmptyDescription')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {historyVersions.map((version) => {
+                      const rollbackDisabled =
+                        version.isCurrent ||
+                        !version.isRestorable ||
+                        historyDisabled ||
+                        Boolean(historyRollbackId)
+                      return (
+                        <div
+                          key={version.id}
+                          className="rounded-xl border border-[#e8e0d0] bg-[#faf8f2] px-4 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-[#2f3a2a]">
+                                  {version.title}
+                                </p>
+                                {version.isCurrent && (
+                                  <span className="rounded-full bg-[#d4e4c1] px-2 py-0.5 text-[10px] font-medium text-[#3e4a32]">
+                                    {t('sessionDetail.historyCurrent')}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-1 text-xs text-[#8a9a7b]">
+                                {formatHistoryTime(version.createdAt)}
+                              </p>
+                              <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[#5d6b4d]">
+                                {version.description}
+                              </p>
+                              {version.changedPages.length > 0 && (
+                                <p className="mt-2 text-[11px] text-[#7b6d55]">
+                                  {t('sessionDetail.historyChangedPages', {
+                                    pages: version.changedPages.join('、')
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                            {!version.isCurrent && (
+                              <button
+                                type="button"
+                                disabled={rollbackDisabled}
+                                onClick={() => void handleRollbackHistory(version)}
+                                className="shrink-0 rounded-lg bg-[#3e4a32] px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-[#2f3a2a] disabled:cursor-not-allowed disabled:bg-[#c8c0b3]"
+                              >
+                                {historyRollbackId === version.id
+                                  ? t('sessionDetail.historyRollingBack')
+                                  : t('sessionDetail.historyRollback')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Add Page Dialog */}
         {addPageDialogOpen && (
