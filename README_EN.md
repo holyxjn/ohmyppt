@@ -73,6 +73,7 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 - 📄 **Multi-format export** — Export to PDF, batch PNG, or editable PPTX (still being improved)
 - 🏷️ **Session management** — Session list distinguishes AI-created decks from imported PPTX decks, and deck names can be renamed
 - 🧩 **More reliable slide layout** — Generation follows a fixed 16:9 canvas and content-height budget to reduce overflow
+- 🔄 **Version history rollback** — Every edit is automatically saved, roll back to any previous version with one click, never worry about mistakes
 
 
 <p>
