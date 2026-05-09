@@ -5,6 +5,15 @@ import type { DragEditorMovePayload } from '../components/preview/drag-editor-sc
 import type { TextEditorSelectionPayload } from '../components/preview/text-editor-types'
 import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
+import { Button } from '../components/ui/Button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../components/ui/Dialog'
 import { MessagePanel } from '../components/session-detail/MessagePanel'
 import { PageSidebar } from '../components/session-detail/PageSidebar'
 import { PreviewStage } from '../components/session-detail/PreviewStage'
@@ -109,6 +118,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const [historyVersions, setHistoryVersions] = useState<HistoryVersion[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyRollbackId, setHistoryRollbackId] = useState<string | null>(null)
+  const [rollbackConfirmVersion, setRollbackConfirmVersion] = useState<HistoryVersion | null>(null)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
   const [addPageInput, setAddPageInput] = useState('')
@@ -194,9 +204,8 @@ export function SessionDetailPage(): React.JSX.Element {
 
   const handleRollbackHistory = async (version: HistoryVersion): Promise<void> => {
     if (!id || version.isCurrent || historyDisabled) return
-    const ok = window.confirm(t('sessionDetail.historyRollbackConfirm'))
-    if (!ok) return
     setHistoryRollbackId(version.id)
+    setRollbackConfirmVersion(null)
     try {
       await ipc.rollbackToHistoryVersion({ sessionId: id, versionId: version.id })
       await loadSession(id)
@@ -211,6 +220,11 @@ export function SessionDetailPage(): React.JSX.Element {
     } finally {
       setHistoryRollbackId(null)
     }
+  }
+
+  const requestRollbackHistory = (version: HistoryVersion): void => {
+    if (version.isCurrent || historyDisabled || historyRollbackId) return
+    setRollbackConfirmVersion(version)
   }
 
   useEffect(() => {
@@ -1062,7 +1076,7 @@ export function SessionDetailPage(): React.JSX.Element {
                               <button
                                 type="button"
                                 disabled={rollbackDisabled}
-                                onClick={() => void handleRollbackHistory(version)}
+                                onClick={() => requestRollbackHistory(version)}
                                 className="shrink-0 rounded-lg bg-[#3e4a32] px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-[#2f3a2a] disabled:cursor-not-allowed disabled:bg-[#c8c0b3]"
                               >
                                 {historyRollbackId === version.id
@@ -1167,6 +1181,38 @@ export function SessionDetailPage(): React.JSX.Element {
             </div>
           </div>
         )}
+        <Dialog
+          open={Boolean(rollbackConfirmVersion)}
+          onOpenChange={(open) => {
+            if (!open && !historyRollbackId) setRollbackConfirmVersion(null)
+          }}
+        >
+          <DialogContent showClose={false}>
+            <DialogHeader>
+              <DialogTitle>{t('sessionDetail.historyRollback')}</DialogTitle>
+              <DialogDescription>{t('sessionDetail.historyRollbackConfirm')}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRollbackConfirmVersion(null)}
+                disabled={Boolean(historyRollbackId)}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => rollbackConfirmVersion && void handleRollbackHistory(rollbackConfirmVersion)}
+                disabled={Boolean(historyRollbackId)}
+              >
+                {historyRollbackId ? t('sessionDetail.historyRollingBack') : t('sessionDetail.historyRollback')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   )

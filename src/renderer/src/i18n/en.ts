@@ -116,6 +116,10 @@ export const en = {
     titleTooLongDescription: 'Session name cannot exceed 120 characters.',
     titleUpdated: 'Session name updated',
     renameFailed: 'Rename failed',
+    deleteConfirmTitle: 'Delete session',
+    deleteConfirmDescription: 'Delete "{title}"? This action cannot be undone.',
+    deleted: 'Session deleted',
+    deleteFailed: 'Failed to delete session',
     renameDescription:
       'Only the session name used in lists and exports will change. Page content will not be regenerated.',
     renamePlaceholder: 'Enter a new session name',

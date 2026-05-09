@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/Dialog'
 import { FileText, FileUp, FolderOpen, MessageSquare, Pencil, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react'
 import { type Session, useSessionStore } from '../store'
 import { useToastStore } from '../store'
@@ -48,6 +49,8 @@ export function SessionsPage(): React.JSX.Element {
   const [renameSession, setRenameSession] = useState<Session | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
   const [renaming, setRenaming] = useState(false)
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<Session | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     void fetchSessions()
@@ -98,6 +101,27 @@ export function SessionsPage(): React.JSX.Element {
       })
     } finally {
       setRenaming(false)
+    }
+  }
+
+  const closeDeleteDialog = (): void => {
+    if (deleting) return
+    setDeleteSessionTarget(null)
+  }
+
+  const handleDeleteSession = async (): Promise<void> => {
+    if (!deleteSessionTarget) return
+    setDeleting(true)
+    try {
+      await deleteSession(deleteSessionTarget.id)
+      success(t('sessions.deleted'))
+      setDeleteSessionTarget(null)
+    } catch (err) {
+      error(t('sessions.deleteFailed'), {
+        description: err instanceof Error ? err.message : t('common.retryLater')
+      })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -181,7 +205,7 @@ export function SessionsPage(): React.JSX.Element {
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation()
-                        deleteSession(session.id)
+                        setDeleteSessionTarget(session)
                       }}
                     >
                       <Trash2 className="w-4 h-4" />
@@ -273,6 +297,24 @@ export function SessionsPage(): React.JSX.Element {
           </div>
         </div>
       ) : null}
+      <Dialog open={Boolean(deleteSessionTarget)} onOpenChange={(open) => !open && closeDeleteDialog()}>
+        <DialogContent showClose={false}>
+          <DialogHeader>
+            <DialogTitle>{t('sessions.deleteConfirmTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('sessions.deleteConfirmDescription', { title: deleteSessionTarget?.title || '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={closeDeleteDialog} disabled={deleting}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="button" size="sm" onClick={() => void handleDeleteSession()} disabled={deleting}>
+              {deleting ? t('common.saving') : t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
