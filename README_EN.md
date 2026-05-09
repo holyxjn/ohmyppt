@@ -63,6 +63,7 @@ Output is pure HTML slides: instant browser preview, no extra software, easy to 
 - 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
 - 📄 **Document-based creation** — Upload txt, md, csv, or docx files to prepare topic, page count, and description automatically, then keep using the source document during generation
 - 📥 **Import PPTX for editing** — Convert local PPTX files into in-app HTML pages, then continue previewing, adjusting positions, and chat-based editing
+- 🖼️ **Image-based style and outline generation** — Upload a screenshot or design mockup, then automatically extract a distinctive visual style and generate an outline
 - 🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
 - 🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles  
 - ✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  

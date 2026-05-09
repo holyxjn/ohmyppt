@@ -1,5 +1,7 @@
 # Agent.md
 
+> 不要跑 `npm run lint`。
+
 ## Project
 
 Electron 桌面应用，主进程 (`src/main/`) + 渲染进程 (`src/renderer/`) + 共享类型 (`src/shared/`)。

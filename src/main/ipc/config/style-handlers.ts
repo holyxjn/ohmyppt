@@ -14,9 +14,12 @@ import {
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
 import { parseStyleFile } from '../../utils/style-import'
+import { parseStyleImage } from '../../utils/style-image-import'
 import { parseStylePptx } from '../../utils/style-pptx-import'
+import { isSupportedImageMimeType, normalizeImageMimeType } from '@shared/image-mime'
 
 const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
+const MAX_STYLE_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
 
 type StyleBasePayload = {
   label: string
@@ -162,6 +165,42 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       baseUrl: activeModel.baseUrl,
       modelTimeoutMs: modelTimeouts.document,
       tmpRootDir
+    })
+  })
+
+  ipcMain.handle('styles:parseImage', async (_event, payload) => {
+    const imageBase64 = typeof payload?.imageBase64 === 'string' ? payload.imageBase64.trim() : ''
+    const rawMimeType = typeof payload?.mimeType === 'string' ? payload.mimeType : ''
+    const mimeType = normalizeImageMimeType(rawMimeType)
+    if (!imageBase64) throw new Error('图片数据为空')
+    if (!isSupportedImageMimeType(rawMimeType)) {
+      throw new Error(`不支持的图片格式：${mimeType || 'unknown'}`)
+    }
+    let imageBuffer: Buffer
+    try {
+      imageBuffer = Buffer.from(imageBase64, 'base64')
+    } catch {
+      throw new Error('图片数据格式无效')
+    }
+    if (!imageBuffer.length) {
+      throw new Error('图片数据为空')
+    }
+    if (imageBuffer.length > MAX_STYLE_IMAGE_SIZE_BYTES) {
+      throw new Error(
+        `图片过大（${(imageBuffer.length / 1024 / 1024).toFixed(1)}MB），图片上限 5MB`
+      )
+    }
+
+    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+    return await parseStyleImage({
+      imageBase64,
+      mimeType,
+      provider: activeModel.provider,
+      apiKey: activeModel.apiKey,
+      model: activeModel.model,
+      baseUrl: activeModel.baseUrl,
+      modelTimeoutMs: modelTimeouts.document
     })
   })
 

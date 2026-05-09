@@ -1,6 +1,18 @@
 # 更新日志 / Changelog
 
 
+## 2026-05-09
+
+### 中文
+
+- 新增图片解析创建：首页上传图片（png/jpg/jpeg/webp）后，系统自动从图片内容生成演示提纲，同时提取视觉风格并保存为自定义风格 Skill，创建表单一键回填。
+- 新增图片导入风格：风格编辑页支持直接导入图片，自动提取配色、字体、版式、组件等视觉规则并回填表单。
+
+### English
+
+- Added image-based creation: upload an image (png/jpg/jpeg/webp) on the Home page to auto-generate a presentation brief from its content and extract its visual style as a custom Style Skill, all prefilled in the creation form.
+- Added image style import: the Style Editor now accepts image files and automatically extracts colors, typography, layout, and component styles to fill the form.
+
 ## 2026-05-08
 
 ### 中文

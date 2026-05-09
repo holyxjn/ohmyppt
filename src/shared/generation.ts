@@ -25,7 +25,7 @@ export interface ParsedDocumentPlanResult {
   briefText: string
   files: Array<{
     name: string
-    type: 'markdown' | 'text' | 'csv' | 'docx'
+    type: 'markdown' | 'text' | 'csv' | 'docx' | 'image'
     characterCount: number
     path: string
   }>
