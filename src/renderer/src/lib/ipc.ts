@@ -393,5 +393,9 @@ export const ipc = {
       callback(payload as UpdateAvailablePayload)
     getIpc().on(channel, handler)
     return () => getIpc().removeListener(channel, handler)
-  }
+  },
+  getAppVersion: () =>
+    getIpc().invoke('app:getVersion') as Promise<{
+      version: string
+    }>
 }
