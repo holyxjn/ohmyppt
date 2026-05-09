@@ -627,10 +627,10 @@ type EmitNormalizedToolStatus = (
 export function createPageWriteTools(args: {
   context: SessionDeckGenerationContext
   isEditMode: boolean
-  isMainScopeEdit: boolean
+  isContainerScopeEdit: boolean
   emitNormalizedToolStatus: EmitNormalizedToolStatus
 }): unknown[] {
-  const { context, isEditMode, isMainScopeEdit, emitNormalizedToolStatus } = args
+  const { context, isEditMode, isContainerScopeEdit, emitNormalizedToolStatus } = args
   const scopedPageIdsForWrite = (
     Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
       ? context.allowedPageIds.filter((pid) => Boolean(context.pageFileMap[pid]))
@@ -687,9 +687,9 @@ export function createPageWriteTools(args: {
     config: unknown
     statusLabel?: string
   }): Promise<string> => {
-    if (isMainScopeEdit) {
+    if (isContainerScopeEdit) {
       throw new Error(
-        '当前为主会话编辑（main），只允许调用 set_index_transition(type, durationMs)。'
+        '当前为演示容器编辑（presentation-container），不允许通过页面写入工具修改 page 文件。'
       )
     }
     const { pageId, content, config, statusLabel } = writeArgs
@@ -777,7 +777,7 @@ export function createPageWriteTools(args: {
     return result
   }
 
-  if (isMainScopeEdit || (isEditMode && context.selectedSelector?.trim())) {
+  if (isContainerScopeEdit || (isEditMode && context.selectedSelector?.trim())) {
     return []
   }
 

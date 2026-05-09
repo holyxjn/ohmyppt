@@ -1,4 +1,5 @@
 import { CONTENT_LANGUAGE_RULES } from "./shared";
+import type { DeckEditScope } from "../tools/types";
 
 export function buildPlanningUserPrompt(args: {
   topic: string;
@@ -30,7 +31,7 @@ export function buildDesignContractUserPrompt(): string {
 
 export function buildEditUserPrompt(args: {
   userMessage: string;
-  editScope?: "main" | "page";
+  editScope?: DeckEditScope;
   selectedPageId?: string;
   selectedPageNumber?: number;
   selectedSelector?: string;
@@ -38,18 +39,19 @@ export function buildEditUserPrompt(args: {
   elementText?: string;
   existingPageIds?: string[];
 }): string {
-  const isMainScope = args.editScope === "main";
+  const isContainerScope = args.editScope === "presentation-container";
+  const isDeckScope = args.editScope === "deck";
   const selector = args.selectedSelector?.trim();
 
-  if (isMainScope) {
+  if (isContainerScope) {
     return [
-      "Apply the following edit instruction only to the index.html overview shell:",
+      "Apply the following edit instruction only to the presentation container:",
       "",
       args.userMessage,
       "",
       CONTENT_LANGUAGE_RULES,
       "",
-      "Edit scope: main session",
+      "Edit scope: presentation-container",
       "Target file: index.html",
       "Do not modify any page-x.html files.",
       "Only set page transitions through set_index_transition(type, durationMs).",
@@ -64,13 +66,19 @@ export function buildEditUserPrompt(args: {
       : "";
 
   return [
-    "Apply the following edit instruction only to the specified page content. Do not modify other pages:",
+    isDeckScope
+      ? "Apply the following edit instruction to the relevant page-x.html files. You may edit multiple pages, but must not modify index.html:"
+      : "Apply the following edit instruction only to the specified page content. Do not modify other pages:",
     "",
     args.userMessage,
     "",
     CONTENT_LANGUAGE_RULES,
     "",
-    args.selectedPageId ? `Target page: ${args.selectedPageId} (slide ${args.selectedPageNumber ?? "?"})` : "Target page: all pages",
+    args.selectedPageId
+      ? `Target page: ${args.selectedPageId} (slide ${args.selectedPageNumber ?? "?"})`
+      : isDeckScope
+        ? "Target pages: all page-x.html files relevant to the instruction"
+        : "Target page: all pages",
     selector ? `Target element CSS selector: ${selector}` : "",
     elementDesc ? `Target element description: ${elementDesc}` : "",
     selector || elementDesc

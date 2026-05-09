@@ -461,10 +461,6 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!id) return
     if (sendingMessageRef.current || isGenerating) return
     const detailState = useSessionDetailUiStore.getState()
-    if (detailState.chatType === 'main') {
-      toastInfo(t('sessionDetail.switchToPageFirst'))
-      return
-    }
     if (!detailState.input.trim() && detailState.pendingAssets.length === 0) return
     const content = detailState.input.trim() || t('sessionDetail.useUploadedAssets')
     const assetsForMessage = detailState.pendingAssets

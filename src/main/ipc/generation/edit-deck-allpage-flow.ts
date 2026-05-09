@@ -1,95 +1,22 @@
-import type { IpcContext } from '../context'
-import type { EditContext, EmitAssistantFn, GenerateChatType } from './types'
-import { uiText } from './generation-utils'
+import fs from 'fs'
+import path from 'path'
 import log from 'electron-log/main.js'
 import { progressText } from '@shared/progress'
-import path from 'path'
-import fs from 'fs'
 import { normalizeLayoutIntent } from '@shared/layout-intent'
+import type { GeneratedPagePayload } from '@shared/generation'
+import type { IpcContext } from '../context'
+import type { EditContext, EmitAssistantFn } from './types'
+import { uiText } from './generation-utils'
+import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
-import { runDeepAgentEdit } from '../engine/generate'
-import type { GeneratedPagePayload } from '@shared/generation'
-import {
-  buildOutlineTitles,
-  buildTotalPages,
-  normalizeGeneratePayload,
-  resolveCommonContext
-} from './context'
+import { runDeepAgentDeckAllPageEdit } from '../engine/generate'
 import {
   ensureHistoryBaselineSafe,
   recordHistoryOperationSafe
 } from '../../history/git-history-service'
 
-export async function resolveEditContext(
-  ctx: IpcContext,
-  _event: Electron.IpcMainInvokeEvent,
-  payload: unknown
-): Promise<EditContext> {
-  const input = normalizeGeneratePayload(payload)
-  const { db, formatImagePathsForPrompt } = ctx
-  if (!input.sessionId) throw new Error('sessionId 不能为空')
-
-  const common = await resolveCommonContext(ctx, input.sessionId)
-  const imagePaths = input.rawImagePaths
-  const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt(imagePaths)}`
-  const chatType: GenerateChatType = input.chatType
-  const chatPageId =
-    chatType === 'page'
-      ? input.chatPageId || input.selectedPageId
-      : undefined
-  if (chatType === 'page' && !chatPageId) {
-    throw new Error('chatType=page requires chatPageId or selectedPageId')
-  }
-
-  await db.addMessage(input.sessionId, {
-    role: 'user',
-    content: input.rawUserMessage,
-    type: 'text',
-    chat_scope: chatType,
-    page_id: chatType === 'page' ? chatPageId : undefined,
-    selector: chatType === 'page' ? input.selector : undefined,
-    image_paths: imagePaths
-  })
-  await db.updateSessionStatus(input.sessionId, 'active')
-
-  return {
-    sessionId: input.sessionId,
-    userMessage,
-    requestedType: 'page',
-    effectiveMode: 'edit',
-    selectedPageId: input.selectedPageId,
-    htmlPath: input.htmlPath,
-    selector: input.selector,
-    elementTag: input.elementTag,
-    elementText: input.elementText,
-    session: common.session,
-    sessionRecord: common.sessionRecord,
-    previousSessionStatus: common.previousSessionStatus,
-    entry: common.entry,
-    runId: common.runId,
-    styleId: common.styleId,
-    styleSkill: common.styleSkill,
-    userProvidedOutlineTitles: buildOutlineTitles(input.rawUserMessage),
-    totalPages: buildTotalPages(common.sessionRecord),
-    provider: common.provider,
-    apiKey: common.apiKey,
-    model: common.model,
-    modelTimeouts: common.modelTimeouts,
-    providerBaseUrl: common.providerBaseUrl,
-    projectId: common.projectId,
-    messageScope: chatType,
-    messagePageId: chatType === 'page' ? chatPageId : undefined,
-    imagePaths,
-    sourceDocumentPaths: [],
-    topic: common.topic,
-    deckTitle: common.deckTitle,
-    appLocale: common.appLocale
-  }
-}
-
-export async function executeEditGeneration(
+export async function executeDeckAllPageEditGeneration(
   ctx: IpcContext,
   emitAssistant: EmitAssistantFn,
   context: EditContext
@@ -98,34 +25,25 @@ export async function executeEditGeneration(
     db,
     agentManager,
     getPageSourceUrl,
-    validateProjectIndexHtml,
     createDeckProgressEmitter,
-    PAGE_EDIT_WITH_SELECTOR_TEMPERATURE,
     PAGE_EDIT_DEFAULT_TEMPERATURE
   } = ctx
 
   if (!context.apiKey) {
     throw new Error(`当前 provider "${context.provider}" 缺少 API Key，请先到设置页配置。`)
   }
-  if (context.messageScope === 'main') {
-    throw new Error('主会话编辑需要走 deck 全页编辑流程，不能进入单页编辑流程。')
+  if (context.messageScope !== 'main') {
+    throw new Error('deck 全页编辑只接受主会话消息。')
   }
 
-  const indexPath = context.htmlPath
-    ? path.join(path.dirname(context.htmlPath), 'index.html')
-    : path.join(context.entry.projectDir, 'index.html')
-  const pageIdFromPath =
-    typeof context.htmlPath === 'string'
-      ? path.basename(context.htmlPath).match(/^(page-\d+)\.html$/i)?.[1]
-      : undefined
-  let resolvedSelectedPageId = context.selectedPageId || pageIdFromPath
-  const selectedSelector = context.selector
-
+  const projectDir = context.entry.projectDir
+  const indexPath = path.join(projectDir, 'index.html')
   let outlineTitles: string[] = context.userProvidedOutlineTitles
   let pageRefs: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string }> =
     []
   let savedDesignContract: DesignContract | undefined
   let metadataFailedPages: Array<{ pageId: string; title: string; reason: string }> = []
+
   if (context.session?.metadata) {
     const metadata = parseSessionMetadata(context.session.metadata)
     if (outlineTitles.length === 0) {
@@ -144,10 +62,11 @@ export async function executeEditGeneration(
         pageNumber: Number(pageId.match(/^page-(\d+)$/i)?.[1]) || index + 1,
         title: p.title || `第${index + 1}页`,
         pageId,
-        htmlPath: p.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
+        htmlPath: p.htmlPath || path.join(projectDir, `${pageId}.html`)
       }
     })
   }
+
   const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
   const pageRefById = new Map(pageRefs.map((ref) => [ref.pageId, ref]))
   for (const page of latestPageSnapshot) {
@@ -158,11 +77,12 @@ export async function executeEditGeneration(
       pageNumber,
       title: page.title || `第${pageNumber}页`,
       pageId,
-      htmlPath: page.html_path || path.join(context.entry.projectDir, `${pageId}.html`)
+      htmlPath: page.html_path || path.join(projectDir, `${pageId}.html`)
     }
     pageRefs.push(ref)
     pageRefById.set(pageId, ref)
   }
+
   const failedPageInfoById = new Map<string, { title: string; reason: string }>()
   for (const page of latestPageSnapshot) {
     if (page.status !== 'failed') continue
@@ -180,7 +100,7 @@ export async function executeEditGeneration(
       })
     }
   }
-  // Read designContract from the dedicated column
+
   const sessionRecord = (context.session || {}) as Record<string, unknown>
   if (
     typeof sessionRecord.designContract === 'string' &&
@@ -189,16 +109,17 @@ export async function executeEditGeneration(
     try {
       savedDesignContract = JSON.parse(sessionRecord.designContract) as DesignContract
     } catch {
-      /* ignore */
+      /* ignore invalid persisted design contract */
     }
   }
+
   if (outlineTitles.length === 0) {
     outlineTitles = Array.from({ length: context.totalPages }, (_unused, i) => `第${i + 1}页`)
   }
   if (pageRefs.length === 0) {
-    const diskPageIds = fs.existsSync(context.entry.projectDir)
+    const diskPageIds = fs.existsSync(projectDir)
       ? fs
-          .readdirSync(context.entry.projectDir)
+          .readdirSync(projectDir)
           .map((name) => name.match(/^(page-(\d+))\.html$/i))
           .filter((m): m is RegExpMatchArray => Boolean(m))
           .sort((a, b) => Number(a[2]) - Number(b[2]))
@@ -210,31 +131,10 @@ export async function executeEditGeneration(
       pageNumber: Number(pid.match(/^page-(\d+)$/i)?.[1] || index + 1),
       title: outlineTitles[index] || `第${index + 1}页`,
       pageId: pid,
-      htmlPath: path.join(context.entry.projectDir, `${pid}.html`)
+      htmlPath: path.join(projectDir, `${pid}.html`)
     }))
   }
-  if (
-    resolvedSelectedPageId &&
-    !pageRefs.some((ref) => ref.pageId === resolvedSelectedPageId)
-  ) {
-    const inferredNumber = Number(
-      resolvedSelectedPageId.match(/^page-(\d+)$/i)?.[1] || pageRefs.length + 1
-    )
-    pageRefs.push({
-      pageNumber: inferredNumber,
-      title: outlineTitles[inferredNumber - 1] || `第${inferredNumber}页`,
-      pageId: resolvedSelectedPageId,
-      htmlPath: path.join(context.entry.projectDir, `${resolvedSelectedPageId}.html`)
-    })
-  }
   pageRefs.sort((a, b) => a.pageNumber - b.pageNumber)
-  if (!resolvedSelectedPageId && pageRefs.length > 0) {
-    resolvedSelectedPageId = pageRefs[0].pageId
-  }
-  const resolvedSelectedPageNumber =
-    Number(resolvedSelectedPageId?.match(/^page-(\d+)$/i)?.[1] || 0) ||
-    pageRefs.find((ref) => ref.pageId === resolvedSelectedPageId)?.pageNumber ||
-    undefined
   if (outlineTitles.length !== pageRefs.length) {
     outlineTitles = pageRefs.map((ref) => ref.title)
   }
@@ -254,6 +154,7 @@ export async function executeEditGeneration(
     layoutIntent: layoutIntentByPageId.get(ref.pageId)
   }))
   const pageFileMap = Object.fromEntries(pageRefs.map((p) => [p.pageId, p.htmlPath]))
+  const allowedPageIds = pageRefs.map((p) => p.pageId)
   const beforeMap = new Map<string, string>()
   const existingPageIdsBeforeRun: string[] = []
   const beforeReads = await Promise.all(
@@ -275,13 +176,13 @@ export async function executeEditGeneration(
     mode: 'edit',
     totalPages: pageRefs.length,
     metadata: {
-      editScope: 'page',
-      selectedPageId: resolvedSelectedPageId || null,
-      selector: selectedSelector || null
+      editScope: 'deck',
+      selectedPageId: null,
+      selector: null
     }
   })
-  const emitEditChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
 
+  const emitEditChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
   emitEditChunk({
     type: 'stage_started',
     payload: {
@@ -297,27 +198,23 @@ export async function executeEditGeneration(
     context,
     uiText(
       context.appLocale,
-      `我准备开始调整「${context.topic}」了。目标：${resolvedSelectedPageId ? `第 ${resolvedSelectedPageNumber ?? '?'} 页` : '按你的指令智能定位'}${selectedSelector ? `（选择器：${selectedSelector}）` : ''}。`,
-      `I am ready to adjust "${context.topic}". Target: ${resolvedSelectedPageId ? `page ${resolvedSelectedPageNumber ?? '?'}` : 'infer from your instruction'}${selectedSelector ? ` (selector: ${selectedSelector})` : ''}.`
+      `我准备按主会话指令调整「${context.topic}」的页面内容；本次只会写入 page-*.html，不会修改 index.html。`,
+      `I am ready to update page content for "${context.topic}" from the main-session instruction; this run only writes page-*.html and will not modify index.html.`
     )
   )
-  const editTemperature = selectedSelector
-    ? PAGE_EDIT_WITH_SELECTOR_TEMPERATURE
-    : PAGE_EDIT_DEFAULT_TEMPERATURE
 
-  const beforeIndexHtml = fs.existsSync(indexPath)
-    ? await fs.promises.readFile(indexPath, 'utf-8')
-    : ''
-  await ensureHistoryBaselineSafe(db, context.sessionId, context.entry.projectDir)
+  const beforeIndexExists = fs.existsSync(indexPath)
+  const beforeIndexHtml = beforeIndexExists ? await fs.promises.readFile(indexPath, 'utf-8') : ''
+  await ensureHistoryBaselineSafe(db, context.sessionId, projectDir)
 
-  const editSummaryFromEngine = await runDeepAgentEdit({
+  const editSummaryFromEngine = await runDeepAgentDeckAllPageEdit({
     sessionId: context.sessionId,
     provider: context.provider,
     apiKey: context.apiKey,
     model: context.model,
     baseUrl: context.providerBaseUrl,
     modelTimeoutMs: context.modelTimeouts.agent,
-    temperature: editTemperature,
+    temperature: PAGE_EDIT_DEFAULT_TEMPERATURE,
     styleId: context.styleId,
     styleSkillPrompt: context.styleSkill.prompt,
     appLocale: context.appLocale,
@@ -326,33 +223,37 @@ export async function executeEditGeneration(
     userMessage: context.userMessage,
     outlineTitles,
     outlineItems,
-    projectDir: context.entry.projectDir,
+    projectDir,
     indexPath,
     pageFileMap,
     designContract: savedDesignContract,
-    editScope: 'page',
-    selectedPageId: resolvedSelectedPageId,
-    selectedPageNumber: resolvedSelectedPageNumber,
-    selectedSelector,
-    elementTag: context.elementTag,
-    elementText: context.elementText,
     existingPageIds: existingPageIdsBeforeRun,
     agentManager,
     emit: (chunk) => emitEditChunk(chunk),
     runId: context.runId,
     signal: context.entry.abortController.signal
   })
-  const afterIndexHtml = fs.existsSync(indexPath)
-    ? await fs.promises.readFile(indexPath, 'utf-8')
-    : ''
-  const indexChanged = beforeIndexHtml !== afterIndexHtml
-  if (indexChanged) {
-    const indexValidationErrors = validateProjectIndexHtml(afterIndexHtml)
-    if (indexValidationErrors.length > 0) {
-      const details = indexValidationErrors.join('; ')
-      await db.updateGenerationRunStatus(context.runId, 'failed', details)
-      throw new Error(`index.html 验证失败: ${details}`)
+
+  const afterIndexHtml = fs.existsSync(indexPath) ? await fs.promises.readFile(indexPath, 'utf-8') : ''
+  if (beforeIndexHtml !== afterIndexHtml) {
+    let restored = false
+    try {
+      if (beforeIndexExists) {
+        await fs.promises.writeFile(indexPath, beforeIndexHtml, 'utf-8')
+      }
+      restored = true
+    } catch (error) {
+      log.error('[generate:start] failed to restore index.html after deck edit', {
+        sessionId: context.sessionId,
+        indexPath,
+        message: error instanceof Error ? error.message : String(error)
+      })
     }
+    const message = restored
+      ? '主会话 deck 编辑不允许修改 index.html，本次检测到壳层变更并已恢复。请重新描述只针对页面内容的修改。'
+      : '主会话 deck 编辑不允许修改 index.html，本次检测到壳层变更且自动恢复失败，请手动检查项目文件。'
+    await db.updateGenerationRunStatus(context.runId, 'failed', message)
+    throw new Error(message)
   }
 
   const pageDescriptors: Array<{
@@ -490,15 +391,15 @@ export async function executeEditGeneration(
     changedPageDescriptors.length > 0
       ? uiText(
           context.appLocale,
-          `修改完成：${changedPages}${selectedSelector ? `（目标选择器：${selectedSelector}）` : ''}。`,
-          `Edit completed: ${changedPages}${selectedSelector ? ` (target selector: ${selectedSelector})` : ''}.`
+          `修改完成：${changedPages}。`,
+          `Edit completed: ${changedPages}.`
         )
       : editSummaryFromEngine.trim() ||
-          uiText(
-            context.appLocale,
-            '我已经检查过了，这次没有检测到需要落盘的页面变化。',
-            'I checked the session and did not detect page changes that needed to be written this time.'
-          )
+        uiText(
+          context.appLocale,
+          '我已经检查过了，这次没有检测到需要落盘的页面变化。',
+          'I checked the session and did not detect page changes that needed to be written this time.'
+        )
   await emitAssistant(context, editSummary)
 
   await db.updateSessionMetadata(context.sessionId, {
@@ -531,18 +432,18 @@ export async function executeEditGeneration(
   if (remainingFailedPages.length === 0) {
     await recordHistoryOperationSafe(db, {
       sessionId: context.sessionId,
-      projectDir: context.entry.projectDir,
+      projectDir,
       type: 'edit',
-      scope: selectedSelector ? 'selector' : 'page',
+      scope: 'deck',
       prompt: context.userMessage,
       metadata: {
         runId: context.runId,
-        selectedPageId: resolvedSelectedPageId || null,
-        selector: selectedSelector || null
+        changedPageIds: Array.from(changedPageIdSet),
+        allowedPageIds
       }
     })
   }
-  log.info('[generate:start] edit completed', {
+  log.info('[generate:start] deck all-page edit completed', {
     sessionId: context.sessionId,
     styleId: context.styleId,
     changedPages: Array.from(changedPageIdSet),

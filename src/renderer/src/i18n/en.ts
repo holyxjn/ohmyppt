@@ -347,17 +347,20 @@ export const en = {
     currentPage: 'Current page',
     mainSession: 'Main session',
     pageContext: 'Current page · P{pageNumber}',
-    mainContext: 'Main session · global structure and index edits',
+    mainContext: 'Main session',
     assetPlaceholder:
       'Describe how to use these assets, for example: use the first image as the cover background.',
     pagePlaceholder:
       'Current-page mode only edits this page. You can use Inspect to select an element, then ask to adjust color or font size.',
+    mainPlaceholder:
+      'Main-session mode: describe changes for the deck pages, such as unifying title styles, changing all backgrounds, or rearranging specific pages.',
     mainDisabledPlaceholder:
       'Main-session sending is disabled. Switch Context to Current page first.',
     emptyMessages: 'No creative messages yet',
     modelProcessing: 'Model processing...',
     selectorBadge: 'SELECTOR',
     clearSelector: 'Clear selector',
+    mainDeckHint: 'Main session edits one or more pages from your instruction.',
     mainDisabled:
       'Main-session sending is disabled. Switch Context to Current page before editing.',
     removeAsset: 'Remove asset',

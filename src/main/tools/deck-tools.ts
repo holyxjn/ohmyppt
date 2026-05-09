@@ -131,7 +131,8 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       : Object.keys(context.pageFileMap).length) || 1
   )
   const isEditMode = context.mode === 'edit'
-  const isMainScopeEdit = isEditMode && context.editScope === 'main'
+  const isContainerScopeEdit = isEditMode && context.editScope === 'presentation-container'
+  const isDeckScopeEdit = isEditMode && context.editScope === 'deck'
   const hasSelector = Boolean(context.selectedSelector?.trim())
   const statusLanguage = context.appLocale === 'en' ? 'English' : 'Simplified Chinese'
   const isSinglePageTask =
@@ -207,7 +208,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
   const pageWriteTools = createPageWriteTools({
     context,
     isEditMode,
-    isMainScopeEdit,
+    isContainerScopeEdit,
     emitNormalizedToolStatus
   })
 
@@ -245,11 +246,11 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
 
         emitNormalizedToolStatus(config, {
           label: uiText(context.appLocale, '读取会话上下文', 'Reading session context'),
-          detail: isMainScopeEdit
+          detail: isContainerScopeEdit
             ? uiText(
                 context.appLocale,
-                `已提供 index 总览壳: ${context.indexPath}`,
-                `Provided index overview shell: ${context.indexPath}`
+                `已提供演示容器文件: ${context.indexPath}`,
+                `Provided presentation container file: ${context.indexPath}`
               )
             : selectedPagePath
               ? uiText(
@@ -264,9 +265,9 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
                 ),
           progress: 34
         })
-        const constraints = isMainScopeEdit
+        const constraints = isContainerScopeEdit
           ? [
-              '当前为主会话编辑（main）：只允许修改 index.html 总览壳',
+              '当前为演示容器编辑（presentation-container）：只允许修改 index.html 容器能力',
               '只允许使用 set_index_transition(type, durationMs)，禁止调用 update_index_file / update_page_file / update_single_page_file',
               '禁止修改任何 page-x.html 文件',
               '必须保留 hash 导航、frameViewport、pages-data、controls、全屏/演示模式逻辑',
@@ -279,7 +280,9 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
                 'Selector 编辑模式：先用 read_file 读取目标页面，再用 grep 搜索选择器/文本定位，最后用 edit_file(old_string, new_string) 精准替换',
                 '不要调用 write_file / update_page_file / update_single_page_file，edit_file 直接修改即可',
                 '仅修改 selector 命中节点，禁止整页重写、禁止改动无关区域',
-                '尽量不要修改 index.html 的导航与控制逻辑'
+                isDeckScopeEdit
+                  ? '主会话 deck 编辑禁止修改 index.html，只能改 page-x.html'
+                  : '尽量不要修改 index.html 的导航与控制逻辑'
               ]
             : [
                 'index.html 只是总览壳，主要内容写入 page-x.html',
@@ -291,7 +294,9 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
                   : '多页生成优先使用 update_page_file(content)（可选传 pageId 覆盖自动定位）',
                 '每页写入后会自动注入动画运行时与防溢出保护',
                 '不要在最终答案里返回大块 HTML，必须把变更落盘',
-                '尽量不要修改 index.html 的导航与控制逻辑'
+                isDeckScopeEdit
+                  ? '主会话 deck 编辑禁止修改 index.html，只能改 page-x.html'
+                  : '尽量不要修改 index.html 的导航与控制逻辑'
               ]
         return JSON.stringify(
           {
@@ -366,7 +371,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
       }
     ),
 
-    ...(isMainScopeEdit
+    ...(isContainerScopeEdit
       ? [
           // ── set_index_transition ──
           tool(
@@ -441,7 +446,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     // ── verify_completion ──
     tool(
       async (_input, config) => {
-        if (isMainScopeEdit) {
+        if (isContainerScopeEdit) {
           emitNormalizedToolStatus(config, {
             label: uiText(context.appLocale, '验证完成状态', 'Verifying completion'),
             detail: uiText(

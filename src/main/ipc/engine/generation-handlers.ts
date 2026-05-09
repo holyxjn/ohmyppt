@@ -5,6 +5,7 @@ import type { SessionStatus } from '../../db/schema'
 import { createEmitAssistantMessage } from '../generation/generation-utils'
 import { executeDeckGeneration, resolveDeckContext } from '../generation/deck-flow'
 import { executeEditGeneration, resolveEditContext } from '../generation/edit-flow'
+import { executeDeckAllPageEditGeneration } from '../generation/edit-deck-allpage-flow'
 import { executeRetryFailedPages, resolveRetryContext } from '../generation/retry-flow'
 import type { DeckContext, EditContext, RetryContext } from '../generation/types'
 import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from '../generation/add-page-flow'
@@ -104,6 +105,13 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         (payload as { type?: unknown }).type === 'page'
           ? 'page'
           : 'deck'
+      const requestedChatType =
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { chatType?: unknown }).chatType === 'main'
+          ? 'main'
+          : 'page'
+      const isDeckAllPageEdit = requestedType === 'page' && requestedChatType === 'main'
       context =
         requestedType === 'page'
           ? await resolveEditContext(ctx, event, payload)
@@ -115,7 +123,9 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         totalPages: context.totalPages,
         previousSessionStatus: context.previousSessionStatus
       })
-      if (context.effectiveMode === 'edit') {
+      if (isDeckAllPageEdit && context.effectiveMode === 'edit') {
+        await executeDeckAllPageEditGeneration(ctx, emitAssistant, context)
+      } else if (context.effectiveMode === 'edit') {
         await executeEditGeneration(ctx, emitAssistant, context)
       } else {
         await executeDeckGeneration(ctx, emitAssistant, context)

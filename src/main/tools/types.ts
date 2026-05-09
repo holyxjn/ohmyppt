@@ -31,9 +31,11 @@ export interface DesignContract {
   shapeLanguage: string;
 }
 
+export type DeckEditScope = "page" | "deck" | "presentation-container";
+
 export interface SessionDeckGenerationContext {
   mode?: "generate" | "edit" | "retry";
-  editScope?: "main" | "page";
+  editScope?: DeckEditScope;
   sessionId: string;
   projectDir: string;
   indexPath: string;

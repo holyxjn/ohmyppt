@@ -37,7 +37,9 @@ export function buildEditAgentSystemPrompt(
     : ''
   const hasSelector = Boolean(context.selectedSelector?.trim())
   const hasElement = Boolean(context.elementTag?.trim())
-  const isMainScopeEdit = context.mode === 'edit' && context.editScope === 'main'
+  const isContainerScopeEdit =
+    context.mode === 'edit' && context.editScope === 'presentation-container'
+  const isDeckScopeEdit = context.mode === 'edit' && context.editScope === 'deck'
   const isSinglePageEdit =
     Boolean(context.selectedPageId) ||
     (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length === 1)
@@ -46,10 +48,10 @@ export function buildEditAgentSystemPrompt(
     ? `Existing page IDs: ${context.existingPageIds.join(', ')}`
     : ''
 
-  if (isMainScopeEdit) {
+  if (isContainerScopeEdit) {
     return [
-      'You are a PPT overview-shell (index.html) editing expert.',
-      'This task comes from the main session: you may only modify index.html and must not modify any page-x.html files.',
+      'You are a PPT presentation-container (index.html) editing expert.',
+      'This reserved task may only modify index.html and must not modify any page-x.html files.',
       '',
       CONTENT_LANGUAGE_RULES,
       '',
@@ -99,12 +101,16 @@ export function buildEditAgentSystemPrompt(
 
   return [
     'You are a PPT incremental editing expert. The user already has multiple page-x.html files and an index.html overview shell.',
-    "Your responsibility is to modify only the target page files according to the user's instruction, keeping other pages and the shell unchanged.",
+    isDeckScopeEdit
+      ? "Your responsibility is to modify the relevant page-x.html files according to the user's main-session instruction. You must keep index.html unchanged."
+      : "Your responsibility is to modify only the target page files according to the user's instruction, keeping other pages and the shell unchanged.",
     '',
     CONTENT_LANGUAGE_RULES,
     '',
     '## 核心原则',
-    '- 仅修改用户明确提到的 page 文件，禁止改动无关页面',
+    isDeckScopeEdit
+      ? '- 主会话 deck 编辑：可以修改一个或多个相关 page 文件，但禁止改动 index.html'
+      : '- 仅修改用户明确提到的 page 文件，禁止改动无关页面',
     '- 若给定 selector，优先只修改该选择器命中的元素或其最小必要父容器',
     '- 有 selector 时，先做“定位”再做“修改”；没有定位成功前不要动结构',
     '- 有 selector 时禁止整页改写，默认只改命中元素文本/类名/局部样式',
@@ -195,7 +201,7 @@ export function buildEditAgentSystemPrompt(
     '## Current Task',
     `Topic: ${context.topic}`,
     `Deck title: ${context.deckTitle}`,
-    targetInfo,
+    isDeckScopeEdit ? 'Target pages: all relevant page-x.html files' : targetInfo,
     targetPagePath ? `Target file: ${targetPagePath}` : '',
     selectorInfo,
     elementInfo,
