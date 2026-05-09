@@ -10,13 +10,15 @@
 - 新增版本历史：每次生成或编辑自动记录历史版本，支持查看和回退到任意历史版本，即使改错也能回退到之前版本。
 - 新增主会话编辑：主会话现在可以统一修改一个或多个页面，不再仅限于单页编辑，即使改错也能回退到之前版本。
 - 新增视频素材插入：会话详情页支持上传 mp4/webm/ogg 视频素材，并可在页面编辑中引用本地视频路径插入到指定位置。
-- 优化删除提示：会话列表删除和历史版本回退等操作改为弹窗二次确认，不再使用浏览器原生弹窗。
+- 优化编辑稳定性：页面编辑和主会话编辑进入自动修复阶段，遇到页面校验失败时会带错误信息自动重试一次，减少坏页面和手动重试。
+- 优化删除提示：会话列表删除和历史版本回退等操作改为弹窗二次确认。
 
 ### English
 
 - Added image-based creation and image style import.
 - Added version history and main-session editing.
 - Added video assets for page edits (mp4/webm/ogg).
+- Improved edit reliability with one automatic retry after page validation failures.
 - Improved delete and rollback confirmations.
 
 ## 2026-05-08

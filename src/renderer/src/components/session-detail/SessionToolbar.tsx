@@ -18,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '../ui/DropdownMenu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import { useT } from '@renderer/i18n'
 
 const toolbarButtonClass =
@@ -56,17 +57,24 @@ export function SessionToolbar({
   return (
     <>
       {hasPages && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={toolbarButtonClass}
-          onClick={onOpenHistory}
-          disabled={historyDisabled || isExportingPdf || isExportingPng || isExportingPptx}
-        >
-          <History className={toolbarIconClass} />
-          {t('sessionDetail.history')}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={toolbarButtonClass}
+              onClick={onOpenHistory}
+              disabled={historyDisabled || isExportingPdf || isExportingPng || isExportingPptx}
+            >
+              <History className={toolbarIconClass} />
+              {t('sessionDetail.history')}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="start">
+            {t('sessionDetail.historyTooltip')}
+          </TooltipContent>
+        </Tooltip>
       )}
       {hasPages && (
         <DropdownMenu>

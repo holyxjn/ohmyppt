@@ -1,6 +1,5 @@
 import { GripHorizontal, X } from 'lucide-react'
 import { useRef, type PointerEvent } from 'react'
-import { cn } from '@renderer/lib/utils'
 import { Input, Textarea } from '../ui/Input'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../ui/Select'
 import type { TextEditorSelectionPayload } from '../preview/text-editor-types'

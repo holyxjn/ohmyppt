@@ -1,12 +1,17 @@
 import type { IpcContext } from '../context'
 import type { EditContext, EmitAssistantFn, GenerateChatType } from './types'
-import { uiText } from './generation-utils'
+import {
+  buildEditValidationRetryMessage,
+  type EditedPageDescriptor,
+  isEditValidationRetryableError,
+  uiText,
+  validateChangedPages
+} from './generation-utils'
 import log from 'electron-log/main.js'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import { normalizeLayoutIntent } from '@shared/layout-intent'
-import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
 import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import { runDeepAgentEdit } from '../engine/generate'
@@ -36,10 +41,7 @@ export async function resolveEditContext(
   const videoPaths = input.rawVideoPaths
   const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt(imagePaths, videoPaths)}`
   const chatType: GenerateChatType = input.chatType
-  const chatPageId =
-    chatType === 'page'
-      ? input.chatPageId || input.selectedPageId
-      : undefined
+  const chatPageId = chatType === 'page' ? input.chatPageId || input.selectedPageId : undefined
   if (chatType === 'page' && !chatPageId) {
     throw new Error('chatType=page requires chatPageId or selectedPageId')
   }
@@ -125,8 +127,7 @@ export async function executeEditGeneration(
   const selectedSelector = context.selector
 
   let outlineTitles: string[] = context.userProvidedOutlineTitles
-  let pageRefs: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string }> =
-    []
+  let pageRefs: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string }> = []
   let savedDesignContract: DesignContract | undefined
   let metadataFailedPages: Array<{ pageId: string; title: string; reason: string }> = []
   if (context.session?.metadata) {
@@ -216,10 +217,7 @@ export async function executeEditGeneration(
       htmlPath: path.join(context.entry.projectDir, `${pid}.html`)
     }))
   }
-  if (
-    resolvedSelectedPageId &&
-    !pageRefs.some((ref) => ref.pageId === resolvedSelectedPageId)
-  ) {
+  if (resolvedSelectedPageId && !pageRefs.some((ref) => ref.pageId === resolvedSelectedPageId)) {
     const inferredNumber = Number(
       resolvedSelectedPageId.match(/^page-(\d+)$/i)?.[1] || pageRefs.length + 1
     )
@@ -313,7 +311,7 @@ export async function executeEditGeneration(
     : ''
   await ensureHistoryBaselineSafe(db, context.sessionId, context.entry.projectDir)
 
-  const editSummaryFromEngine = await runDeepAgentEdit({
+  const editRunArgs = {
     sessionId: context.sessionId,
     provider: context.provider,
     apiKey: context.apiKey,
@@ -344,7 +342,45 @@ export async function executeEditGeneration(
     emit: (chunk) => emitEditChunk(chunk),
     runId: context.runId,
     signal: context.entry.abortController.signal
-  })
+  } satisfies Parameters<typeof runDeepAgentEdit>[0]
+  const runEditAttempt = async (userMessage: string, retryDetail?: string): Promise<string> => {
+    if (retryDetail) {
+      emitEditChunk({
+        type: 'llm_status',
+        payload: {
+          runId: context.runId,
+          stage: 'editing',
+          label: progressText(context.appLocale, 'retrying'),
+          progress: 55,
+          totalPages: pageRefs.length,
+          detail: retryDetail
+        }
+      })
+    }
+    return runDeepAgentEdit({ ...editRunArgs, userMessage })
+  }
+  let editSummaryFromEngine = ''
+  let editValidationRetryUsed = false
+  try {
+    editSummaryFromEngine = await runEditAttempt(context.userMessage)
+  } catch (error) {
+    if (!isEditValidationRetryableError(error)) throw error
+    editValidationRetryUsed = true
+    const detail = error instanceof Error ? error.message : String(error)
+    log.warn('[generate:start] edit validation/tool retry scheduled', {
+      sessionId: context.sessionId,
+      runId: context.runId,
+      detail
+    })
+    editSummaryFromEngine = await runEditAttempt(
+      buildEditValidationRetryMessage(context.userMessage, detail),
+      uiText(
+        context.appLocale,
+        `校验失败，正在带错误信息自动重试一次：${detail}`,
+        `Validation failed; retrying once with the error: ${detail}`
+      )
+    )
+  }
   const afterIndexHtml = fs.existsSync(indexPath)
     ? await fs.promises.readFile(indexPath, 'utf-8')
     : ''
@@ -358,55 +394,93 @@ export async function executeEditGeneration(
     }
   }
 
-  const pageDescriptors: Array<{
-    pageNumber: number
-    title: string
-    pageId: string
-    html: string
-    htmlPath: string
-  }> = []
-  const changedPageDescriptors: Array<{
-    pageNumber: number
-    title: string
-    pageId: string
-    html: string
-    htmlPath: string
-  }> = []
-  const editedPageReads = await Promise.all(
-    pageRefs.map(async (ref) => {
-      if (!fs.existsSync(ref.htmlPath)) return null
-      const html = await fs.promises.readFile(ref.htmlPath, 'utf-8')
-      return { ref, html }
-    })
-  )
-  for (const item of editedPageReads) {
-    if (!item) continue
-    const { ref, html } = item
-    const page: GeneratedPagePayload = {
-      pageNumber: ref.pageNumber,
-      title: ref.title,
-      html,
-      pageId: ref.pageId,
-      htmlPath: ref.htmlPath,
-      sourceUrl: getPageSourceUrl(ref.htmlPath)
+  let pageDescriptors: EditedPageDescriptor[] = []
+  let changedPageDescriptors: EditedPageDescriptor[] = []
+  const readEditedPages = async (): Promise<{
+    pageDescriptors: typeof pageDescriptors
+    changedPageDescriptors: typeof changedPageDescriptors
+  }> => {
+    const nextPageDescriptors: typeof pageDescriptors = []
+    const nextChangedPageDescriptors: typeof changedPageDescriptors = []
+    const editedPageReads = await Promise.all(
+      pageRefs.map(async (ref) => {
+        if (!fs.existsSync(ref.htmlPath)) return null
+        const html = await fs.promises.readFile(ref.htmlPath, 'utf-8')
+        return { ref, html }
+      })
+    )
+    for (const item of editedPageReads) {
+      if (!item) continue
+      const { ref, html } = item
+      nextPageDescriptors.push({
+        pageNumber: ref.pageNumber,
+        title: ref.title,
+        pageId: ref.pageId,
+        html,
+        htmlPath: ref.htmlPath
+      })
+      const isExisting = existingPageIdsBeforeRun.includes(ref.pageId)
+      const changed = beforeMap.get(ref.pageId) !== html
+      if (!changed && isExisting) continue
+      nextChangedPageDescriptors.push({
+        pageNumber: ref.pageNumber,
+        title: ref.title,
+        pageId: ref.pageId,
+        html,
+        htmlPath: ref.htmlPath
+      })
     }
-    pageDescriptors.push({
-      pageNumber: ref.pageNumber,
-      title: ref.title,
-      pageId: ref.pageId,
-      html,
-      htmlPath: ref.htmlPath
+    return {
+      pageDescriptors: nextPageDescriptors,
+      changedPageDescriptors: nextChangedPageDescriptors
+    }
+  }
+  ;({ pageDescriptors, changedPageDescriptors } = await readEditedPages())
+
+  const invalidChangedPages = validateChangedPages(changedPageDescriptors)
+  if (invalidChangedPages.length > 0) {
+    const details = invalidChangedPages
+      .map((item) => `${item.page.pageId}（${item.page.title}）：${item.reason}`)
+      .join('；')
+    if (editValidationRetryUsed) {
+      await db.updateGenerationRunStatus(context.runId, 'failed', details)
+      throw new Error(`页面编辑结果验证失败：${details}`)
+    }
+    editValidationRetryUsed = true
+    log.warn('[generate:start] edit result validation retry scheduled', {
+      sessionId: context.sessionId,
+      runId: context.runId,
+      details
     })
-    const isExisting = existingPageIdsBeforeRun.includes(ref.pageId)
-    const changed = beforeMap.get(ref.pageId) !== html
-    if (!changed && isExisting) continue
-    changedPageDescriptors.push({
-      pageNumber: ref.pageNumber,
-      title: ref.title,
-      pageId: ref.pageId,
-      html,
-      htmlPath: ref.htmlPath
-    })
+    editSummaryFromEngine = await runEditAttempt(
+      buildEditValidationRetryMessage(context.userMessage, `页面编辑结果验证失败：${details}`),
+      uiText(
+        context.appLocale,
+        `页面校验失败，正在自动重试一次：${details}`,
+        `Page validation failed; retrying once: ${details}`
+      )
+    )
+    ;({ pageDescriptors, changedPageDescriptors } = await readEditedPages())
+    const retryInvalidChangedPages = validateChangedPages(changedPageDescriptors)
+    if (retryInvalidChangedPages.length > 0) {
+      const retryDetails = retryInvalidChangedPages
+        .map((item) => `${item.page.pageId}（${item.page.title}）：${item.reason}`)
+        .join('；')
+      await db.updateGenerationRunStatus(context.runId, 'failed', retryDetails)
+      throw new Error(`页面编辑结果验证失败：${retryDetails}`)
+    }
+  }
+
+  for (const page of changedPageDescriptors) {
+    const isExisting = existingPageIdsBeforeRun.includes(page.pageId)
+    const payload: GeneratedPagePayload = {
+      pageNumber: page.pageNumber,
+      title: page.title,
+      html: page.html,
+      pageId: page.pageId,
+      htmlPath: page.htmlPath,
+      sourceUrl: getPageSourceUrl(page.htmlPath)
+    }
     emitEditChunk({
       type: isExisting ? 'page_updated' : 'page_generated',
       payload: {
@@ -416,48 +490,14 @@ export async function executeEditGeneration(
         progress: 90,
         currentPage: page.pageNumber,
         totalPages: pageRefs.length,
-        ...page
+        ...payload
       }
     })
   }
 
-  const invalidChangedPages = changedPageDescriptors
-    .map((page) => {
-      const validation = validatePersistedPageHtml(page.html, page.pageId)
-      return validation.valid
-        ? null
-        : {
-            page,
-            reason: validation.errors.join('; ')
-          }
-    })
-    .filter(
-      (
-        item
-      ): item is {
-        page: {
-          pageNumber: number
-          title: string
-          pageId: string
-          html: string
-          htmlPath: string
-        }
-        reason: string
-      } => Boolean(item)
-    )
-  if (invalidChangedPages.length > 0) {
-    const details = invalidChangedPages
-      .map((item) => `${item.page.pageId}（${item.page.title}）：${item.reason}`)
-      .join('；')
-    await db.updateGenerationRunStatus(context.runId, 'failed', details)
-    throw new Error(`页面编辑结果验证失败：${details}`)
-  }
-
   const changedPageIdSet = new Set(changedPageDescriptors.map((page) => page.pageId))
   for (const page of changedPageDescriptors) {
-    const outlineItem = outlineItems.find(
-      (_item, index) => pageRefs[index]?.pageId === page.pageId
-    )
+    const outlineItem = outlineItems.find((_item, index) => pageRefs[index]?.pageId === page.pageId)
     await db.upsertGenerationPage({
       runId: context.runId,
       sessionId: context.sessionId,
@@ -497,11 +537,11 @@ export async function executeEditGeneration(
           `Edit completed: ${changedPages}${selectedSelector ? ` (target selector: ${selectedSelector})` : ''}.`
         )
       : editSummaryFromEngine.trim() ||
-          uiText(
-            context.appLocale,
-            '我已经检查过了，这次没有检测到需要落盘的页面变化。',
-            'I checked the session and did not detect page changes that needed to be written this time.'
-          )
+        uiText(
+          context.appLocale,
+          '我已经检查过了，这次没有检测到需要落盘的页面变化。',
+          'I checked the session and did not detect page changes that needed to be written this time.'
+        )
   await emitAssistant(context, editSummary)
 
   await db.updateSessionMetadata(context.sessionId, {
