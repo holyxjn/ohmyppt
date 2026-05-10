@@ -3,6 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import log from 'electron-log/main.js'
 import * as git from 'isomorphic-git'
+import { nanoid } from 'nanoid'
 import type { PPTDatabase, SessionOperationRecord, SessionPageRecord } from '../db/database'
 import type {
   ChangedHistoryFile,
@@ -105,8 +106,21 @@ export class GitHistoryService {
         typeof session?.currentOperationId === 'string' ? session.currentOperationId : null
     }
 
-    const operationId = crypto.randomUUID()
     const metadata = await this.buildOperationMetadata(args)
+    const { changedFiles } = await this.stageControlledChanges(projectDir)
+    const changedPages = Array.from(
+      new Set(changedFiles.map((file) => file.pageId).filter(Boolean) as string[])
+    ).sort()
+    if (changedFiles.length === 0) {
+      log.debug('[history] skip operation without controlled file changes', {
+        sessionId: args.sessionId,
+        type: args.type,
+        scope: args.scope
+      })
+      return null
+    }
+    const trackedFiles = await walkFiles(projectDir)
+    const operationId = crypto.randomUUID()
     await this.db.createSessionOperation({
       id: operationId,
       sessionId: args.sessionId,
@@ -121,30 +135,6 @@ export class GitHistoryService {
     })
 
     try {
-      const { changedFiles } = await this.stageControlledChanges(projectDir)
-      const changedPages = Array.from(
-        new Set(changedFiles.map((file) => file.pageId).filter(Boolean) as string[])
-      ).sort()
-      const trackedFiles = await walkFiles(projectDir)
-
-      if (changedFiles.length === 0) {
-        await this.db.completeSessionOperation({
-          id: operationId,
-          status: 'noop',
-          afterCommit: beforeCommit,
-          changedFiles,
-          changedPages,
-          trackedFiles,
-          metadata
-        })
-        await this.db.updateSessionHistoryPointer({
-          sessionId: args.sessionId,
-          operationId,
-          commit: beforeCommit
-        })
-        return this.db.getSessionOperation(operationId) as Promise<SessionOperationRecord | null>
-      }
-
       await this.captureOperationPageSnapshot(args.sessionId, operationId)
       const afterCommit = await git.commit({
         fs,
@@ -313,7 +303,7 @@ export class GitHistoryService {
       const fileSlug = item.pageId.trim()
       const providedId = typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : ''
       const existing = (providedId ? existingById.get(providedId) : undefined) || existingByFileSlug.get(fileSlug)
-      const pageId = providedId || existing?.id || fileSlug
+      const pageId = providedId || existing?.id || nanoid()
       activeIds.add(pageId)
       const pageNumberRaw = Number(item.pageNumber)
       const pageNumber = Number.isFinite(pageNumberRaw) && pageNumberRaw > 0 ? Math.floor(pageNumberRaw) : index + 1
@@ -534,23 +524,22 @@ export class GitHistoryService {
     const changedFiles: ChangedHistoryFile[] = []
     for (const [filepath, head, workdir, stage] of matrix) {
       if (!isControlledFile(filepath)) continue
-      if (head === 0 && workdir === 0) {
-        if (stage !== 0) {
-          log.warn('[history] skip staged file missing from workdir', { projectDir, filepath, stage })
-        }
-        continue
-      }
+      const hasWorkdirDiff = head !== workdir
+      const hasStagedDiff = head !== stage
+      if (!hasWorkdirDiff && !hasStagedDiff) continue
       const pageId = pageIdFromPath(filepath)
-      if (head === 0 && workdir === 2) {
+      if (workdir === 2) {
         await git.add({ fs, dir: projectDir, filepath })
-        changedFiles.push({ path: filepath, changeType: 'added', pageId })
-      } else if (head === 1 && workdir === 2) {
-        await git.add({ fs, dir: projectDir, filepath })
-        changedFiles.push({ path: filepath, changeType: 'modified', pageId })
       } else if (head === 1 && workdir === 0) {
         await git.remove({ fs, dir: projectDir, filepath })
-        changedFiles.push({ path: filepath, changeType: 'deleted', pageId })
       }
+      const changeType: ChangedHistoryFile['changeType'] =
+        head === 0 && (workdir === 2 || stage === 2)
+          ? 'added'
+          : head === 1 && (workdir === 0 || stage === 0)
+            ? 'deleted'
+            : 'modified'
+      changedFiles.push({ path: filepath, changeType, pageId })
     }
     return { changedFiles }
   }
@@ -567,7 +556,7 @@ export class GitHistoryService {
         return isControlledFile(filepath) ? filepath : null
       }
     })
-    return files.filter((file): file is string => typeof file === 'string').sort()
+    return (files ?? []).filter((file): file is string => typeof file === 'string').sort()
   }
 
   private async restoreCommitFiles(
@@ -693,6 +682,13 @@ export async function recordHistoryOperationSafe(
       message: error instanceof Error ? error.message : String(error)
     })
   }
+}
+
+export async function recordHistoryOperationStrict(
+  db: PPTDatabase,
+  args: RecordOperationArgs
+): Promise<void> {
+  await new GitHistoryService(db).recordOperation(args)
 }
 
 export async function ensureHistoryBaselineSafe(

@@ -12,7 +12,7 @@ import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import {
   ensureHistoryBaselineSafe,
-  recordHistoryOperationSafe
+  recordHistoryOperationStrict
 } from '../../history/git-history-service'
 
 // ── Independent RetrySinglePage context ──
@@ -327,7 +327,7 @@ export async function executeRetrySinglePageGeneration(
   const targetStatus = hasFailedPages ? 'failed' : 'completed'
 
   await db.updateSessionStatus(context.sessionId, targetStatus)
-  await recordHistoryOperationSafe(db, {
+  await recordHistoryOperationStrict(db, {
     sessionId: context.sessionId,
     projectDir: context.projectDir,
     type: 'retry',

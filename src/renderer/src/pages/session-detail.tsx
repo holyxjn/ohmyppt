@@ -431,6 +431,7 @@ export function SessionDetailPage(): React.JSX.Element {
       } else if (type === 'run_error') {
         if (!useSessionDetailUiStore.getState().isAddingPage) {
           useGenerateStore.getState().setError(payload.message)
+          void loadSession(id)
         }
       }
     }

@@ -245,68 +245,87 @@ export async function executeAddPageGeneration(
     runId: context.runId,
     sessionId: context.sessionId
   })
-  await generatePagesWithRetry({
-    runArgs: {
-      sessionId: context.sessionId,
-      provider: context.provider,
-      apiKey: context.apiKey,
-      model: context.model,
-      baseUrl: context.providerBaseUrl,
-      modelTimeoutMs: context.modelTimeouts.agent,
-      temperature: PAGE_GENERATION_TEMPERATURE,
-      styleId: context.styleId,
-      styleSkillPrompt: context.styleSkillPrompt,
+  try {
+    await generatePagesWithRetry({
+      runArgs: {
+        sessionId: context.sessionId,
+        provider: context.provider,
+        apiKey: context.apiKey,
+        model: context.model,
+        baseUrl: context.providerBaseUrl,
+        modelTimeoutMs: context.modelTimeouts.agent,
+        temperature: PAGE_GENERATION_TEMPERATURE,
+        styleId: context.styleId,
+        styleSkillPrompt: context.styleSkillPrompt,
+        appLocale: context.appLocale,
+        topic: context.topic,
+        deckTitle: context.deckTitle,
+        userMessage: userDescription,
+        outlineTitles: [planResult.title],
+        outlineItems: [planResult],
+        sourceDocumentPaths: [],
+        generationMode: 'generate',
+        pageTasks: [
+          {
+            pageNumber: newPageNumber,
+            pageId: newPageId,
+            title: planResult.title,
+            contentOutline: planResult.contentOutline,
+            layoutIntent: planResult.layoutIntent
+          }
+        ],
+        designContract,
+        projectDir: context.projectDir,
+        indexPath,
+        pageFileMap,
+        agentManager,
+        emit: (chunk) => emitChunk(chunk),
+        ...pageCallbacks,
+        runId: context.runId,
+        signal: context.abortSignal
+      },
+      emitChunk,
       appLocale: context.appLocale,
-      topic: context.topic,
-      deckTitle: context.deckTitle,
-      userMessage: userDescription,
-      outlineTitles: [planResult.title],
-      outlineItems: [planResult],
-      sourceDocumentPaths: [],
-      generationMode: 'generate',
-      pageTasks: [
-        {
-          pageNumber: newPageNumber,
-          pageId: newPageId,
-          title: planResult.title,
-          contentOutline: planResult.contentOutline,
-          layoutIntent: planResult.layoutIntent
-        }
-      ],
-      designContract,
-      projectDir: context.projectDir,
-      indexPath,
-      pageFileMap,
-      agentManager,
-      emit: (chunk) => emitChunk(chunk),
-      ...pageCallbacks,
       runId: context.runId,
-      signal: context.abortSignal
-    },
-    emitChunk,
-    appLocale: context.appLocale,
-    runId: context.runId,
-    totalPages: 1,
-    retryDetail: uiText(
-      context.appLocale,
-      `页面生成失败，正在重试...`,
-      `Page generation failed, retrying...`
-    )
-  })
+      totalPages: 1,
+      retryDetail: uiText(
+        context.appLocale,
+        `页面生成失败，正在重试...`,
+        `Page generation failed, retrying...`
+      )
+    })
 
-  // ── Step 6: Validate generated page ──
-  if (!fs.existsSync(newHtmlPath)) {
-    throw new Error(`${newPageId}.html 缺失`)
-  }
-  const newPageHtml = await fs.promises.readFile(newHtmlPath, 'utf-8')
-  const newPageValidation = validatePersistedPageHtml(newPageHtml, newPageId)
-  if (!newPageValidation.valid) {
-    throw new Error(
-      `新页面 HTML 验证失败: ${newPageValidation.errors.join('; ')}`
+    // ── Step 6: Validate generated page ──
+    if (!fs.existsSync(newHtmlPath)) {
+      throw new Error(`${newPageId}.html 缺失`)
+    }
+    const newPageValidation = validatePersistedPageHtml(
+      await fs.promises.readFile(newHtmlPath, 'utf-8'),
+      newPageId
     )
+    if (!newPageValidation.valid) {
+      throw new Error(
+        `新页面 HTML 验证失败: ${newPageValidation.errors.join('; ')}`
+      )
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Page generation failed'
+    await db.upsertSessionPage({
+      id: newPageEntityId,
+      sessionId: context.sessionId,
+      legacyPageId: null,
+      fileSlug: newPageId,
+      pageNumber: newPageNumber,
+      title: planResult.title,
+      htmlPath: newHtmlPath,
+      status: 'failed',
+      error: errorMessage
+    })
+    throw error
   }
 
   // ── Step 7: Merge into existing pages and renumber ──
+  const newPageHtml = await fs.promises.readFile(newHtmlPath, 'utf-8')
   const newPageEntry = {
     id: newPageEntityId,
     pageNumber: insertAfterPageNumber + 1,

@@ -3,7 +3,7 @@ import path from 'path'
 import { customAlphabet, nanoid } from 'nanoid'
 import type { IpcContext } from '../context'
 import type { FinalizeContext, FinalizeGenerationArgs } from './types'
-import { recordHistoryOperationSafe } from '../../history/git-history-service'
+import { recordHistoryOperationStrict } from '../../history/git-history-service'
 import type { SessionPageRecord } from '../../db/database'
 
 const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
@@ -67,7 +67,7 @@ export async function finalizeGenerationSuccess(
   }
   await db.updateProjectStatus(context.projectId, 'draft')
   await db.updateSessionStatus(context.sessionId, 'completed')
-  await recordHistoryOperationSafe(db, {
+  await recordHistoryOperationStrict(db, {
     sessionId: context.sessionId,
     projectDir: path.dirname(indexPath),
     type:

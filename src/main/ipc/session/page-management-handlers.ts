@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import type { IpcContext } from '../context'
 import { loadEditableSessionPages, persistManagedPages } from './page-management-service'
-import { ensureHistoryBaselineSafe, recordHistoryOperationSafe } from '../../history/git-history-service'
+import { ensureHistoryBaselineSafe, recordHistoryOperationStrict } from '../../history/git-history-service'
 
 export function registerPageManagementHandlers(ctx: IpcContext): void {
   ipcMain.handle('session:reorderPages', async (_event, payload) => {
@@ -72,7 +72,7 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
       operation: 'reorder',
       prompt: operationPrompt
     })
-    await recordHistoryOperationSafe(ctx.db, {
+    await recordHistoryOperationStrict(ctx.db, {
       sessionId,
       type: 'edit',
       scope: 'session',
@@ -163,7 +163,7 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
       deletedPageIds: pageIds,
       prompt: deletePrompt
     })
-    await recordHistoryOperationSafe(ctx.db, {
+    await recordHistoryOperationStrict(ctx.db, {
       sessionId,
       type: 'edit',
       scope: 'session',

@@ -18,7 +18,7 @@ import type { DesignContract } from '../../tools/types'
 import { runDeepAgentDeckAllPageEdit } from '../engine/generate'
 import {
   ensureHistoryBaselineSafe,
-  recordHistoryOperationSafe
+  recordHistoryOperationStrict
 } from '../../history/git-history-service'
 
 export async function executeDeckAllPageEditGeneration(
@@ -433,7 +433,7 @@ export async function executeDeckAllPageEditGeneration(
       : null
   )
   if (remainingFailedPages.length === 0) {
-    await recordHistoryOperationSafe(db, {
+    await recordHistoryOperationStrict(db, {
       sessionId: context.sessionId,
       projectDir,
       type: 'edit',

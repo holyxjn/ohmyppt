@@ -24,7 +24,7 @@ import {
 } from './context'
 import {
   ensureHistoryBaselineSafe,
-  recordHistoryOperationSafe
+  recordHistoryOperationStrict
 } from '../../history/git-history-service'
 
 export async function resolveEditContext(
@@ -530,7 +530,7 @@ export async function executeEditGeneration(
       : null
   )
   if (remainingFailedPages.length === 0) {
-    await recordHistoryOperationSafe(db, {
+    await recordHistoryOperationStrict(db, {
       sessionId: context.sessionId,
       projectDir: context.entry.projectDir,
       type: 'edit',
