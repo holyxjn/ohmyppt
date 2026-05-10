@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import * as cheerio from 'cheerio'
 import fs from 'fs'
+import type { AnyNode } from 'domhandler'
 import type { IpcContext } from '../context'
 
 const EDITABLE_TEXT_TAGS = new Set([
@@ -11,20 +12,27 @@ const EDITABLE_TEXT_TAGS = new Set([
   'h5',
   'h6',
   'p',
+  'ul',
+  'ol',
   'li',
   'span',
   'strong',
   'em',
   'b',
   'i',
+  'u',
+  's',
   'small',
   'label',
   'button',
   'td',
   'th',
   'blockquote',
-  'figcaption'
+  'figcaption',
+  'sub',
+  'sup'
 ])
+const EDITABLE_TEXT_CHILD_TAGS = new Set([...EDITABLE_TEXT_TAGS, 'br'])
 
 const htmlWriteLocks = new Map<string, Promise<void>>()
 
@@ -47,6 +55,21 @@ function normalizeText(value: unknown): string {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function hasOnlyEditableTextChildren(
+  $: cheerio.CheerioAPI,
+  target: cheerio.Cheerio<AnyNode>
+): boolean {
+  return target
+    .children()
+    .toArray()
+    .every((child) => {
+      const childTagName = String(child.tagName || '').toLowerCase()
+      if (!childTagName || !EDITABLE_TEXT_CHILD_TAGS.has(childTagName)) return false
+      const childElement = $(child)
+      return hasOnlyEditableTextChildren($, childElement)
+    })
 }
 
 async function patchHtmlFile(
@@ -132,7 +155,7 @@ function patchElementProperties(
   }
 ): string {
   const $ = cheerio.load(html, { scriptingEnabled: false })
-  let target
+  let target: cheerio.Cheerio<AnyNode>
   try {
     target = $(selector).first()
   } catch {
@@ -142,18 +165,15 @@ function patchElementProperties(
     throw new Error('无法定位文字元素：页面内容可能已经变化')
   }
 
-  const node = target.get(0)
+  const node = target.get(0) as { tagName?: string } | undefined
   const tagName = String(node?.tagName || '').toLowerCase()
   const hasRole = Boolean(target.attr('data-role'))
   const hasBlockId = Boolean(target.attr('data-block-id'))
   if (!EDITABLE_TEXT_TAGS.has(tagName) && !hasRole && !hasBlockId) {
     throw new Error(`当前元素暂不支持直接编辑文字：<${tagName || 'unknown'}>`)
   }
-  const nonTextChildren = target.children().filter((_, child) => {
-    return String(child.tagName || '').toLowerCase() !== 'br'
-  })
-  if (nonTextChildren.length > 0) {
-    throw new Error('当前元素包含子元素，暂不支持直接编辑；可以选择更内层的文字。')
+  if (!hasOnlyEditableTextChildren($, target)) {
+    throw new Error('当前元素包含非文本子元素，暂不支持直接编辑；可以选择更内层的文字。')
   }
 
   if (typeof patch.text === 'string') {

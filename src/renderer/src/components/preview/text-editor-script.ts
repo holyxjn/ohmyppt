@@ -8,8 +8,9 @@ export function buildTextEditorInjectScript(): string {
   const HIGHLIGHT_CLASS = "ppt-text-editor-highlight";
   const SELECTED_CLASS = "ppt-text-editor-selected";
   const LOG_PREFIX = "${TEXT_EDITOR_CONSOLE_PREFIX}";
-  const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th", "blockquote", "figcaption"]);
+  const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "span", "strong", "em", "b", "i", "u", "s", "small", "label", "button", "td", "th", "blockquote", "figcaption", "sub", "sup"]);
   const BLOCKED_TEXT_TAGS = new Set(["script", "style", "svg", "canvas", "img", "video", "audio", "input", "textarea", "select", "option"]);
+  const EDITABLE_TEXT_CHILD_TAGS = new Set([...TEXT_TAGS, "br"]);
 
   const existing = window[STATE_KEY];
   if (existing && existing.active) return;
@@ -185,7 +186,9 @@ export function buildTextEditorInjectScript(): string {
   const hasOnlyEditableTextChildren = (element) => {
     return Array.from(element.children || []).every((child) => {
       const tag = child.tagName ? child.tagName.toLowerCase() : "";
-      return tag === "br";
+      if (!tag || BLOCKED_TEXT_TAGS.has(tag)) return false;
+      if (!EDITABLE_TEXT_CHILD_TAGS.has(tag)) return false;
+      return hasOnlyEditableTextChildren(child);
     });
   };
 
@@ -216,12 +219,16 @@ export function buildTextEditorInjectScript(): string {
   const pickTarget = (origin) => {
     if (!(origin instanceof Element)) return null;
     let candidate = origin;
+    let firstUsable = null;
     const boundaryRoot = getContentRoot(origin) || getPageRoot(origin);
     while (candidate && candidate !== boundaryRoot) {
-      if (isUsableTarget(candidate) && buildStableSelector(candidate)) return candidate;
+      if (isUsableTarget(candidate) && buildStableSelector(candidate)) {
+        if (!firstUsable) firstUsable = candidate;
+        if (candidate.getAttribute("data-block-id")) return candidate;
+      }
       candidate = candidate.parentElement;
     }
-    return null;
+    return firstUsable;
   };
 
   const ensureStyle = () => {
