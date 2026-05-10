@@ -86,13 +86,17 @@ function buildFallbackFailedPages(
     }))
   }
   if (Array.isArray(runArgs.outlineTitles) && runArgs.outlineTitles.length > 0) {
-    return runArgs.outlineTitles.map((title, index) => ({
-      pageId: `page-${index + 1}`,
-      title,
-      reason
-    }))
+    const pageIds = Object.keys(runArgs.pageFileMap || {})
+    if (pageIds.length > 0) {
+      return runArgs.outlineTitles.map((title, index) => ({
+        pageId: pageIds[index] || pageIds[Math.min(index, pageIds.length - 1)],
+        title,
+        reason
+      }))
+    }
   }
-  return [{ pageId: 'page-1', title: 'Untitled', reason }]
+  const fallbackPageId = Object.keys(runArgs.pageFileMap || {})[0] || 'unknown-page'
+  return [{ pageId: fallbackPageId, title: 'Untitled', reason }]
 }
 
 export function createGenerationPageCallbacks(

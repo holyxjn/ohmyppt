@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
-import { eq, ne, gt, lte, count, max, asc, desc, sql, and, isNull, inArray } from 'drizzle-orm'
+import { eq, ne, gt, lte, count, max, asc, desc, sql, and, or, isNull, inArray } from 'drizzle-orm'
 import * as schema from './schema'
 import path from 'path'
 import { app } from 'electron'
@@ -937,14 +937,76 @@ export class PPTDatabase {
     if (chatScope === 'page' && !normalizedPageId) {
       return []
     }
-    const whereClause =
-      chatScope === 'page' && normalizedPageId
-        ? and(
+    if (chatScope === 'page' && normalizedPageId) {
+      // Rollback / page-management may switch between canonical id and fileSlug.
+      // Query messages by all known aliases to keep page chat continuous.
+      const aliases = new Set<string>([normalizedPageId])
+      const directRows = await this.db
+        .select({
+          id: schema.sessionPages.id,
+          fileSlug: schema.sessionPages.fileSlug,
+          legacyPageId: schema.sessionPages.legacyPageId
+        })
+        .from(schema.sessionPages)
+        .where(
+          and(
+            eq(schema.sessionPages.sessionId, sessionId),
+            or(
+              eq(schema.sessionPages.id, normalizedPageId),
+              eq(schema.sessionPages.fileSlug, normalizedPageId),
+              eq(schema.sessionPages.legacyPageId, normalizedPageId)
+            )
+          )
+        )
+        .all()
+      const matchedSlugs = Array.from(
+        new Set(
+          directRows
+            .map((row) => String(row.fileSlug || '').trim())
+            .filter((item) => item.length > 0)
+        )
+      )
+      if (matchedSlugs.length > 0) {
+        const relatedRows = await this.db
+          .select({
+            id: schema.sessionPages.id,
+            fileSlug: schema.sessionPages.fileSlug,
+            legacyPageId: schema.sessionPages.legacyPageId
+          })
+          .from(schema.sessionPages)
+          .where(
+            and(
+              eq(schema.sessionPages.sessionId, sessionId),
+              inArray(schema.sessionPages.fileSlug, matchedSlugs)
+            )
+          )
+          .all()
+        for (const row of relatedRows) {
+          if (typeof row.id === 'string' && row.id.trim().length > 0) aliases.add(row.id.trim())
+          if (typeof row.fileSlug === 'string' && row.fileSlug.trim().length > 0)
+            aliases.add(row.fileSlug.trim())
+          if (typeof row.legacyPageId === 'string' && row.legacyPageId.trim().length > 0)
+            aliases.add(row.legacyPageId.trim())
+        }
+      }
+      const results = await this.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
             eq(schema.messages.sessionId, sessionId),
             eq(schema.messages.chatScope, 'page'),
-            eq(schema.messages.pageId, normalizedPageId)
+            inArray(schema.messages.pageId, Array.from(aliases))
           )
-        : and(eq(schema.messages.sessionId, sessionId), eq(schema.messages.chatScope, 'main'))
+        )
+        .orderBy(asc(schema.messages.createdAt))
+        .all()
+      return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>))
+    }
+    const whereClause = and(
+      eq(schema.messages.sessionId, sessionId),
+      eq(schema.messages.chatScope, 'main')
+    )
     const results = await this.db
       .select()
       .from(schema.messages)

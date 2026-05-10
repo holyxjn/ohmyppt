@@ -258,7 +258,7 @@ export const buildProjectIndexHtml = (title: string, pages: DeckPageFile[]): str
       <section class="ppt-stage">
         <div id="frameViewport" class="ppt-preview-viewport">
           ${frameElements}
-          <div class="ppt-empty">暂无页面，请先生成 page-xx.html 内容</div>
+          <div class="ppt-empty">暂无页面，请先生成 /&lt;pageId&gt;.html 内容</div>
         </div>
       </section>
     </div>

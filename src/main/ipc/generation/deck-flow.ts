@@ -412,6 +412,13 @@ export async function executeDeckGeneration(
     userMessage: context.userMessage,
     outlineTitles,
     outlineItems,
+    pageTasks: pageRefs.map((page, index) => ({
+      pageNumber: page.pageNumber,
+      pageId: page.pageId,
+      title: page.title,
+      contentOutline: outlineItems[index]?.contentOutline || '',
+      layoutIntent: outlineItems[index]?.layoutIntent
+    })),
     sourceDocumentPaths: context.sourceDocumentPaths,
     generationMode: 'generate',
     designContract,

@@ -51,14 +51,14 @@ export function buildEditAgentSystemPrompt(
   if (isContainerScopeEdit) {
     return [
       'You are a PPT presentation-container (index.html) editing expert.',
-      'This reserved task may only modify index.html and must not modify any page-x.html files.',
+      'This reserved task may only modify index.html and must not modify any /<pageId>.html files.',
       '',
       CONTENT_LANGUAGE_RULES,
       '',
       '## 核心原则',
       '- 仅允许调用 set_index_transition(type, durationMs) 配置切换动画',
       '- 禁止调用 update_page_file / update_single_page_file',
-      '- 禁止修改 page-x.html 内容和样式',
+      '- 禁止修改任何 /<pageId>.html 内容和样式',
       '- 必须保留 hash 导航、缩略目录、左右翻页、演示模式、全屏等核心交互',
       '- 必须保留 frameViewport、pages-data、ppt-preview-frame、ppt-controls 等关键结构',
       '',
@@ -70,7 +70,7 @@ export function buildEditAgentSystemPrompt(
       '- 严禁使用 CDN/远程 script/link',
       '- 严禁移除 pages-data 解析逻辑',
       '- 严禁破坏 #hash 与 pageId 的映射关系',
-      '- 严禁引入依赖 page-x 内部结构的脆弱选择器',
+      '- 严禁引入依赖 /<pageId>.html 内部结构的脆弱选择器',
       '',
       '## Execution Flow',
       '1. get_session_context — read index and page metadata',
@@ -100,9 +100,9 @@ export function buildEditAgentSystemPrompt(
   }
 
   return [
-    'You are a PPT incremental editing expert. The user already has multiple page-x.html files and an index.html overview shell.',
+    'You are a PPT incremental editing expert. The user already has multiple /<pageId>.html files and an index.html overview shell.',
     isDeckScopeEdit
-      ? "Your responsibility is to modify the relevant page-x.html files according to the user's main-session instruction. You must keep index.html unchanged."
+      ? "Your responsibility is to modify the relevant /<pageId>.html files according to the user's main-session instruction. You must keep index.html unchanged."
       : "Your responsibility is to modify only the target page files according to the user's instruction, keeping other pages and the shell unchanged.",
     '',
     CONTENT_LANGUAGE_RULES,
@@ -124,7 +124,7 @@ export function buildEditAgentSystemPrompt(
     '- 你必须通过工具实际修改文件，不能只在回复中描述修改',
     hasSelector ? '## Selector 精准修改协议（本次强约束）' : '',
     hasSelector
-      ? '1. 先根据 selectedPageId/selectedPagePath 锁定目标文件，再按 selectedSelector 定位目标节点；文件工具只能使用 /page-x.html 这样的虚拟路径'
+      ? '1. 先根据 selectedPageId/selectedPagePath 锁定目标文件，再按 selectedSelector 定位目标节点；文件工具只能使用 /<pageId>.html 这样的虚拟路径'
       : '',
     hasSelector ? '2. 修改范围仅限 selector 命中节点；若必须扩展，只允许向上 1 层父容器' : '',
     hasSelector ? '3. 禁止改动其他同级模块、禁止全局替换 class、禁止重排整页布局' : '',
@@ -204,7 +204,7 @@ export function buildEditAgentSystemPrompt(
     '## Current Task',
     `Topic: ${context.topic}`,
     `Deck title: ${context.deckTitle}`,
-    isDeckScopeEdit ? 'Target pages: all relevant page-x.html files' : targetInfo,
+    isDeckScopeEdit ? 'Target pages: all relevant /<pageId>.html files' : targetInfo,
     targetPagePath ? `Target file: ${targetPagePath}` : '',
     selectorInfo,
     elementInfo,

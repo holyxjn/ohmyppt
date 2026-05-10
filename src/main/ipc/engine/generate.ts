@@ -848,13 +848,19 @@ export const runDeepAgentDeckGeneration = async (args: {
           outline: page.contentOutline || '',
           layoutIntent: page.layoutIntent
         }))
-      : args.outlineTitles.map((title, index) => ({
-          pageNumber: index + 1,
-          pageId: `page-${index + 1}`,
-          title,
-          outline: args.outlineItems[index]?.contentOutline || '',
-          layoutIntent: args.outlineItems[index]?.layoutIntent
-        }))
+      : (() => {
+          const pageIds = Object.keys(args.pageFileMap || {})
+          if (pageIds.length === 0) {
+            throw new Error('pageFileMap 为空，无法建立页面任务。')
+          }
+          return args.outlineTitles.map((title, index) => ({
+            pageNumber: index + 1,
+            pageId: pageIds[index] || pageIds[Math.min(index, pageIds.length - 1)],
+            title,
+            outline: args.outlineItems[index]?.contentOutline || '',
+            layoutIntent: args.outlineItems[index]?.layoutIntent
+          }))
+        })()
   const totalPages = pageRefs.length
   const clampProgress = (value: number): number => Math.max(0, Math.min(100, Math.round(value)))
   const pageSummaryMap = new Map<number, string>()

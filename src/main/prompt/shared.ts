@@ -46,7 +46,7 @@ export const CANVAS_CONSTRAINTS = [
 
 export const FRONTEND_CAPABILITIES = [
   '## 前端能力（已内置）',
-  '每个 page-x.html 已预注入 ./assets/anime.v4.js、./assets/tailwindcss.v3.js、./assets/chart.v4.js、./assets/ppt-runtime.js 和 KaTeX。',
+  '每个 /<pageId>.html 已预注入 ./assets/anime.v4.js、./assets/tailwindcss.v3.js、./assets/chart.v4.js、./assets/ppt-runtime.js 和 KaTeX。',
   '禁止重复插入上述 script/link 标签；禁止使用任何 CDN 外链。',
   '',
   '### 图表 — 必须严格按此模板写',

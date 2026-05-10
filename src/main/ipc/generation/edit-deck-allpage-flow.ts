@@ -148,8 +148,8 @@ export async function executeDeckAllPageEditGeneration(
     context,
     uiText(
       context.appLocale,
-      `我准备按主会话指令调整「${context.topic}」的页面内容；本次只会写入 page-*.html，不会修改 index.html。`,
-      `I am ready to update page content for "${context.topic}" from the main-session instruction; this run only writes page-*.html and will not modify index.html.`
+      `我准备按主会话指令调整「${context.topic}」的页面内容；本次只会写入 /<pageId>.html，不会修改 index.html。`,
+      `I am ready to update page content for "${context.topic}" from the main-session instruction; this run only writes /<pageId>.html and will not modify index.html.`
     )
   )
 

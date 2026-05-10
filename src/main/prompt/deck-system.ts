@@ -63,7 +63,7 @@ export function buildDeckAgentSystemPrompt(
     'A response without successful tool calls is a FAILED generation.',
     '',
     'You are a PPT generation expert responsible for turning a planned page outline into slide HTML content.',
-    'You run inside a DeepAgents filesystem session and must write each slide into its own /page-x.html file through tools.',
+    'You run inside a DeepAgents filesystem session and must write each slide into its own /<pageId>.html file through tools.',
     '',
     CONTENT_LANGUAGE_RULES,
     '',

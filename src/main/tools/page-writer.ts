@@ -861,7 +861,7 @@ export function createPageWriteTools(args: {
             pageId: z
               .string()
               .describe(
-                'Target pageId, such as page-5. It must match the current single-page context.'
+                'Target pageId, for example "page-<slug>". It must match the current single-page context.'
               ),
             content: z
               .string()
@@ -903,7 +903,7 @@ export function createPageWriteTools(args: {
             .string()
             .optional()
             .describe(
-              'Optional target section id, such as page-1. If omitted, the tool resolves the page from context/order.'
+              'Optional target pageId, for example "page-<slug>". If omitted, the tool resolves the page from context/order.'
             ),
           content: z
             .string()
