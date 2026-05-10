@@ -171,16 +171,17 @@ const normalizeDesignContract = (value: unknown): DesignContract => {
       .trim()
     const fallback = DEFAULT_DESIGN_CONTRACT[key]
     const resolved = text || fallback
-    return resolved.length > 120 ? `${resolved.slice(0, 120).trimEnd()}…` : resolved
+    return resolved.length > 220 ? `${resolved.slice(0, 220).trimEnd()}…` : resolved
   }
   const paletteRaw = Array.isArray(record.palette) ? record.palette : []
   const palette = paletteRaw
     .map((item) => String(item ?? '').trim())
     .filter((item) => item.length > 0)
     .slice(0, 6)
-  const resolvedPalette = Array.from(
-    new Set([...palette, ...DEFAULT_DESIGN_CONTRACT.palette])
-  ).slice(0, 6)
+  const resolvedPalette =
+    palette.length >= 3
+      ? palette
+      : Array.from(new Set([...palette, ...DEFAULT_DESIGN_CONTRACT.palette])).slice(0, 6)
   return {
     theme: readText('theme'),
     background: readText('background'),
@@ -309,7 +310,7 @@ const buildDesignContractRetryUserPrompt = (userPrompt: string, previousError: s
     '- Retry now and return only a raw JSON object. Do not wrap it in Markdown. Do not add explanations.',
     '- Use exactly these fields: theme, background, palette, titleStyle, layoutMotif, chartStyle, shapeLanguage.',
     '- palette must be an array with 3-6 color strings.',
-    '- titleStyle must use text-5xl and must not use text-6xl, text-7xl, or text-8xl.'
+    '- titleStyle should usually use text-4xl or text-5xl and must not use text-6xl, text-7xl, or text-8xl.'
   ].join('\n')
 
 export const planDeckWithLLM = async (args: {
@@ -559,7 +560,9 @@ export const planNewPage = async (args: {
     'Return only a JSON object with exactly these fields: title, keyPoints, layoutIntent.',
     'Do not add explanations, Markdown, or extra text.',
     'keyPoints must contain 1-4 short phrases.'
-  ].filter(Boolean).join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
   const contextParts: string[] = []
   if (args.existingTitles && args.existingTitles.length > 0) {
     contextParts.push('Existing slide titles (do NOT duplicate these):')
@@ -1228,8 +1231,9 @@ export const runDeepAgentDeckGeneration = async (args: {
         lastError = error
         const reason = error instanceof Error ? error.message : String(error)
         // Write/validation errors are not retryable — the model would fail the same way again
-        const isWriteError =
-          /验证失败|落盘校验|禁止的 CDN|远程资源|未知页面|不允许写入/i.test(reason)
+        const isWriteError = /验证失败|落盘校验|禁止的 CDN|远程资源|未知页面|不允许写入/i.test(
+          reason
+        )
         if (isWriteError || attempt >= MAX_PAGE_RETRIES) break
         const retryAttempt = attempt + 1
         const retryDelayMs = RETRY_DELAY_BASE_MS * retryAttempt

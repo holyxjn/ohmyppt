@@ -111,6 +111,7 @@ export function buildOutlinePageList(context: SessionDeckGenerationContext): str
 export function formatDesignContract(contract?: DesignContract): string {
   if (!contract) return 'Not provided. Keep pages visually consistent according to the style rules.'
   return [
+    '- Treat this as a flexible visual contract, not a fixed template. Preserve coherence while varying composition, density, and emphasis per slide.',
     `- Visual theme: ${contract.theme}`,
     `- Canvas background: ${contract.background}`,
     `- Palette: ${contract.palette.join(', ')}`,

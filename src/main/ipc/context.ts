@@ -189,7 +189,8 @@ export function createIpcContext(
     if (!/id=["']pages-data["']/i.test(html)) {
       errors.push('index.html 缺少 pages-data 页面数据')
     }
-    const hasInlineJs = /const\s+pages\s*=\s*JSON\.parse/i.test(html) && /function\s+applyPage\s*\(/i.test(html)
+    const hasInlineJs =
+      /const\s+pages\s*=\s*JSON\.parse/i.test(html) && /function\s+applyPage\s*\(/i.test(html)
     const hasExternalRuntime = /src=["'][^"']*index-runtime\.js["']/i.test(html)
     if (!hasInlineJs && !hasExternalRuntime) {
       errors.push('index.html 缺少页面数据解析逻辑')
@@ -730,7 +731,7 @@ export function createIpcContext(
             ? IMAGE_MIME_BY_EXT[ext] || 'application/octet-stream'
             : target === 'videos'
               ? VIDEO_MIME_BY_EXT[ext] || 'application/octet-stream'
-            : DOC_MIME_BY_EXT[ext] || 'text/plain',
+              : DOC_MIME_BY_EXT[ext] || 'text/plain',
         size: stat.size,
         createdAt: Math.floor(Date.now() / 1000)
       })
@@ -895,10 +896,10 @@ export function createIpcContext(
   }
 
   const PLANNER_TEMPERATURE = 0.1
-  const DESIGN_CONTRACT_TEMPERATURE = 0.35
-  const PAGE_GENERATION_TEMPERATURE = 0.7
-  const PAGE_EDIT_WITH_SELECTOR_TEMPERATURE = 0.3
-  const PAGE_EDIT_DEFAULT_TEMPERATURE = 0.55
+  const DESIGN_CONTRACT_TEMPERATURE = 0.25
+  const PAGE_GENERATION_TEMPERATURE = 0.65
+  const PAGE_EDIT_WITH_SELECTOR_TEMPERATURE = 0.15
+  const PAGE_EDIT_DEFAULT_TEMPERATURE = 0.45
 
   const resolveSessionAssetSourcePath = (fileName: string): string => {
     const baseDir = is.dev
