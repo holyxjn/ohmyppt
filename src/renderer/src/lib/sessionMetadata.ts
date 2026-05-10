@@ -1,6 +1,10 @@
 type SessionLike = {
   status?: string | null
   page_count?: number | null
+  generated_count?: number | null
+  generatedCount?: number | null
+  failed_count?: number | null
+  failedCount?: number | null
   metadata?: string | null
 }
 
@@ -29,9 +33,14 @@ export const parseSessionMetadata = (metadata: string | null | undefined): Sessi
 }
 
 export const getEditorGate = (session: SessionLike | null | undefined, threshold = 0.5): EditorGate => {
-  const metadata = parseSessionMetadata(session?.metadata)
-  const generatedCount = Array.isArray(metadata.generatedPages) ? metadata.generatedPages.length : 0
-  const failedCount = Array.isArray(metadata.failedPages) ? metadata.failedPages.length : 0
+  const explicitGenerated = Number(session?.generated_count ?? session?.generatedCount)
+  const explicitFailed = Number(session?.failed_count ?? session?.failedCount)
+  const generatedCount = Number.isFinite(explicitGenerated)
+    ? Math.max(0, Math.floor(explicitGenerated))
+    : 0
+  const failedCount = Number.isFinite(explicitFailed)
+    ? Math.max(0, Math.floor(explicitFailed))
+    : 0
   const explicitTotal = Number(session?.page_count ?? 0)
   const totalCount = Math.max(
     Number.isFinite(explicitTotal) ? Math.floor(explicitTotal) : 0,

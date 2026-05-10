@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
-import { eq, ne, gt, lte, count, max, asc, desc, sql, and } from 'drizzle-orm'
+import { eq, ne, gt, lte, count, max, asc, desc, sql, and, isNull, inArray } from 'drizzle-orm'
 import * as schema from './schema'
 import path from 'path'
 import { app } from 'electron'
@@ -17,6 +17,7 @@ type StyleSource = 'builtin' | 'custom' | 'override'
 type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
+type SessionPageStatus = schema.SessionPageStatus
 type SessionOperationType = 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
 type SessionOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
 type SessionOperationStatus = 'committing' | 'completed' | 'failed' | 'noop'
@@ -118,6 +119,45 @@ export interface GenerationPageRecord {
   updated_at: number
 }
 
+export interface SessionPageRecord {
+  id: string
+  session_id: string
+  legacy_page_id: string | null
+  file_slug: string
+  page_number: number
+  title: string
+  html_path: string
+  status: SessionPageStatus
+  error: string | null
+  created_at: number
+  updated_at: number
+  deleted_at: number | null
+}
+
+export interface SessionPageInput {
+  id: string
+  sessionId: string
+  legacyPageId?: string | null
+  fileSlug: string
+  pageNumber: number
+  title: string
+  htmlPath: string
+  status?: SessionPageStatus
+  error?: string | null
+}
+
+export const sessionPageRecordToInput = (page: SessionPageRecord): SessionPageInput => ({
+  id: page.id,
+  sessionId: page.session_id,
+  legacyPageId: page.legacy_page_id,
+  fileSlug: page.file_slug,
+  pageNumber: page.page_number,
+  title: page.title,
+  htmlPath: page.html_path,
+  status: page.status,
+  error: page.error
+})
+
 export interface StyleRow {
   id: string
   style: string
@@ -161,6 +201,22 @@ export interface SessionOperationRecord {
   metadata_json: string
   created_at: number
   completed_at: number | null
+}
+
+export interface SessionOperationPageRecord {
+  id: string
+  operation_id: string
+  session_id: string
+  page_id: string
+  legacy_page_id: string | null
+  file_slug: string
+  page_number: number
+  title: string
+  html_path: string
+  status: SessionPageStatus
+  error: string | null
+  created_at: number
+  updated_at: number
 }
 
 export class PPTDatabase {
@@ -399,6 +455,29 @@ export class PPTDatabase {
     }
   }
 
+  private normalizeSessionPageRow(row: Record<string, unknown>): SessionPageRecord {
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      legacy_page_id:
+        typeof (row.legacyPageId ?? row.legacy_page_id) === 'string'
+          ? String(row.legacyPageId ?? row.legacy_page_id)
+          : null,
+      file_slug: String(row.fileSlug ?? row.file_slug ?? ''),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ''),
+      html_path: String(row.htmlPath ?? row.html_path ?? ''),
+      status: String(row.status || 'pending') as SessionPageStatus,
+      error: typeof row.error === 'string' ? row.error : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
+      deleted_at:
+        typeof (row.deletedAt ?? row.deleted_at) === 'number'
+          ? Number(row.deletedAt ?? row.deleted_at)
+          : null
+    }
+  }
+
   async createGenerationRun(data: {
     id?: string
     sessionId: string
@@ -544,6 +623,92 @@ export class PPTDatabase {
     return Array.from(latestByPageId.values()).sort((a, b) => a.page_number - b.page_number)
   }
 
+  async listSessionPages(
+    sessionId: string,
+    options?: { includeDeleted?: boolean }
+  ): Promise<SessionPageRecord[]> {
+    const conditions = [eq(schema.sessionPages.sessionId, sessionId)]
+    if (!options?.includeDeleted) {
+      conditions.push(isNull(schema.sessionPages.deletedAt))
+    }
+    const rows = await this.db
+      .select()
+      .from(schema.sessionPages)
+      .where(and(...conditions))
+      .orderBy(asc(schema.sessionPages.pageNumber))
+      .all()
+    return rows.map((row) => this.normalizeSessionPageRow(row as Record<string, unknown>))
+  }
+
+  async upsertSessionPage(page: SessionPageInput): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.sessionPages)
+      .values({
+        id: page.id,
+        sessionId: page.sessionId,
+        legacyPageId: page.legacyPageId || null,
+        fileSlug: page.fileSlug,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        htmlPath: page.htmlPath,
+        status: page.status || 'pending',
+        error: page.error || null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null
+      })
+      .onConflictDoUpdate({
+        target: schema.sessionPages.id,
+        set: {
+          legacyPageId: page.legacyPageId || null,
+          fileSlug: page.fileSlug,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          htmlPath: page.htmlPath,
+          status: page.status || 'pending',
+          error: page.error || null,
+          deletedAt: null,
+          updatedAt: now
+        }
+      })
+      .run()
+  }
+
+  async replaceSessionPageOrder(
+    sessionId: string,
+    pages: Array<{ id: string; pageNumber: number }>
+  ): Promise<void> {
+    if (pages.length === 0) return
+    const now = Math.floor(Date.now() / 1000)
+    const pageIds = pages.map((page) => page.id)
+    const caseWhenFragments = pages.map(
+      (page) => sql`WHEN ${schema.sessionPages.id} = ${page.id} THEN ${page.pageNumber}`
+    )
+    const pageNumberExpr = sql<number>`CASE ${sql.join(caseWhenFragments, sql` `)} ELSE ${schema.sessionPages.pageNumber} END`
+    await this.db
+      .update(schema.sessionPages)
+      .set({
+        pageNumber: pageNumberExpr,
+        updatedAt: now
+      })
+      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, pageIds)))
+      .run()
+  }
+
+  async softDeleteSessionPages(sessionId: string, ids: string[]): Promise<void> {
+    if (!Array.isArray(ids) || ids.length === 0) return
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .update(schema.sessionPages)
+      .set({
+        deletedAt: now,
+        updatedAt: now
+      })
+      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, ids)))
+      .run()
+  }
+
   // ========== Session History ==========
 
   private normalizeSessionOperationRow(row: Record<string, unknown>): SessionOperationRecord {
@@ -589,6 +754,27 @@ export class PPTDatabase {
         typeof (row.completedAt ?? row.completed_at) === 'number'
           ? Number(row.completedAt ?? row.completed_at)
           : null
+    }
+  }
+
+  private normalizeSessionOperationPageRow(row: Record<string, unknown>): SessionOperationPageRecord {
+    return {
+      id: String(row.id || ''),
+      operation_id: String(row.operationId ?? row.operation_id ?? ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      page_id: String(row.pageId ?? row.page_id ?? ''),
+      legacy_page_id:
+        typeof (row.legacyPageId ?? row.legacy_page_id) === 'string'
+          ? String(row.legacyPageId ?? row.legacy_page_id)
+          : null,
+      file_slug: String(row.fileSlug ?? row.file_slug ?? ''),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ''),
+      html_path: String(row.htmlPath ?? row.html_path ?? ''),
+      status: String(row.status || 'pending') as SessionPageStatus,
+      error: typeof row.error === 'string' ? String(row.error) : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
     }
   }
 
@@ -681,6 +867,57 @@ export class PPTDatabase {
           ? row.status === 'completed' || row.status === 'noop'
           : row.status === 'completed'
       )
+  }
+
+  async replaceSessionOperationPages(
+    operationId: string,
+    sessionId: string,
+    pages: Array<{
+      pageId: string
+      legacyPageId?: string | null
+      fileSlug: string
+      pageNumber: number
+      title: string
+      htmlPath: string
+      status?: SessionPageStatus
+      error?: string | null
+    }>
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .delete(schema.sessionOperationPages)
+      .where(eq(schema.sessionOperationPages.operationId, operationId))
+      .run()
+    for (const page of pages) {
+      await this.db
+        .insert(schema.sessionOperationPages)
+        .values({
+          id: `${operationId}:${page.pageId}`,
+          operationId,
+          sessionId,
+          pageId: page.pageId,
+          legacyPageId: page.legacyPageId || null,
+          fileSlug: page.fileSlug,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          htmlPath: page.htmlPath,
+          status: page.status || 'pending',
+          error: page.error || null,
+          createdAt: now,
+          updatedAt: now
+        })
+        .run()
+    }
+  }
+
+  async listSessionOperationPages(operationId: string): Promise<SessionOperationPageRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.sessionOperationPages)
+      .where(eq(schema.sessionOperationPages.operationId, operationId))
+      .orderBy(asc(schema.sessionOperationPages.pageNumber))
+      .all()
+    return rows.map((row) => this.normalizeSessionOperationPageRow(row as Record<string, unknown>))
   }
 
   // ========== Messages ==========

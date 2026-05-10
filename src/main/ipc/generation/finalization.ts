@@ -1,9 +1,49 @@
 import log from 'electron-log/main.js'
 import path from 'path'
+import { customAlphabet, nanoid } from 'nanoid'
 import type { IpcContext } from '../context'
 import type { FinalizeContext, FinalizeGenerationArgs } from './types'
-import { derivePageNumber } from './metadata-parser'
 import { recordHistoryOperationSafe } from '../../history/git-history-service'
+import type { SessionPageRecord } from '../../db/database'
+
+const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
+
+const syncGeneratedPagesToSessionPages = async (
+  ctx: IpcContext,
+  args: {
+    sessionId: string
+    generatedPages: Array<{
+      id?: string
+      pageNumber: number
+      title: string
+      pageId?: string
+      htmlPath?: string
+    }>
+  }
+): Promise<void> => {
+  const existingPages = await ctx.db.listSessionPages(args.sessionId, { includeDeleted: true })
+  const existingBySlug = new Map<string, SessionPageRecord>()
+  for (const row of existingPages) {
+    existingBySlug.set(row.file_slug, row)
+    if (row.legacy_page_id) existingBySlug.set(row.legacy_page_id, row)
+  }
+
+  for (const page of args.generatedPages) {
+    const fileSlug = page.pageId || `page-${pageSlugId()}`
+    const existing = existingBySlug.get(fileSlug)
+    await ctx.db.upsertSessionPage({
+      id: page.id || existing?.id || nanoid(),
+      sessionId: args.sessionId,
+      legacyPageId: existing?.legacy_page_id || (fileSlug.match(/^page-\d+$/) ? fileSlug : null),
+      fileSlug,
+      pageNumber: page.pageNumber,
+      title: page.title || `第 ${page.pageNumber} 页`,
+      htmlPath: page.htmlPath || '',
+      status: 'completed',
+      error: null
+    })
+  }
+}
 
 export async function finalizeGenerationSuccess(
   ctx: IpcContext,
@@ -12,15 +52,13 @@ export async function finalizeGenerationSuccess(
   const { db, emitGenerateChunk } = ctx
   const { context, indexPath, totalPages, generatedPages } = args
   const contextWithPrompt = context as FinalizeContext & { userMessage?: unknown }
+  await syncGeneratedPagesToSessionPages(ctx, {
+    sessionId: context.sessionId,
+    generatedPages
+  })
   await db.updateSessionMetadata(context.sessionId, {
     lastRunId: context.runId,
     entryMode: 'multi_page',
-    generatedPages: generatedPages.map((page) => ({
-      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
-      title: page.title,
-      pageId: page.pageId,
-      htmlPath: page.htmlPath
-    })),
     indexPath,
     projectId: context.projectId
   })

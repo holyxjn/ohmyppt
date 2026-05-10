@@ -14,14 +14,14 @@ interface GenerateStore {
   status: GenerateRunStatus
   isGenerating: boolean
   progress: GenerateProgress | null
-  currentPages: { pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]
+  currentPages: { id: string; pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]
   error: string | null
   cancelReason: string | null
 
   startGeneration: () => void
   updateProgress: (progress: Partial<GenerateProgress>) => void
-  setPages: (pages: { pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]) => void
-  addPage: (page: { pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }) => void
+  setPages: (pages: { id: string; pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]) => void
+  addPage: (page: { id: string; pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }) => void
   updatePage: (
     pageId: string,
     html: string,
@@ -66,7 +66,8 @@ export const useGenerateStore = create<GenerateStore>((set) => ({
   addPage: (page) =>
     set((state) => {
       const existingIndex = state.currentPages.findIndex((item) =>
-        page.pageId && item.pageId ? item.pageId === page.pageId : item.pageNumber === page.pageNumber
+        page.id === item.id ||
+        (page.pageId && item.pageId ? item.pageId === page.pageId : item.pageNumber === page.pageNumber)
       )
       if (existingIndex < 0) {
         return { currentPages: [...state.currentPages, page] }

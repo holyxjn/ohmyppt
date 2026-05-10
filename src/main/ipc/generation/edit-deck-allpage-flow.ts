@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import log from 'electron-log/main.js'
+import { nanoid } from 'nanoid'
 import { progressText } from '@shared/progress'
 import { normalizeLayoutIntent } from '@shared/layout-intent'
 import type { GeneratedPagePayload } from '@shared/generation'
@@ -13,7 +14,6 @@ import {
   uiText,
   validateChangedPages
 } from './generation-utils'
-import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { DesignContract } from '../../tools/types'
 import { runDeepAgentDeckAllPageEdit } from '../engine/generate'
 import {
@@ -44,65 +44,32 @@ export async function executeDeckAllPageEditGeneration(
   const projectDir = context.entry.projectDir
   const indexPath = path.join(projectDir, 'index.html')
   let outlineTitles: string[] = context.userProvidedOutlineTitles
-  let pageRefs: Array<{ pageNumber: number; title: string; pageId: string; htmlPath: string }> = []
+  let pageRefs: Array<{ id: string; pageNumber: number; title: string; pageId: string; htmlPath: string }> = []
   let savedDesignContract: DesignContract | undefined
-  let metadataFailedPages: Array<{ pageId: string; title: string; reason: string }> = []
 
-  if (context.session?.metadata) {
-    const metadata = parseSessionMetadata(context.session.metadata)
-    if (outlineTitles.length === 0) {
-      outlineTitles = (metadata.generatedPages || []).map((p) => p.title)
-    }
-    metadataFailedPages = (metadata.failedPages || [])
-      .map((page) => ({
-        pageId: typeof page.pageId === 'string' ? page.pageId.trim() : '',
-        title: typeof page.title === 'string' ? page.title.trim() : '',
-        reason: typeof page.reason === 'string' ? page.reason.trim() : ''
-      }))
-      .filter((page) => page.pageId.length > 0)
-    pageRefs = (metadata.generatedPages || []).map((p, index) => {
-      const pageId = p.pageId || `page-${p.pageNumber || index + 1}`
-      return {
-        pageNumber: Number(pageId.match(/^page-(\d+)$/i)?.[1]) || index + 1,
-        title: p.title || `第${index + 1}页`,
-        pageId,
-        htmlPath: p.htmlPath || path.join(projectDir, `${pageId}.html`)
-      }
-    })
+  const sessionPages = await db.listSessionPages(context.sessionId)
+  if (sessionPages.length === 0) {
+    throw new Error('session_pages is empty after migration; cannot edit this session')
+  }
+  pageRefs = sessionPages.map((page) => ({
+    id: page.id,
+    pageNumber: page.page_number,
+    title: page.title || `第${page.page_number}页`,
+    pageId: page.file_slug,
+    htmlPath: page.html_path || path.join(projectDir, `${page.file_slug}.html`)
+  }))
+  if (outlineTitles.length === 0) {
+    outlineTitles = pageRefs.map((page) => page.title)
   }
 
   const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
-  const pageRefById = new Map(pageRefs.map((ref) => [ref.pageId, ref]))
-  for (const page of latestPageSnapshot) {
-    const pageId = page.page_id || `page-${page.page_number}`
-    if (pageRefById.has(pageId)) continue
-    const pageNumber = Number(pageId.match(/^page-(\d+)$/i)?.[1]) || page.page_number
-    const ref = {
-      pageNumber,
-      title: page.title || `第${pageNumber}页`,
-      pageId,
-      htmlPath: page.html_path || path.join(projectDir, `${pageId}.html`)
-    }
-    pageRefs.push(ref)
-    pageRefById.set(pageId, ref)
-  }
-
   const failedPageInfoById = new Map<string, { title: string; reason: string }>()
-  for (const page of latestPageSnapshot) {
+  for (const page of sessionPages) {
     if (page.status !== 'failed') continue
-    const pageId = page.page_id || `page-${page.page_number}`
-    failedPageInfoById.set(pageId, {
-      title: page.title || `第${page.page_number}页`,
+    failedPageInfoById.set(page.file_slug, {
+      title: page.title || page.file_slug,
       reason: page.error || '页面仍需修复'
     })
-  }
-  for (const page of metadataFailedPages) {
-    if (!failedPageInfoById.has(page.pageId)) {
-      failedPageInfoById.set(page.pageId, {
-        title: page.title || page.pageId,
-        reason: page.reason || '页面仍需修复'
-      })
-    }
   }
 
   const sessionRecord = (context.session || {}) as Record<string, unknown>
@@ -117,27 +84,6 @@ export async function executeDeckAllPageEditGeneration(
     }
   }
 
-  if (outlineTitles.length === 0) {
-    outlineTitles = Array.from({ length: context.totalPages }, (_unused, i) => `第${i + 1}页`)
-  }
-  if (pageRefs.length === 0) {
-    const diskPageIds = fs.existsSync(projectDir)
-      ? fs
-          .readdirSync(projectDir)
-          .map((name) => name.match(/^(page-(\d+))\.html$/i))
-          .filter((m): m is RegExpMatchArray => Boolean(m))
-          .sort((a, b) => Number(a[2]) - Number(b[2]))
-          .map((m) => m[1])
-      : []
-    const ids =
-      diskPageIds.length > 0 ? diskPageIds : outlineTitles.map((_title, i) => `page-${i + 1}`)
-    pageRefs = ids.map((pid, index) => ({
-      pageNumber: Number(pid.match(/^page-(\d+)$/i)?.[1] || index + 1),
-      title: outlineTitles[index] || `第${index + 1}页`,
-      pageId: pid,
-      htmlPath: path.join(projectDir, `${pid}.html`)
-    }))
-  }
   pageRefs.sort((a, b) => a.pageNumber - b.pageNumber)
   if (outlineTitles.length !== pageRefs.length) {
     outlineTitles = pageRefs.map((ref) => ref.title)
@@ -319,6 +265,7 @@ export async function executeDeckAllPageEditGeneration(
       if (!item) continue
       const { ref, html } = item
       nextPageDescriptors.push({
+        id: ref.id,
         pageNumber: ref.pageNumber,
         title: ref.title,
         pageId: ref.pageId,
@@ -329,6 +276,7 @@ export async function executeDeckAllPageEditGeneration(
       const changed = beforeMap.get(ref.pageId) !== html
       if (!changed && isExisting) continue
       nextChangedPageDescriptors.push({
+        id: ref.id,
         pageNumber: ref.pageNumber,
         title: ref.title,
         pageId: ref.pageId,
@@ -380,6 +328,7 @@ export async function executeDeckAllPageEditGeneration(
   for (const page of changedPageDescriptors) {
     const isExisting = existingPageIdsBeforeRun.includes(page.pageId)
     const payload: GeneratedPagePayload = {
+      id: page.id,
       pageNumber: page.pageNumber,
       title: page.title,
       html: page.html,
@@ -408,7 +357,7 @@ export async function executeDeckAllPageEditGeneration(
       runId: context.runId,
       sessionId: context.sessionId,
       pageId: page.pageId,
-      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
+      pageNumber: page.pageNumber,
       title: page.title,
       contentOutline: outlineItem?.contentOutline || '',
       layoutIntent: outlineItem?.layoutIntent,
@@ -449,16 +398,26 @@ export async function executeDeckAllPageEditGeneration(
   await db.updateSessionMetadata(context.sessionId, {
     lastRunId: context.runId,
     entryMode: 'multi_page',
-    generatedPages: generatedPagesForMetadata.map((page) => ({
-      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
-      title: page.title,
-      pageId: page.pageId,
-      htmlPath: page.htmlPath
-    })),
-    failedPages: remainingFailedPages,
     indexPath,
     projectId: context.projectId
   })
+  const existingSessionPages = await db.listSessionPages(context.sessionId, { includeDeleted: true })
+  const existingBySlug = new Map(existingSessionPages.map((sp) => [sp.file_slug, sp]))
+  for (const page of generatedPagesForMetadata) {
+    const existing = existingBySlug.get(page.pageId)
+    await db.upsertSessionPage({
+      id: existing?.id || nanoid(),
+      sessionId: context.sessionId,
+      legacyPageId:
+        existing?.legacy_page_id || (page.pageId.match(/^page-\d+$/) ? page.pageId : null),
+      fileSlug: page.pageId,
+      pageNumber: page.pageNumber,
+      title: page.title,
+      htmlPath: page.htmlPath,
+      status: 'completed',
+      error: null
+    })
+  }
   await db.updateProjectStatus(context.projectId, 'draft')
   await db.updateSessionStatus(
     context.sessionId,

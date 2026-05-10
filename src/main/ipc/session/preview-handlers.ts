@@ -55,7 +55,7 @@ export function registerPreviewHandlers(ctx: IpcContext): void {
         sessionId,
         htmlOnly: true
       })
-      const isPageFile = /\/page-\d+\.html?$/i.test(safeHtmlPath)
+      const isPageFile = path.basename(safeHtmlPath).toLowerCase() !== 'index.html'
       if (isPageFile) {
         const html = await fs.promises.readFile(safeHtmlPath, 'utf-8')
         const numberMatch = safeHtmlPath.match(/page-(\d+)\.html?$/i)
@@ -70,7 +70,7 @@ export function registerPreviewHandlers(ctx: IpcContext): void {
 
       const indexHtml = await fs.promises.readFile(safeHtmlPath, 'utf-8')
       const pages = extractPagesDataFromIndex(indexHtml)
-      const page = pages.find((p) => p.pageId === normalizedPageId)
+      const page = pages.find((p) => p.id === normalizedPageId || p.pageId === normalizedPageId)
       if (!page) throw new Error(`Page ${normalizedPageId} not found in ${safeHtmlPath}`)
       if (page.htmlPath) {
         const resolvedPagePath = path.resolve(path.dirname(safeHtmlPath), page.htmlPath)

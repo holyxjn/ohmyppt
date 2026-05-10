@@ -14,6 +14,8 @@ export const normalizeSession = (session: Record<string, unknown> | null | undef
     updated_at: session.updated_at ?? session.updatedAt ?? null,
     generation_duration_sec:
       session.generation_duration_sec ?? session.generationDurationSec ?? null,
+    generated_count: session.generated_count ?? session.generatedCount ?? null,
+    failed_count: session.failed_count ?? session.failedCount ?? null,
   };
 };
 

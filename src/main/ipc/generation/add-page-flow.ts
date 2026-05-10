@@ -6,14 +6,16 @@ import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
+import { customAlphabet, nanoid } from 'nanoid'
 import { type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { buildProjectIndexHtml, buildPageScaffoldHtml, type DeckPageFile } from '../engine/template'
 import { planNewPage } from '../engine/generate'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { ensureHistoryBaselineSafe } from '../../history/git-history-service'
+
+const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
 
 // ── Independent AddPage context (not shared with generation/retry/edit) ──
 
@@ -113,13 +115,8 @@ export async function executeAddPageGeneration(
     throw new Error('当前会话缺少设计契约，无法新增页面。请先完成首次生成。')
   }
 
-  // ── Step 2: Read existing pages from metadata ──
-  const metadata = parseSessionMetadata(
-    typeof sessionRecord.metadata === 'string' ? sessionRecord.metadata : undefined
-  )
-  const existingPages = Array.isArray(metadata.generatedPages)
-    ? metadata.generatedPages.filter((p) => p.pageId || p.pageNumber)
-    : []
+  // ── Step 2: Read existing pages from session_pages ──
+  const existingPages = await db.listSessionPages(context.sessionId)
 
   if (existingPages.length === 0) {
     throw new Error('当前会话没有已完成的页面，无法新增。请先完成首次生成。')
@@ -140,8 +137,9 @@ export async function executeAddPageGeneration(
     }
   })
 
-  const newPageNumber = Math.max(...existingPages.map((p) => derivePageNumber(p.pageId, p.pageNumber))) + 1
-  const newPageId = `page-${newPageNumber}`
+  const newPageNumber = Math.max(...existingPages.map((p) => p.page_number)) + 1
+  const newPageEntityId = nanoid()
+  const newPageId = `page-${pageSlugId()}`
   const newHtmlPath = path.join(context.projectDir, `${newPageId}.html`)
 
   const existingTitles = existingPages.map((p) => p.title).filter(Boolean)
@@ -229,6 +227,17 @@ export async function executeAddPageGeneration(
     htmlPath: newHtmlPath,
     status: 'pending'
   })
+  await db.upsertSessionPage({
+    id: newPageEntityId,
+    sessionId: context.sessionId,
+    legacyPageId: null,
+    fileSlug: newPageId,
+    pageNumber: newPageNumber,
+    title: planResult.title,
+    htmlPath: newHtmlPath,
+    status: 'pending',
+    error: null
+  })
 
   const pageFileMap: Record<string, string> = { [newPageId]: newHtmlPath }
   const pageCallbacks = createGenerationPageCallbacks({
@@ -299,6 +308,7 @@ export async function executeAddPageGeneration(
 
   // ── Step 7: Merge into existing pages and renumber ──
   const newPageEntry = {
+    id: newPageEntityId,
     pageNumber: insertAfterPageNumber + 1,
     title: planResult.title,
     pageId: newPageId,
@@ -309,13 +319,14 @@ export async function executeAddPageGeneration(
   // Read existing page HTMLs for the merge
   const existingPageDescriptors = await Promise.all(
     existingPages.map(async (page) => {
-      const pageId = page.pageId || `page-${page.pageNumber}`
-      const htmlPath = page.htmlPath || path.join(context.projectDir, `${pageId}.html`)
+      const pageId = page.file_slug || `page-${page.page_number}`
+      const htmlPath = page.html_path || path.join(context.projectDir, `${pageId}.html`)
       const html = fs.existsSync(htmlPath)
         ? await fs.promises.readFile(htmlPath, 'utf-8')
         : ''
       return {
-        pageNumber: derivePageNumber(pageId, page.pageNumber),
+        id: page.id,
+        pageNumber: page.page_number,
         title: page.title,
         pageId,
         htmlPath,
@@ -346,6 +357,7 @@ export async function executeAddPageGeneration(
       context.deckTitle,
       renumberedPages.map(
         (page): DeckPageFile => ({
+          id: page.id,
           pageNumber: page.pageNumber,
           pageId: page.pageId,
           title: page.title,

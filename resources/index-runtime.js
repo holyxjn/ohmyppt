@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+  // @ohmyppt-index-runtim:arcsin1:v2
 
   var pages = JSON.parse(document.getElementById('pages-data')?.textContent || '[]');
   var frameViewport = document.getElementById('frameViewport');
@@ -16,6 +17,14 @@
   var presentMode = search.get('present') === '1';
   var currentPageId = '';
   var fitRaf = 0;
+
+  function getPageKey(page) {
+    return String((page && (page.id || page.pageId)) || '');
+  }
+
+  function getLegacyPageId(page) {
+    return String((page && page.pageId) || getPageKey(page));
+  }
 
   // ── iframe pool: one per page, lazy-loaded on first visit ──
   var framePool = new Map();
@@ -39,7 +48,7 @@
   // Load a page's iframe on first visit so animations start when visible
   function ensureFrameLoaded(pageId) {
     if (loadedPages.has(pageId)) return;
-    var page = pages.find(function (p) { return p.pageId === pageId; });
+    var page = pages.find(function (p) { return getPageKey(p) === pageId; });
     var frame = framePool.get(pageId);
     if (!page || !frame) return;
     loadedPages.add(pageId);
@@ -73,9 +82,12 @@
 
   function normalizePageId(hashValue) {
     var raw = (hashValue || '').replace(/^#/, '').trim();
-    if (!raw && pages.length > 0) return pages[0].pageId;
+    if (!raw && pages.length > 0) return getPageKey(pages[0]);
     var decoded = decodeURIComponent(raw || '');
-    return pages.some(function (item) { return item.pageId === decoded; }) ? decoded : (pages[0]?.pageId || '');
+    if (pages.some(function (item) { return getPageKey(item) === decoded; })) return decoded;
+    var legacyMatch = pages.find(function (item) { return getLegacyPageId(item) === decoded; });
+    if (legacyMatch) return getPageKey(legacyMatch);
+    return (pages[0] ? getPageKey(pages[0]) : '');
   }
 
   function getActiveFrame() {
@@ -121,7 +133,7 @@
   }
 
   function currentIndex() {
-    return pages.findIndex(function (item) { return item.pageId === currentPageId; });
+    return pages.findIndex(function (item) { return getPageKey(item) === currentPageId; });
   }
 
   function updateIndicator() {
@@ -137,7 +149,7 @@
       return;
     }
     document.body.classList.remove('empty');
-    var page = pages.find(function (item) { return item.pageId === pageId; }) || pages[0];
+    var page = pages.find(function (item) { return getPageKey(item) === pageId; }) || pages[0];
     if (!page) return;
 
     // Hide previous frame
@@ -145,16 +157,16 @@
     if (prevFrame) prevFrame.classList.remove('active');
 
     // Show target frame
-    currentPageId = page.pageId;
-    ensureFrameLoaded(page.pageId);
-    var nextFrame = framePool.get(page.pageId);
+    currentPageId = getPageKey(page);
+    ensureFrameLoaded(currentPageId);
+    var nextFrame = framePool.get(currentPageId);
     if (nextFrame) nextFrame.classList.add('active');
 
     scheduleFitFrame();
-    if (syncHash && window.location.hash !== '#' + encodeURIComponent(page.pageId)) {
-      window.history.replaceState(null, '', '#' + encodeURIComponent(page.pageId));
+    if (syncHash && window.location.hash !== '#' + encodeURIComponent(currentPageId)) {
+      window.history.replaceState(null, '', '#' + encodeURIComponent(currentPageId));
     }
-    renderThumbs(page.pageId);
+    renderThumbs(currentPageId);
     updateIndicator();
   }
 
@@ -165,7 +177,7 @@
     var target = Math.max(0, Math.min(pages.length - 1, index + offset));
     var targetPage = pages[target];
     if (!targetPage) return;
-    window.location.hash = '#' + encodeURIComponent(targetPage.pageId);
+    window.location.hash = '#' + encodeURIComponent(getPageKey(targetPage));
   }
 
   function onHashChange() {

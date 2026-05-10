@@ -43,14 +43,15 @@ const isControlledFile = (relativePath: string): boolean => {
   if (!rel || rel.includes('..') || rel.startsWith('.git/')) return false
   if (rel === '.gitignore') return true
   if (rel === 'index.html') return true
-  if (/^page-\d+\.html$/i.test(rel)) return true
+  if (/^[^/]+\.html?$/i.test(rel) && rel.toLowerCase() !== 'index.html') return true
   if (rel.startsWith('assets/') && !rel.endsWith('/')) return true
   return false
 }
 
 const pageIdFromPath = (relativePath: string): string | undefined => {
-  const match = normalizeRelativePath(relativePath).match(/^(page-\d+)\.html$/i)
-  return match?.[1]
+  const rel = normalizeRelativePath(relativePath)
+  if (!/^[^/]+\.html?$/i.test(rel) || rel.toLowerCase() === 'index.html') return undefined
+  return rel.replace(/\.html?$/i, '')
 }
 
 const ensureDir = async (dir: string): Promise<void> => {
@@ -144,6 +145,7 @@ export class GitHistoryService {
         return this.db.getSessionOperation(operationId) as Promise<SessionOperationRecord | null>
       }
 
+      await this.captureOperationPageSnapshot(args.sessionId, operationId)
       const afterCommit = await git.commit({
         fs,
         dir: projectDir,
@@ -241,6 +243,7 @@ export class GitHistoryService {
     await this.restoreCommitFiles(projectDir, targetOperation.after_commit, filesToRestore)
 
     const targetMetadata = parseJson<Record<string, unknown>>(targetOperation.metadata_json, {})
+    await this.syncSessionPagesForRestoredVersion(args.sessionId, projectDir, targetOperation.id)
     const sessionMetadata = targetMetadata.sessionMetadata
     const rollbackMetadata =
       sessionMetadata && typeof sessionMetadata === 'object' && !Array.isArray(sessionMetadata)
@@ -277,6 +280,85 @@ export class GitHistoryService {
     }
   }
 
+  private async syncSessionPagesForRestoredVersion(
+    sessionId: string,
+    projectDir: string,
+    operationId: string
+  ): Promise<void> {
+    const order = await this.resolveRestoredPageOrder(operationId)
+    if (order.length === 0) {
+      throw new Error('目标历史版本缺少页面快照，无法恢复页面顺序。')
+    }
+    const existingPages = await this.db.listSessionPages(sessionId, { includeDeleted: true })
+    const existingById = new Map(existingPages.map((p) => [p.id, p]))
+    const existingByFileSlug = new Map(existingPages.map((p) => [p.file_slug, p]))
+    const activeIds = new Set<string>()
+
+    for (let index = 0; index < order.length; index += 1) {
+      const item = order[index] as Record<string, unknown>
+      const fileSlug = typeof item.pageId === 'string' && item.pageId.trim().length > 0
+        ? item.pageId.trim()
+        : `page-${index + 1}`
+      const providedId = typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : ''
+      const existing = (providedId ? existingById.get(providedId) : undefined) || existingByFileSlug.get(fileSlug)
+      const pageId = providedId || existing?.id || fileSlug
+      activeIds.add(pageId)
+      const pageNumberRaw = Number(item.pageNumber)
+      const pageNumber = Number.isFinite(pageNumberRaw) && pageNumberRaw > 0 ? Math.floor(pageNumberRaw) : index + 1
+      const title = typeof item.title === 'string' && item.title.trim().length > 0 ? item.title.trim() : `Page ${pageNumber}`
+      await this.db.upsertSessionPage({
+        id: pageId,
+        sessionId,
+        legacyPageId: existing?.legacy_page_id || null,
+        fileSlug,
+        pageNumber,
+        title,
+        htmlPath: existing?.html_path || path.resolve(projectDir, `${fileSlug}.html`),
+        status: existing?.status || 'completed',
+        error: existing?.error || null
+      })
+    }
+
+    const idsToSoftDelete = existingPages.filter((p) => !activeIds.has(p.id)).map((p) => p.id)
+    if (idsToSoftDelete.length > 0) {
+      await this.db.softDeleteSessionPages(sessionId, idsToSoftDelete)
+    }
+  }
+
+  private async resolveRestoredPageOrder(
+    operationId: string
+  ): Promise<Array<Record<string, unknown>>> {
+    const snapshotPages = await this.db.listSessionOperationPages(operationId)
+    return snapshotPages.map((page) => ({
+      id: page.page_id,
+      pageNumber: page.page_number,
+      pageId: page.file_slug,
+      title: page.title,
+      htmlPath: page.html_path
+    }))
+  }
+
+  private async captureOperationPageSnapshot(
+    sessionId: string,
+    operationId: string
+  ): Promise<void> {
+    const pages = await this.db.listSessionPages(sessionId)
+    await this.db.replaceSessionOperationPages(
+      operationId,
+      sessionId,
+      pages.map((page) => ({
+        pageId: page.id,
+        legacyPageId: page.legacy_page_id,
+        fileSlug: page.file_slug,
+        pageNumber: page.page_number,
+        title: page.title,
+        htmlPath: page.html_path,
+        status: page.status,
+        error: page.error
+      }))
+    )
+  }
+
   private async ensureRepository(projectDir: string): Promise<void> {
     await ensureDir(projectDir)
     const gitDir = path.join(projectDir, '.git')
@@ -300,7 +382,10 @@ export class GitHistoryService {
     const session = await this.db.getSession(sessionId)
     if (session?.currentCommit) return
     const files = await walkFiles(projectDir)
-    if (!files.some((file) => file === 'index.html') || !files.some((file) => /^page-\d+\.html$/i.test(file))) {
+    if (
+      !files.some((file) => file === 'index.html') ||
+      !files.some((file) => /^[^/]+\.html?$/i.test(file) && file.toLowerCase() !== 'index.html')
+    ) {
       throw new Error('旧会话文件不完整，无法建立历史起点。')
     }
     await this.recordOperation({

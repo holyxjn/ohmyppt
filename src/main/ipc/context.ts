@@ -230,8 +230,8 @@ export function createIpcContext(
     if (!sessionId) return { session, pages: [] }
 
     const metadata = parseSessionMetadataObject(session.metadata)
-    const generationSnapshot = await db.listLatestGenerationPageSnapshot(sessionId)
-    if (generationSnapshot.length === 0) {
+    const sessionPages = await db.listSessionPages(sessionId)
+    if (sessionPages.length === 0) {
       return { session, pages: [] }
     }
 
@@ -247,17 +247,6 @@ export function createIpcContext(
           ? path.dirname(metadataIndexPath)
           : path.join(await resolveStoragePath(), sessionId)
     const indexPath = metadataIndexPath || path.join(projectDir, 'index.html')
-    const completedPagesForMetadata: Array<{
-      pageNumber: number
-      title: string
-      pageId: string
-      htmlPath: string
-    }> = []
-    const failedPagesForMetadata: Array<{
-      pageId: string
-      title: string
-      reason: string
-    }> = []
     const pages: Array<{
       pageNumber: number
       title: string
@@ -269,29 +258,14 @@ export function createIpcContext(
       error?: string | null
     }> = []
 
-    for (const page of generationSnapshot) {
-      const pageId = page.page_id || `page-${page.page_number}`
+    for (const page of sessionPages) {
+      const pageId = page.file_slug
       const title = page.title || `第 ${page.page_number} 页`
       const htmlPath = page.html_path || path.join(projectDir, `${pageId}.html`)
       const html =
         options?.includeHtml && fs.existsSync(htmlPath)
           ? await fs.promises.readFile(htmlPath, 'utf-8')
           : ''
-      if (page.status === 'completed') {
-        completedPagesForMetadata.push({
-          pageNumber: page.page_number,
-          title,
-          pageId,
-          htmlPath
-        })
-      } else if (page.status === 'failed') {
-        failedPagesForMetadata.push({
-          pageId,
-          title,
-          reason: page.error || '页面仍需修复'
-        })
-      }
-
       pages.push({
         pageNumber: page.page_number,
         title,
@@ -306,22 +280,20 @@ export function createIpcContext(
 
     const synthesizedMetadata = {
       ...metadata,
-      lastRunId: generationSnapshot[0]?.run_id || metadata.lastRunId,
       entryMode: 'multi_page',
-      generatedPages: completedPagesForMetadata.sort((a, b) => a.pageNumber - b.pageNumber),
-      failedPages: failedPagesForMetadata.sort((a, b) => {
-        const aNumber = Number(a.pageId.match(/^page-(\d+)$/i)?.[1] || 0)
-        const bNumber = Number(b.pageId.match(/^page-(\d+)$/i)?.[1] || 0)
-        return aNumber - bNumber
-      }),
       indexPath,
       projectId: project?.id || metadata.projectId
     }
+    const completedCount = pages.filter((page) => page.status === 'completed').length
+    const failedCount = pages.filter((page) => page.status === 'failed').length
 
     return {
       session: {
         ...session,
-        metadata: JSON.stringify(synthesizedMetadata)
+        metadata: JSON.stringify(synthesizedMetadata),
+        page_count: pages.length,
+        generated_count: completedCount,
+        failed_count: failedCount
       },
       pages: pages.sort((a, b) => a.pageNumber - b.pageNumber)
     }
@@ -997,85 +969,27 @@ export function createIpcContext(
       throw new Error('Session not found')
     }
     const sessionRecord = session as unknown as Record<string, unknown>
-    const rawMetadata =
-      typeof sessionRecord.metadata === 'string' ? String(sessionRecord.metadata).trim() : ''
-    const metadata = (() => {
-      if (!rawMetadata) return {} as Record<string, unknown>
-      try {
-        return JSON.parse(rawMetadata) as Record<string, unknown>
-      } catch {
-        return {} as Record<string, unknown>
-      }
-    })()
 
     const project = await db.getProject(sessionId)
     const projectDirCandidate =
       typeof project?.output_path === 'string' && project.output_path.trim().length > 0
         ? project.output_path.trim()
-        : typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0
-          ? path.dirname(metadata.indexPath.trim())
-          : ''
+        : ''
     const projectDir = projectDirCandidate
       ? path.resolve(projectDirCandidate)
       : path.resolve(await resolveStoragePath(), sessionId)
-
-    const generatedPagesRaw = Array.isArray(metadata.generatedPages)
-      ? (metadata.generatedPages as Array<Record<string, unknown>>)
-      : []
-
-    const pagesFromMetadata: SessionPageFile[] = []
-    for (let index = 0; index < generatedPagesRaw.length; index += 1) {
-      const row = generatedPagesRaw[index]
-      const pageNumberValue = Number(row.pageNumber)
-      const pageIdValue = typeof row.pageId === 'string' ? row.pageId.trim() : ''
-      const inferredFromId = Number(pageIdValue.match(/^page-(\d+)$/i)?.[1] || 0)
-      const pageNumber =
-        Number.isFinite(pageNumberValue) && pageNumberValue > 0
-          ? Math.floor(pageNumberValue)
-          : inferredFromId > 0
-            ? inferredFromId
-            : index + 1
-      const pageId = pageIdValue || `page-${pageNumber}`
-      const titleRaw = typeof row.title === 'string' ? row.title.trim() : ''
-      const title = titleRaw || `第 ${pageNumber} 页`
-      const htmlPathRaw = typeof row.htmlPath === 'string' ? row.htmlPath.trim() : ''
-      const htmlPath = htmlPathRaw
-        ? path.isAbsolute(htmlPathRaw)
-          ? htmlPathRaw
-          : path.resolve(projectDir, htmlPathRaw)
-        : path.resolve(projectDir, `${pageId}.html`)
-      pagesFromMetadata.push({
-        pageNumber,
-        pageId,
-        title,
-        htmlPath
-      })
+    const sessionPages = await db.listSessionPages(sessionId)
+    if (sessionPages.length === 0) {
+      throw new Error(
+        'session_pages is empty after migration; export path requires session_pages as source of truth'
+      )
     }
-
-    const fallbackPages: SessionPageFile[] = []
-    if (pagesFromMetadata.length === 0 && fs.existsSync(projectDir)) {
-      const files = await fs.promises.readdir(projectDir)
-      for (const fileName of files) {
-        const match = fileName.match(/^(page-(\d+))\.html$/i)
-        if (!match) continue
-        const pageId = match[1]
-        const pageNumber = Number(match[2]) || fallbackPages.length + 1
-        fallbackPages.push({
-          pageNumber,
-          pageId,
-          title: `第 ${pageNumber} 页`,
-          htmlPath: path.join(projectDir, fileName)
-        })
-      }
-    }
-
-    const dedupedPages = (pagesFromMetadata.length > 0 ? pagesFromMetadata : fallbackPages)
-      .sort((a, b) => a.pageNumber - b.pageNumber)
-      .filter((page, index, arr) => arr.findIndex((item) => item.pageId === page.pageId) === index)
-
-    if (dedupedPages.length === 0) {
-      throw new Error('暂无可导出的页面，请先完成生成。')
-    }
+    const dedupedPages: SessionPageFile[] = sessionPages.map((sp) => ({
+      pageNumber: sp.page_number,
+      pageId: sp.file_slug,
+      title: sp.title,
+      htmlPath: sp.html_path || path.resolve(projectDir, `${sp.file_slug}.html`)
+    }))
 
     const missingPages: string[] = []
     const safePages: SessionPageFile[] = []

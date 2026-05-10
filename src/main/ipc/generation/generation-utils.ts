@@ -26,6 +26,7 @@ export const buildEditValidationRetryMessage = (originalMessage: string, detail:
   ].join('\n')
 
 export type EditedPageDescriptor = {
+  id?: string
   pageNumber: number
   title: string
   pageId: string

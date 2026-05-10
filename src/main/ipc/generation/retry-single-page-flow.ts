@@ -3,11 +3,11 @@ import type { IpcContext } from '../context'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
+import { nanoid } from 'nanoid'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { createGenerationPageCallbacks, generatePagesWithRetry } from './generation-utils'
 import { resolveCommonContext } from './context'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import {
@@ -57,31 +57,29 @@ export async function resolveRetrySinglePageContext(
   const common = await resolveCommonContext(ctx, sessionId)
   const { sessionRecord } = common
 
+  const sessionPages = await db.listSessionPages(sessionId)
+  const sessionPage = sessionPages.find((page) => page.file_slug === pageId || page.id === pageId)
+  if (!sessionPage) {
+    throw new Error(`Page ${pageId} not found in session_pages`)
+  }
+  const fileSlug = sessionPage.file_slug
+
   // Read failed page metadata from DB
   const pageSnapshots = await db.listLatestGenerationPageSnapshot(sessionId)
-  const pageSnapshot = pageSnapshots.find((p) => p.page_id === pageId)
-  if (!pageSnapshot) throw new Error(`Page ${pageId} not found in session`)
+  const pageSnapshot = pageSnapshots.find((p) => p.page_id === fileSlug)
 
-  const pageNumber = Number(pageId.match(/^page-(\d+)$/i)?.[1]) || pageSnapshot.page_number
-  const title = pageSnapshot.title || `Page ${pageNumber}`
-  const contentOutline = pageSnapshot.content_outline || title
-  const layoutIntent = normalizeLayoutIntent(pageSnapshot.layout_intent)
-
-  // Resolve htmlPath from metadata
-  const metadata = parseSessionMetadata(
-    typeof sessionRecord.metadata === 'string' ? sessionRecord.metadata : undefined
-  )
-  const metaPage = Array.isArray(metadata.generatedPages)
-    ? metadata.generatedPages.find((p: { pageId?: string; pageNumber?: number }) =>
-        p.pageId === pageId || p.pageNumber === pageNumber
-      )
-    : undefined
+  const pageNumber = sessionPage.page_number
+  const title = sessionPage.title || pageSnapshot?.title || `Page ${pageNumber}`
+  const contentOutline = pageSnapshot?.content_outline || title
+  const layoutIntent = normalizeLayoutIntent(pageSnapshot?.layout_intent)
   const htmlPath =
-    metaPage?.htmlPath || pageSnapshot.html_path || path.join(common.projectDir, `${pageId}.html`)
+    sessionPage.html_path ||
+    pageSnapshot?.html_path ||
+    path.join(common.projectDir, `${fileSlug}.html`)
 
   log.info('[generate:retrySinglePage] context resolved', {
     sessionId,
-    pageId,
+    pageId: fileSlug,
     pageNumber,
     projectDir: common.projectDir
   })
@@ -89,7 +87,7 @@ export async function resolveRetrySinglePageContext(
   return {
     ...common,
     sessionId,
-    pageId,
+    pageId: fileSlug,
     pageNumber,
     title,
     contentOutline,
@@ -97,7 +95,7 @@ export async function resolveRetrySinglePageContext(
     htmlPath,
     sessionRecord,
     messageScope: 'page' as const,
-    messagePageId: pageId,
+    messagePageId: sessionPage.id,
     effectiveMode: 'retrySinglePage' as const
   }
 }
@@ -257,41 +255,40 @@ export async function executeRetrySinglePageGeneration(
     throw new Error(`重试页面 HTML 验证失败: ${validation.errors.join('; ')}`)
   }
 
-  // Rebuild index.html with updated pages
-  const metadata = parseSessionMetadata(
-    typeof sessionRecord.metadata === 'string' ? sessionRecord.metadata : undefined
-  )
-  const existingPages: Array<{ pageId?: string; pageNumber?: number; title?: string; htmlPath?: string }> =
-    Array.isArray(metadata.generatedPages)
-      ? metadata.generatedPages.filter((p: { pageId?: string; pageNumber?: number }) => p.pageId || p.pageNumber)
-      : []
-
   // Read actual generated title from DB (LLM may change it during retry)
   const runPages = await db.listGenerationPages(context.runId)
   const latestPageRecord = runPages.find((p) => p.page_id === context.pageId)
   const actualTitle = latestPageRecord?.title || context.title
-
-  // Check if the failed page exists in metadata; if not, insert it
-  const pageExistsInMetadata = existingPages.some(
-    (p) => p.pageId === context.pageId || p.pageNumber === context.pageNumber
-  )
-  if (!pageExistsInMetadata) {
-    existingPages.push({
-      pageId: context.pageId,
-      pageNumber: context.pageNumber,
-      title: actualTitle,
-      htmlPath: context.htmlPath
-    })
-    // Sort by pageNumber to maintain order
-    existingPages.sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0))
-  }
-
-  // Update the failed page in the list (keep same position, same pageId)
-  const updatedPages = existingPages.map((p) =>
-    (p.pageId === context.pageId || p.pageNumber === context.pageNumber)
-      ? { ...p, title: actualTitle, htmlPath: context.htmlPath }
-      : p
-  )
+  const existingSessionPages = await db.listSessionPages(context.sessionId, { includeDeleted: true })
+  const existingBySlug = new Map(existingSessionPages.map((sp) => [sp.file_slug, sp]))
+  const currentSessionPage = existingBySlug.get(context.pageId)
+  await db.upsertSessionPage({
+    id: currentSessionPage?.id || nanoid(),
+    sessionId: context.sessionId,
+    legacyPageId:
+      currentSessionPage?.legacy_page_id ||
+      (context.pageId.match(/^page-\d+$/) ? context.pageId : null),
+    fileSlug: context.pageId,
+    pageNumber: context.pageNumber,
+    title: actualTitle,
+    htmlPath: context.htmlPath,
+    status: 'completed',
+    error: null
+  })
+  const updatedSessionPages = existingSessionPages
+    .filter((page) => !page.deleted_at)
+    .map((page) =>
+      page.file_slug === context.pageId
+        ? {
+            ...page,
+            title: actualTitle,
+            html_path: context.htmlPath,
+            status: 'completed',
+            error: null
+          }
+        : page
+    )
+    .sort((a, b) => a.page_number - b.page_number)
 
   // Emit page_updated event
   emitChunk({
@@ -302,7 +299,8 @@ export async function executeRetrySinglePageGeneration(
       label: progressText(context.appLocale, 'completed'),
       progress: 95,
       currentPage: context.pageNumber,
-      totalPages: updatedPages.length,
+      totalPages: updatedSessionPages.length,
+      id: context.messagePageId,
       pageNumber: context.pageNumber,
       title: actualTitle,
       pageId: context.pageId,
@@ -314,28 +312,17 @@ export async function executeRetrySinglePageGeneration(
 
   // Finalize — update metadata and project status, but only mark session 'completed'
   // if there are no remaining failed pages.
-  const generatedPages = updatedPages.map((p: { pageNumber?: number; title?: string; pageId?: string; htmlPath?: string }) => {
-    const pageId = p.pageId || `page-${p.pageNumber}`
-    return {
-      pageNumber: derivePageNumber(pageId, p.pageNumber || 0),
-      title: p.title || '',
-      pageId,
-      htmlPath: p.htmlPath || ''
-    }
-  })
-
   await db.updateSessionMetadata(context.sessionId, {
     lastRunId: context.runId,
     entryMode: 'multi_page',
-    generatedPages,
     indexPath,
     projectId: context.projectId
   })
   await db.updateProjectStatus(context.projectId, 'draft')
 
   // Check if there are still failed pages in the session
-  const remainingSnapshots = await db.listLatestGenerationPageSnapshot(context.sessionId)
-  const hasFailedPages = remainingSnapshots.some((s) => s.status === 'failed')
+  const remainingSessionPages = await db.listSessionPages(context.sessionId)
+  const hasFailedPages = remainingSessionPages.some((page) => page.status !== 'completed')
   // If other pages are still failed, session must NOT be 'completed'
   const targetStatus = hasFailedPages ? 'failed' : 'completed'
 
@@ -363,7 +350,7 @@ export async function executeRetrySinglePageGeneration(
     type: 'run_completed',
     payload: {
       runId: context.runId,
-      totalPages: updatedPages.length
+      totalPages: updatedSessionPages.length
     }
   })
 }

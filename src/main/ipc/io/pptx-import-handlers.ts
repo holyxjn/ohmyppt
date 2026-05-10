@@ -5,7 +5,6 @@ import fs from 'fs'
 import crypto from 'crypto'
 import type { IpcContext } from '../context'
 import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
-import { derivePageNumber } from '../generation/metadata-parser'
 import { extractStyleFromExistingHtml } from '../../utils/style-pptx-import'
 import { createStyleSkill } from '../../utils/style-skills'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
@@ -118,6 +117,17 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
           htmlPath: page.htmlPath,
           status: 'completed'
         })
+        await db.upsertSessionPage({
+          id: crypto.randomUUID(),
+          sessionId,
+          legacyPageId: /^page-\d+$/i.test(page.pageId) ? page.pageId : null,
+          fileSlug: page.pageId,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          htmlPath: page.htmlPath,
+          status: 'completed',
+          error: null
+        })
       }
       await db.updateGenerationRunStatus(runId, 'completed')
       await db.updateSessionStatus(sessionId, 'completed')
@@ -126,12 +136,6 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         importedAt: Date.now(),
         originalFileName,
         indexPath: imported.indexPath,
-        generatedPages: imported.pages.map((page) => ({
-          pageNumber: derivePageNumber(page.pageId, page.pageNumber),
-          title: page.title,
-          pageId: page.pageId,
-          htmlPath: page.htmlPath
-        })),
         warnings: imported.warnings.slice(0, 30)
       })
       await db.updateProjectStatus(projectId, 'draft')

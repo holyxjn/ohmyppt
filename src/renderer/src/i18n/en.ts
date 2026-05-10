@@ -469,8 +469,19 @@ Business presentations, product introductions, project summaries — formal but 
     addPageGenerate: 'Generate',
     addPageCancel: 'Cancel',
     addPageFailed: 'Failed to add page',
+    deleteConfirmTitle: 'Delete this page?',
     retryFailedPage: 'Regenerate this page',
     retryPageGenerating: 'Regenerating page...',
     retryPageFailed: 'Failed to regenerate page'
+  },
+  pageManagement: {
+    dragHandle: 'Drag to reorder',
+    deletePage: 'Delete page',
+    deleteConfirmTitle: 'Delete this page?',
+    deleteConfirmDescription: 'The page will be removed from this presentation.',
+    deleteConfirmAction: 'Delete',
+    deleteLastPageError: 'Cannot delete the last page',
+    reorderFailed: 'Failed to reorder pages',
+    deleteFailed: 'Failed to delete page'
   }
 } satisfies DeepStringShape<typeof zh>

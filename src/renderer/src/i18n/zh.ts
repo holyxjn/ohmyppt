@@ -449,8 +449,19 @@ export const zh = {
     addPageGenerate: '生成',
     addPageCancel: '取消',
     addPageFailed: '新增页面失败',
+    deleteConfirmTitle: '删除这一页？',
     retryFailedPage: '重新生成此页',
     retryPageGenerating: '正在重新生成页面...',
     retryPageFailed: '重试生成页面失败'
+  },
+  pageManagement: {
+    dragHandle: '拖拽排序',
+    deletePage: '删除页面',
+    deleteConfirmTitle: '删除这一页？',
+    deleteConfirmDescription: '删除后会从当前演示中移除该页面。',
+    deleteConfirmAction: '删除',
+    deleteLastPageError: '不能删除最后一页',
+    reorderFailed: '调整页面顺序失败',
+    deleteFailed: '删除页面失败'
   }
 } as const
