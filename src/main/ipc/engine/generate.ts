@@ -915,7 +915,7 @@ export const runDeepAgentDeckGeneration = async (args: {
   const resolvePageProgressFromCustomStatus = (custom: DeckToolStatusChunk): number => {
     const label = custom.label || ''
     if (/读取会话上下文|Reading session context/i.test(label)) return 25
-    if (/更新\s*page-\d+|更新单页\s*page-\d+|Updating\s*page-\d+/i.test(label)) return 60
+    if (/更新\s*page-\S+|更新单页\s+\S+|Updating\s+\S+/i.test(label)) return 60
     if (/验证完成状态|Verifying completion/i.test(label)) return 85
     if (/所有页面已填充|当前页面已填充|All pages filled|Current page filled/i.test(label)) return 95
     if (/生成完成|修改完成|Generation completed|Edit completed/i.test(label)) return 100

@@ -338,7 +338,7 @@ export async function executeAddPageGeneration(
   // Read existing page HTMLs for the merge
   const existingPageDescriptors = await Promise.all(
     existingPages.map(async (page) => {
-      const pageId = page.file_slug || `page-${page.page_number}`
+      const pageId = page.file_slug
       const htmlPath = page.html_path || path.join(context.projectDir, `${pageId}.html`)
       const html = fs.existsSync(htmlPath)
         ? await fs.promises.readFile(htmlPath, 'utf-8')

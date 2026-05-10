@@ -29,7 +29,7 @@ const NEUTRAL_GENERATION_PROMPT =
 
 const extractFailedPages = (message: string | null): string[] => {
   if (!message) return []
-  const matches = Array.from(message.matchAll(/page-\d+\([^)]+\)/g))
+  const matches = Array.from(message.matchAll(/\S+\([^)]+\)/g))
   return matches.map((match) => match[0]).slice(0, 12)
 }
 

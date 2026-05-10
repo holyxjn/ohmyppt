@@ -62,7 +62,7 @@ export function registerPreviewHandlers(ctx: IpcContext): void {
         const pageNumber = numberMatch ? Number(numberMatch[1]) : 1
         return {
           pageNumber,
-          pageId: normalizedPageId || `page-${pageNumber}`,
+          pageId: normalizedPageId,
           title: `Page ${pageNumber}`,
           html
         }
