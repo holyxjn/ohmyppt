@@ -94,6 +94,10 @@ export function createSessionEditAgent(args: {
   });
   const tools = createSessionBoundDeckTools(args.context);
   const systemPrompt = buildEditAgentSystemPrompt(args.styleId, args.context);
+  const hasSelector = Boolean(args.context.selectedSelector?.trim());
+  const isDeckEdit = args.context.mode === 'edit' && args.context.editScope === 'deck';
+  const isContainerEdit = args.context.mode === 'edit' && args.context.editScope === 'presentation-container';
+  const promptMode = isContainerEdit ? 'container' : hasSelector ? 'selector' : isDeckEdit ? 'deck' : 'single-page';
 
   log.info("[deepagent] create session edit agent", {
     sessionId: args.context.sessionId,
@@ -104,6 +108,7 @@ export function createSessionEditAgent(args: {
     indexPath: args.context.indexPath,
     selectedPageId: args.context.selectedPageId,
     disableNativeEditFile,
+    promptMode,
   });
 
   return createDeepAgent({

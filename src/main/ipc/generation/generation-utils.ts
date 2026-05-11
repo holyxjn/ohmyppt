@@ -35,6 +35,12 @@ export const isEditValidationRetryableError = (error: unknown): boolean => {
   return /HTML 验证失败|HTML 落盘校验失败|页面编辑结果验证失败/i.test(message)
 }
 
+export const isEditToolSchemaRetryableError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (!/Received tool input did not match expected schema/i.test(message)) return false
+  return /Error invoking tool '(update_single_page_file|update_page_file|edit_file)'/i.test(message)
+}
+
 export const buildEditValidationRetryMessage = (originalMessage: string, detail: string): string =>
   [
     originalMessage,
@@ -45,6 +51,70 @@ export const buildEditValidationRetryMessage = (originalMessage: string, detail:
     '- Only modify the affected page HTML. Keep the page scaffold, runtime scripts, and balanced tags valid.',
     '- Do not modify index.html.'
   ].join('\n')
+
+export const buildEditToolSchemaRetryMessage = (args: {
+  originalMessage: string
+  detail: string
+  allowedTool: 'update_single_page_file' | 'update_page_file' | 'edit_file'
+  selectedPageId?: string | null
+}): string => {
+  const targetPageLine =
+    args.allowedTool === 'edit_file'
+      ? '- You must target only the selected page file and provide file_path, old_string, and new_string.'
+      : args.selectedPageId
+        ? `- For this task, pageId must be exactly: "${args.selectedPageId}".`
+        : '- You must provide a valid pageId explicitly for each page you modify.'
+  const callLine =
+    args.allowedTool === 'update_single_page_file'
+      ? 'You must call update_single_page_file(pageId, content) exactly once.'
+      : args.allowedTool === 'update_page_file'
+        ? 'You must call update_page_file(pageId, content) with explicit pageId for each page you modify.'
+        : args.allowedTool === 'edit_file'
+          ? 'You must call edit_file(file_path, old_string, new_string) with all required fields (old_string is required).'
+          : 'You must fix the tool call arguments and provide all required fields.'
+  const contentLine =
+    args.allowedTool === 'edit_file'
+      ? '- old_string must exactly match the current file content and new_string must contain the replacement only.'
+      : '- content must be a complete creative page HTML fragment only (no html/head/body).'
+  return [
+    args.originalMessage,
+    '',
+    'Retry requirement:',
+    `- The previous run failed because the tool call schema was invalid: ${args.detail}`,
+    '- Retry once. You must fix the tool call arguments and ensure all required fields are provided.',
+    `- ${callLine}`,
+    targetPageLine,
+    contentLine,
+    '- Do not add any explanations or extra text outside the tool call.',
+    '- Do not modify index.html.'
+  ].join('\n')
+}
+
+export const buildEditNoChangeRetryMessage = (args: {
+  originalMessage: string
+  allowedTool: 'update_single_page_file' | 'update_page_file'
+  selectedPageId?: string | null
+}): string => {
+  const callLine =
+    args.allowedTool === 'update_single_page_file'
+      ? 'You must call update_single_page_file(pageId, content) exactly once.'
+      : 'You must call update_page_file(pageId, content) with explicit pageId for each page you modify.'
+  const targetPageLine = args.selectedPageId
+    ? `- For this task, pageId must be exactly: "${args.selectedPageId}".`
+    : '- You must provide a valid pageId explicitly for each page you modify.'
+  return [
+    args.originalMessage,
+    '',
+    'Retry requirement:',
+    '- The previous run completed without writing any page changes.',
+    '- Retry once and make the requested edit by writing the updated page HTML.',
+    `- ${callLine}`,
+    targetPageLine,
+    '- content must be a complete creative page HTML fragment only (no html/head/body).',
+    '- Do not use edit_file or write_file.',
+    '- Do not modify index.html.'
+  ].join('\n')
+}
 
 export type EditedPageDescriptor = {
   id?: string

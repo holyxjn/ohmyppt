@@ -8,8 +8,11 @@ import type { GeneratedPagePayload } from '@shared/generation'
 import type { IpcContext } from '../context'
 import type { EditContext, EmitAssistantFn } from './types'
 import {
+  buildEditNoChangeRetryMessage,
+  buildEditToolSchemaRetryMessage,
   buildEditValidationRetryMessage,
   type EditedPageDescriptor,
+  isEditToolSchemaRetryableError,
   isEditValidationRetryableError,
   resolvePageHtmlPath,
   uiText,
@@ -205,25 +208,72 @@ export async function executeDeckAllPageEditGeneration(
     return runDeepAgentDeckAllPageEdit({ ...editRunArgs, userMessage })
   }
   let editSummaryFromEngine = ''
+  let editToolSchemaRetryUsed = false
   let editValidationRetryUsed = false
+  const failWithUserMessage = async (userMessage: string): Promise<never> => {
+    await db.updateGenerationRunStatus(context.runId, 'failed', userMessage)
+    throw new Error(userMessage)
+  }
+  const runRetryAttempt = async (
+    userMessage: string,
+    retryDetail: string,
+    failureMessage: string,
+    logLabel: string
+  ): Promise<string> => {
+    try {
+      return await runEditAttempt(userMessage, retryDetail)
+    } catch (retryError) {
+      log.error(logLabel, {
+        sessionId: context.sessionId,
+        runId: context.runId,
+        detail: retryError instanceof Error ? retryError.message : String(retryError)
+      })
+      return failWithUserMessage(failureMessage)
+    }
+  }
   try {
     editSummaryFromEngine = await runEditAttempt(context.userMessage)
   } catch (error) {
-    if (!isEditValidationRetryableError(error)) throw error
-    editValidationRetryUsed = true
+    const canRetryByValidation = isEditValidationRetryableError(error)
+    const canRetryBySchema = isEditToolSchemaRetryableError(error)
+    if (!canRetryByValidation && !canRetryBySchema) throw error
+    if (canRetryBySchema) {
+      editToolSchemaRetryUsed = true
+    } else {
+      editValidationRetryUsed = true
+    }
     const detail = error instanceof Error ? error.message : String(error)
     log.warn('[generate:start] deck all-page edit validation/tool retry scheduled', {
       sessionId: context.sessionId,
       runId: context.runId,
-      detail
+      detail,
+      kind: canRetryBySchema ? 'tool_schema' : 'validation'
     })
-    editSummaryFromEngine = await runEditAttempt(
-      buildEditValidationRetryMessage(context.userMessage, detail),
+    const retryMessage = canRetryBySchema
+      ? buildEditToolSchemaRetryMessage({
+          originalMessage: context.userMessage,
+          detail,
+          allowedTool: 'update_page_file',
+          selectedPageId: null
+        })
+      : buildEditValidationRetryMessage(context.userMessage, detail)
+    editSummaryFromEngine = await runRetryAttempt(
+      retryMessage,
       uiText(
         context.appLocale,
-        `校验失败，正在带错误信息自动重试一次：${detail}`,
-        `Validation failed; retrying once with the error: ${detail}`
-      )
+        canRetryBySchema
+          ? '工具调用参数不完整，正在自动重试一次。'
+          : '页面校验失败，正在自动重试一次。',
+        canRetryBySchema
+          ? 'Tool call schema invalid; retrying once.'
+          : 'Page validation failed; retrying once.'
+      ),
+      uiText(
+        context.appLocale,
+        '页面编辑重试失败，请重新描述要修改的内容。',
+        'Page edit retry failed. Please describe the desired change again.'
+      ),
+      '[generate:start] deck all-page edit retry failed'
     )
   }
 
@@ -296,14 +346,66 @@ export async function executeDeckAllPageEditGeneration(
   }
   ;({ pageDescriptors, changedPageDescriptors } = await readEditedPages())
 
+  if (changedPageDescriptors.length === 0) {
+    const detail = uiText(
+      context.appLocale,
+      '本次 deck 编辑没有检测到任何页面落盘变化。',
+      'The deck edit completed without any detected page changes.'
+    )
+    log.warn('[generate:start] deck all-page edit no-change retry scheduled', {
+      sessionId: context.sessionId,
+      runId: context.runId,
+      detail,
+      schemaRetryUsed: editToolSchemaRetryUsed
+    })
+    editSummaryFromEngine = await runRetryAttempt(
+      buildEditNoChangeRetryMessage({
+        originalMessage: context.userMessage,
+        allowedTool: 'update_page_file',
+        selectedPageId: null
+      }),
+      uiText(
+        context.appLocale,
+        '没有检测到页面变化，正在自动重试一次。',
+        'No page changes detected; retrying once.'
+      ),
+      uiText(
+        context.appLocale,
+        '页面编辑重试后仍未产生变化，请重新描述要修改的内容。',
+        'The page edit still did not produce changes after retry. Please describe the desired change again.'
+      ),
+      '[generate:start] deck all-page edit no-change retry failed'
+    )
+    ;({ pageDescriptors, changedPageDescriptors } = await readEditedPages())
+    if (changedPageDescriptors.length === 0) {
+      const message = uiText(
+        context.appLocale,
+        'deck 编辑没有产生任何落盘页面变化，请重新描述要修改的页面内容。',
+        'The deck edit did not produce any persisted page changes. Please describe the desired page content change again.'
+      )
+      await db.updateGenerationRunStatus(context.runId, 'failed', message)
+      throw new Error(message)
+    }
+  }
+
   const invalidChangedPages = validateChangedPages(changedPageDescriptors)
   if (invalidChangedPages.length > 0) {
     const details = invalidChangedPages
       .map((item) => `${item.page.pageId}（${item.page.title}）：${item.reason}`)
       .join('；')
     if (editValidationRetryUsed) {
-      await db.updateGenerationRunStatus(context.runId, 'failed', details)
-      throw new Error(`页面编辑结果验证失败：${details}`)
+      log.error('[generate:start] deck all-page edit result validation failed after retry', {
+        sessionId: context.sessionId,
+        runId: context.runId,
+        details
+      })
+      await failWithUserMessage(
+        uiText(
+          context.appLocale,
+          '页面编辑结果校验失败，请重新描述要修改的内容。',
+          'Page edit validation failed. Please describe the desired change again.'
+        )
+      )
     }
     editValidationRetryUsed = true
     log.warn('[generate:start] deck all-page edit result validation retry scheduled', {
@@ -311,13 +413,19 @@ export async function executeDeckAllPageEditGeneration(
       runId: context.runId,
       details
     })
-    editSummaryFromEngine = await runEditAttempt(
+    editSummaryFromEngine = await runRetryAttempt(
       buildEditValidationRetryMessage(context.userMessage, `页面编辑结果验证失败：${details}`),
       uiText(
         context.appLocale,
-        `页面校验失败，正在自动重试一次：${details}`,
-        `Page validation failed; retrying once: ${details}`
-      )
+        '页面校验失败，正在自动重试一次。',
+        'Page validation failed; retrying once.'
+      ),
+      uiText(
+        context.appLocale,
+        '页面编辑重试失败，请重新描述要修改的内容。',
+        'Page edit retry failed. Please describe the desired change again.'
+      ),
+      '[generate:start] deck all-page edit validation retry failed'
     )
     ;({ pageDescriptors, changedPageDescriptors } = await readEditedPages())
     const retryInvalidChangedPages = validateChangedPages(changedPageDescriptors)
@@ -325,8 +433,18 @@ export async function executeDeckAllPageEditGeneration(
       const retryDetails = retryInvalidChangedPages
         .map((item) => `${item.page.pageId}（${item.page.title}）：${item.reason}`)
         .join('；')
-      await db.updateGenerationRunStatus(context.runId, 'failed', retryDetails)
-      throw new Error(`页面编辑结果验证失败：${retryDetails}`)
+      log.error('[generate:start] deck all-page edit result validation failed after retry', {
+        sessionId: context.sessionId,
+        runId: context.runId,
+        details: retryDetails
+      })
+      await failWithUserMessage(
+        uiText(
+          context.appLocale,
+          '页面编辑结果校验失败，请重新描述要修改的内容。',
+          'Page edit validation failed. Please describe the desired change again.'
+        )
+      )
     }
   }
 
