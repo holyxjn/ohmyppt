@@ -83,6 +83,7 @@ interface Project {
   session_id: string
   title: string
   output_path: string
+  root_path: string | null
   file_count: number
   total_size: number
   status: 'draft' | 'published' | 'exported'
@@ -849,6 +850,39 @@ export class PPTDatabase {
     return row ? this.normalizeSessionOperationRow(row as Record<string, unknown>) : undefined
   }
 
+  async hasAnyOperationPageSnapshots(sessionId: string): Promise<boolean> {
+    const row = await this.db
+      .select({ id: schema.sessionOperationPages.id })
+      .from(schema.sessionOperationPages)
+      .where(eq(schema.sessionOperationPages.sessionId, sessionId))
+      .limit(1)
+      .get()
+    return !!row
+  }
+
+  async cleanupSessionOperations(sessionId: string): Promise<number> {
+    const rows = await this.db
+      .select({ id: schema.sessionOperations.id })
+      .from(schema.sessionOperations)
+      .where(eq(schema.sessionOperations.sessionId, sessionId))
+      .all()
+    if (rows.length === 0) {
+      await this.updateSessionHistoryPointer({ sessionId, operationId: null, commit: null })
+      return 0
+    }
+    const ids = rows.map((r) => r.id)
+    await this.db
+      .delete(schema.sessionOperationPages)
+      .where(inArray(schema.sessionOperationPages.operationId, ids))
+      .run()
+    await this.db
+      .delete(schema.sessionOperations)
+      .where(inArray(schema.sessionOperations.id, ids))
+      .run()
+    await this.updateSessionHistoryPointer({ sessionId, operationId: null, commit: null })
+    return ids.length
+  }
+
   async listSessionOperations(
     sessionId: string,
     options?: { limit?: number; includeNoop?: boolean }
@@ -1492,6 +1526,7 @@ export class PPTDatabase {
     session_id: string
     title: string
     output_path: string
+    root_path?: string | null
   }): Promise<string> {
     const id = crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
@@ -1503,6 +1538,7 @@ export class PPTDatabase {
         sessionId: data.session_id,
         title: data.title,
         outputPath: data.output_path,
+        rootPath: data.root_path || data.output_path,
         fileCount: 0,
         totalSize: 0,
         status: 'draft',
@@ -1515,15 +1551,26 @@ export class PPTDatabase {
   }
 
   async getProject(sessionId: string): Promise<Project | undefined> {
-    const result = await this.db
-      .select()
+    const row = await this.db
+      .select({
+        id: schema.projects.id,
+        session_id: schema.projects.sessionId,
+        title: schema.projects.title,
+        output_path: schema.projects.outputPath,
+        root_path: schema.projects.rootPath,
+        file_count: schema.projects.fileCount,
+        total_size: schema.projects.totalSize,
+        status: schema.projects.status,
+        created_at: schema.projects.createdAt,
+        updated_at: schema.projects.updatedAt
+      })
       .from(schema.projects)
       .where(eq(schema.projects.sessionId, sessionId))
       .orderBy(desc(schema.projects.createdAt))
       .limit(1)
       .get()
 
-    return result as Project | undefined
+    return row as Project | undefined
   }
 
   async updateProjectStatus(

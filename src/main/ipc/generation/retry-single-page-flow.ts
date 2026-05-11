@@ -5,7 +5,11 @@ import path from 'path'
 import fs from 'fs'
 import { nanoid } from 'nanoid'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
-import { createGenerationPageCallbacks, generatePagesWithRetry } from './generation-utils'
+import {
+  createGenerationPageCallbacks,
+  generatePagesWithRetry,
+  resolvePageHtmlPath
+} from './generation-utils'
 import { resolveCommonContext } from './context'
 import type { DesignContract } from '../../tools/types'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
@@ -72,10 +76,11 @@ export async function resolveRetrySinglePageContext(
   const title = sessionPage.title || pageSnapshot?.title || `Page ${pageNumber}`
   const contentOutline = pageSnapshot?.content_outline || title
   const layoutIntent = normalizeLayoutIntent(pageSnapshot?.layout_intent)
-  const htmlPath =
-    sessionPage.html_path ||
-    pageSnapshot?.html_path ||
-    path.join(common.projectDir, `${fileSlug}.html`)
+  const htmlPath = resolvePageHtmlPath({
+    projectDir: common.projectDir,
+    fileSlug,
+    candidates: [sessionPage.html_path, pageSnapshot?.html_path]
+  })
 
   log.info('[generate:retrySinglePage] context resolved', {
     sessionId,

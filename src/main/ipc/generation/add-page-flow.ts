@@ -1,6 +1,11 @@
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import { createGenerationPageCallbacks, generatePagesWithRetry, uiText } from './generation-utils'
+import {
+  createGenerationPageCallbacks,
+  generatePagesWithRetry,
+  resolvePageHtmlPath,
+  uiText
+} from './generation-utils'
 import { resolveCommonContext } from './context'
 import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
@@ -339,7 +344,11 @@ export async function executeAddPageGeneration(
   const existingPageDescriptors = await Promise.all(
     existingPages.map(async (page) => {
       const pageId = page.file_slug
-      const htmlPath = page.html_path || path.join(context.projectDir, `${pageId}.html`)
+      const htmlPath = resolvePageHtmlPath({
+        projectDir: context.projectDir,
+        fileSlug: pageId,
+        candidates: [page.html_path]
+      })
       const html = fs.existsSync(htmlPath)
         ? await fs.promises.readFile(htmlPath, 'utf-8')
         : ''

@@ -198,7 +198,7 @@ export async function resolveCommonContext(
   ctx: IpcContext,
   sessionId: string
 ): Promise<CommonGenerationContext> {
-  const { db, agentManager, resolveStoragePath, ensureSessionAssets } = ctx
+  const { db, agentManager, ensureSessionAssets } = ctx
 
   const session = await db.getSession(sessionId)
   if (!session) throw new Error('Session not found')
@@ -220,8 +220,20 @@ export async function resolveCommonContext(
   const styleSkill = loadStyleSkill(styleId)
 
   const existingProject = await db.getProject(sessionId)
-  const storagePath = await resolveStoragePath()
-  const projectDir = existingProject?.output_path || path.join(storagePath, sessionId)
+  if (!existingProject) {
+    const storagePath = await ctx.resolveStoragePath()
+    const projectDir = path.join(storagePath, sessionId)
+    if (!fs.existsSync(projectDir)) {
+      fs.mkdirSync(projectDir, { recursive: true })
+    }
+    await db.createProject({
+      session_id: sessionId,
+      title: String(sessionRecord.title || 'Untitled'),
+      output_path: projectDir,
+      root_path: projectDir
+    })
+  }
+  const projectDir = await ctx.resolveSessionProjectDir(sessionId)
   if (!fs.existsSync(projectDir)) {
     fs.mkdirSync(projectDir, { recursive: true })
   }
@@ -240,14 +252,8 @@ export async function resolveCommonContext(
 
   const settings = await db.getAllSettings()
   const appLocale: 'zh' | 'en' = settings.locale === 'en' ? 'en' : 'zh'
-
-  const projectId =
-    existingProject?.id ??
-    await db.createProject({
-      session_id: sessionId,
-      title: String(sessionRecord.title || 'Untitled'),
-      output_path: entry.projectDir
-    })
+  const projectId = existingProject?.id ?? (await db.getProject(sessionId))?.id
+  if (!projectId) throw new Error('Failed to resolve project for session')
 
   return {
     session,

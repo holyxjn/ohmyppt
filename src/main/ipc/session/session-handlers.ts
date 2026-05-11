@@ -16,8 +16,26 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     resolveStoragePath,
     ensureSessionAssets,
     buildSessionGenerationSnapshot,
-    getPageSourceUrl
+    getPageSourceUrl,
+    resolveSessionProjectDir
   } = ctx
+
+  const resolvePageHtmlPath = (
+    projectDir: string,
+    fileSlug: string,
+    candidatePath?: string | null
+  ): string => {
+    const projectRoot = path.resolve(projectDir)
+    const fallbackPath = path.resolve(projectRoot, `${fileSlug}.html`)
+    const rawCandidate = typeof candidatePath === 'string' ? candidatePath.trim() : ''
+    if (!rawCandidate) return fallbackPath
+    const resolvedCandidate = path.isAbsolute(rawCandidate)
+      ? path.resolve(rawCandidate)
+      : path.resolve(projectRoot, rawCandidate)
+    const relative = path.relative(projectRoot, resolvedCandidate)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return fallbackPath
+    return fs.existsSync(resolvedCandidate) ? resolvedCandidate : fallbackPath
+  }
 
   ipcMain.handle('session:create', async (_event, payload) => {
     const { topic, styleId, pageCount } = payload
@@ -114,6 +132,13 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       referenceDocumentPath: sessionReferenceDocumentPath
     })
 
+    await db.createProject({
+      session_id: sessionId,
+      title: String(topic || 'Untitled'),
+      output_path: projectDir,
+      root_path: projectDir
+    })
+
     return { sessionId }
   })
 
@@ -188,8 +213,9 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     if (sessionPages.length === 0) {
       throw new Error('session_pages is empty after migration; please re-run migration patch')
     }
+    const projectDir = await resolveSessionProjectDir(sessionId)
     for (const sp of sessionPages) {
-      const htmlPath = sp.html_path
+      const htmlPath = resolvePageHtmlPath(projectDir, sp.file_slug, sp.html_path)
       let html = ''
       try {
         if (htmlPath && fs.existsSync(htmlPath)) {

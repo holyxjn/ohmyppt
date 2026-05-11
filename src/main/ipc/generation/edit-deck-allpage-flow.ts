@@ -11,6 +11,7 @@ import {
   buildEditValidationRetryMessage,
   type EditedPageDescriptor,
   isEditValidationRetryableError,
+  resolvePageHtmlPath,
   uiText,
   validateChangedPages
 } from './generation-utils'
@@ -56,7 +57,11 @@ export async function executeDeckAllPageEditGeneration(
     pageNumber: page.page_number,
     title: page.title || `第${page.page_number}页`,
     pageId: page.file_slug,
-    htmlPath: page.html_path || path.join(projectDir, `${page.file_slug}.html`)
+    htmlPath: resolvePageHtmlPath({
+      projectDir,
+      fileSlug: page.file_slug,
+      candidates: [page.html_path]
+    })
   }))
   if (outlineTitles.length === 0) {
     outlineTitles = pageRefs.map((page) => page.title)

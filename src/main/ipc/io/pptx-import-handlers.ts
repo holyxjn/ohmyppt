@@ -95,7 +95,8 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
       const projectId = await db.createProject({
         session_id: sessionId,
         title: imported.title,
-        output_path: projectDir
+        output_path: projectDir,
+        root_path: projectDir
       })
       const runId = await db.createGenerationRun({
         sessionId,

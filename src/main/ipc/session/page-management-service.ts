@@ -5,6 +5,23 @@ import { buildProjectIndexHtml } from '../engine/template'
 
 const INDEX_RUNTIME_MARKER = '@ohmyppt-index-runtim:arcsin1:v2'
 
+const resolvePageHtmlPath = (
+  projectDir: string,
+  fileSlug: string,
+  candidatePath?: string | null
+): string => {
+  const projectRoot = path.resolve(projectDir)
+  const fallbackPath = path.resolve(projectRoot, `${fileSlug}.html`)
+  const rawCandidate = typeof candidatePath === 'string' ? candidatePath.trim() : ''
+  if (!rawCandidate) return fallbackPath
+  const resolvedCandidate = path.isAbsolute(rawCandidate)
+    ? path.resolve(rawCandidate)
+    : path.resolve(projectRoot, rawCandidate)
+  const relative = path.relative(projectRoot, resolvedCandidate)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return fallbackPath
+  return fs.existsSync(resolvedCandidate) ? resolvedCandidate : fallbackPath
+}
+
 async function ensureSessionRuntimeCompatible(ctx: IpcContext, projectDir: string): Promise<void> {
   const runtimePath = path.join(projectDir, 'assets', 'index-runtime.js')
   try {
@@ -41,27 +58,8 @@ export async function loadEditableSessionPages(
   const session = await ctx.db.getSession(sessionId)
   if (!session) throw new Error('Session not found')
 
-  let metadata: Record<string, unknown> = {}
-  try {
-    metadata = JSON.parse((session as unknown as { metadata?: string }).metadata || '{}') as Record<
-      string,
-      unknown
-    >
-  } catch {
-    metadata = {}
-  }
-
-  const project = await ctx.db.getProject(sessionId)
-  const storagePath = await ctx.resolveStoragePath()
-  const projectDir = path.resolve(
-    project?.output_path ||
-      (typeof metadata.indexPath === 'string'
-        ? path.dirname(metadata.indexPath)
-        : path.join(storagePath, sessionId))
-  )
-  const indexPath =
-    (typeof metadata.indexPath === 'string' && metadata.indexPath) ||
-    path.join(projectDir, 'index.html')
+  const projectDir = await ctx.resolveSessionProjectDir(sessionId)
+  const indexPath = path.join(projectDir, 'index.html')
   const deckTitle = (session as unknown as { title?: string }).title || 'Untitled'
 
   const sessionPages = await ctx.db.listSessionPages(sessionId)
@@ -71,7 +69,7 @@ export async function loadEditableSessionPages(
     pageId: sp.file_slug,
     legacyPageId: sp.legacy_page_id || undefined,
     title: sp.title,
-    htmlPath: sp.html_path,
+    htmlPath: resolvePageHtmlPath(projectDir, sp.file_slug, sp.html_path),
     status: sp.status,
     error: sp.error
   }))

@@ -4,6 +4,7 @@ import {
   buildEditValidationRetryMessage,
   type EditedPageDescriptor,
   isEditValidationRetryableError,
+  resolvePageHtmlPath,
   uiText,
   validateChangedPages
 } from './generation-utils'
@@ -116,9 +117,7 @@ export async function executeEditGeneration(
     throw new Error('主会话编辑需要走 deck 全页编辑流程，不能进入单页编辑流程。')
   }
 
-  const indexPath = context.htmlPath
-    ? path.join(path.dirname(context.htmlPath), 'index.html')
-    : path.join(context.entry.projectDir, 'index.html')
+  const indexPath = path.join(context.entry.projectDir, 'index.html')
   const pageIdFromPath =
     typeof context.htmlPath === 'string'
       ? path.basename(context.htmlPath).match(/^([a-z0-9_-]+)\.html$/i)?.[1]
@@ -146,7 +145,11 @@ export async function executeEditGeneration(
     pageNumber: page.page_number,
     title: page.title || `第${page.page_number}页`,
     pageId: page.file_slug,
-    htmlPath: page.html_path || path.join(context.entry.projectDir, `${page.file_slug}.html`)
+    htmlPath: resolvePageHtmlPath({
+      projectDir: context.entry.projectDir,
+      fileSlug: page.file_slug,
+      candidates: [page.html_path]
+    })
   }))
   if (outlineTitles.length === 0) {
     outlineTitles = pageRefs.map((page) => page.title)

@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS projects (
   session_id TEXT NOT NULL,
   title TEXT NOT NULL,
   output_path TEXT NOT NULL,
+  root_path TEXT,
   file_count INTEGER DEFAULT 0,
   total_size INTEGER DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'draft',
@@ -268,7 +269,7 @@ const resolveLegacyPagePath = (
 
 const getTableColumns = async (
   client: LibSqlClient,
-  tableName: 'settings' | 'messages' | 'sessions' | 'generation_pages' | 'session_pages'
+  tableName: 'settings' | 'messages' | 'sessions' | 'projects' | 'generation_pages' | 'session_pages'
 ): Promise<Set<string>> => {
   const result = await client.execute(`PRAGMA table_info(${tableName})`)
   const rows = Array.isArray((result as { rows?: unknown[] }).rows)
@@ -337,6 +338,113 @@ const enforceSessionsSchema = async (client: LibSqlClient): Promise<void> => {
   }
   if (!columns.has('current_commit')) {
     await client.execute('ALTER TABLE sessions ADD COLUMN current_commit TEXT')
+  }
+}
+
+const enforceProjectsSchema = async (client: LibSqlClient): Promise<void> => {
+  const columns = await getTableColumns(client, 'projects')
+  if (!columns.has('root_path')) {
+    await client.execute('ALTER TABLE projects ADD COLUMN root_path TEXT')
+  }
+}
+
+const hasSessionHtmlFiles = (dir: string): boolean => {
+  try {
+    if (!fsExistsSafe(path.join(dir, 'index.html'))) return false
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .some((entry) => entry.isFile() && /^page-\d+\.html?$/i.test(entry.name))
+  } catch {
+    return false
+  }
+}
+
+const inferProjectRootPath = async (
+  client: LibSqlClient,
+  sessionId: string,
+  outputPath: string,
+  metadata: Record<string, unknown>,
+  resolveStoragePath: () => Promise<string>
+): Promise<string> => {
+  const candidateDirs: string[] = []
+  const addCandidate = (value: unknown): void => {
+    if (typeof value !== 'string' || value.trim().length === 0) return
+    const resolved = path.resolve(value.trim())
+    if (!candidateDirs.includes(resolved)) candidateDirs.push(resolved)
+  }
+
+  if (typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0) {
+    addCandidate(path.dirname(metadata.indexPath.trim()))
+  }
+  addCandidate(outputPath)
+
+  const generatedPages = Array.isArray(metadata.generatedPages) ? metadata.generatedPages : []
+  for (const page of generatedPages) {
+    if (!page || typeof page !== 'object' || Array.isArray(page)) continue
+    const htmlPath = (page as Record<string, unknown>).htmlPath
+    if (typeof htmlPath === 'string' && htmlPath.trim().length > 0) {
+      addCandidate(path.dirname(htmlPath.trim()))
+    }
+  }
+
+  const pageRows = await client
+    .execute({
+      sql: 'SELECT html_path FROM session_pages WHERE session_id = ?',
+      args: [sessionId]
+    })
+    .catch(() => ({ rows: [] as unknown[] }))
+  for (const row of pageRows.rows || []) {
+    const htmlPath = getRowValue(row, 'html_path')
+    if (typeof htmlPath === 'string' && fsExistsSafe(htmlPath)) {
+      addCandidate(path.dirname(htmlPath))
+    }
+  }
+
+  const storagePath = await resolveStoragePath().catch(() => '')
+  addCandidate(path.join(storagePath || process.cwd(), sessionId))
+
+  for (const dir of candidateDirs) {
+    if (hasSessionHtmlFiles(dir)) return dir
+  }
+  for (const dir of candidateDirs) {
+    if (fsExistsSafe(path.join(dir, '.git'))) return dir
+  }
+  return ''
+}
+
+const patchProjectRootPaths = async (args: {
+  client: LibSqlClient
+  resolveStoragePath: () => Promise<string>
+}): Promise<void> => {
+  const { client, resolveStoragePath } = args
+  const result = await client.execute(`
+    SELECT projects.id AS project_id,
+           projects.session_id AS session_id,
+           projects.output_path AS output_path,
+           sessions.metadata AS metadata
+    FROM projects
+    LEFT JOIN sessions ON sessions.id = projects.session_id
+    WHERE projects.root_path IS NULL OR TRIM(projects.root_path) = ''
+  `)
+
+  for (const row of result.rows || []) {
+    const projectId = String(getRowValue(row, 'project_id') || '')
+    const sessionId = String(getRowValue(row, 'session_id') || '')
+    const outputPath = String(getRowValue(row, 'output_path') || '')
+    if (!projectId || !sessionId) continue
+    const metadata = parseJsonObject(getRowValue(row, 'metadata'))
+    const rootPath = await inferProjectRootPath(
+      client,
+      sessionId,
+      outputPath,
+      metadata,
+      resolveStoragePath
+    )
+    if (!rootPath) continue
+    await client.execute({
+      sql: 'UPDATE projects SET root_path = ? WHERE id = ? AND (root_path IS NULL OR TRIM(root_path) = ?)',
+      args: [rootPath, projectId, '']
+    })
   }
 }
 
@@ -507,17 +615,32 @@ const resolveLegacyProjectDir = async (
 ): Promise<string> => {
   const projectResult = await client
     .execute({
-      sql: 'SELECT output_path FROM projects WHERE session_id = ? LIMIT 1',
+      sql: 'SELECT root_path, output_path FROM projects WHERE session_id = ? LIMIT 1',
       args: [sessionId]
     })
     .catch(() => ({ rows: [] as unknown[] }))
+  const rootPath = getRowValue(projectResult.rows?.[0], 'root_path')
+  if (typeof rootPath === 'string' && rootPath.trim().length > 0) {
+    return rootPath.trim()
+  }
   const outputPath = getRowValue(projectResult.rows?.[0], 'output_path')
+  const metadataProjectDir =
+    typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0
+      ? path.dirname(metadata.indexPath.trim())
+      : ''
+  if (
+    metadataProjectDir &&
+    fsExistsSafe(String(metadata.indexPath)) &&
+    (!(typeof outputPath === 'string') ||
+      outputPath.trim().length === 0 ||
+      !fsExistsSafe(path.join(outputPath.trim(), 'index.html')))
+  ) {
+    return metadataProjectDir
+  }
   if (typeof outputPath === 'string' && outputPath.trim().length > 0) {
     return outputPath.trim()
   }
-  if (typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0) {
-    return path.dirname(metadata.indexPath.trim())
-  }
+  if (metadataProjectDir) return metadataProjectDir
   const storagePath = await resolveStoragePath().catch(() => '')
   return path.join(storagePath || process.cwd(), sessionId)
 }
@@ -971,6 +1094,7 @@ export const runDatabasePatches = async (args: {
   const { client, db, resolveStoragePath } = args
   await client.executeMultiple(INIT_SQL)
   await enforceSessionsSchema(client)
+  await enforceProjectsSchema(client)
   await enforceSettingsSchema(client)
   await enforceModelConfigsSchema(client)
   await enforceMessagesSchema(client)
@@ -980,6 +1104,7 @@ export const runDatabasePatches = async (args: {
   await enforceSessionOperationPagesSchema(client)
   await client.execute('PRAGMA foreign_keys = ON;')
   await ensureDefaultSettings(client)
+  await patchProjectRootPaths({ client, resolveStoragePath })
   await patchGenerationRecordsFromMetadata({ client, db, resolveStoragePath })
   await patchSessionPagesFromLegacy({ client, db, resolveStoragePath })
   await patchSessionPagesFromGenerationPages({ client, db, resolveStoragePath })

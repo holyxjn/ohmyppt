@@ -1,4 +1,5 @@
 import fs from 'fs'
+import path from 'path'
 import type { GenerateChunkEvent } from '@shared/generation'
 import { progressText } from '@shared/progress'
 import type { PPTDatabase } from '../../db/database'
@@ -8,6 +9,26 @@ import type { AnyFlowContext, EmitAssistantFn } from './types'
 
 export const uiText = (locale: 'zh' | 'en', zh: string, en: string): string =>
   locale === 'en' ? en : zh
+
+export const resolvePageHtmlPath = (args: {
+  projectDir: string
+  fileSlug: string
+  candidates?: Array<string | null | undefined>
+}): string => {
+  const projectRoot = path.resolve(args.projectDir)
+  const fallback = path.resolve(projectRoot, `${args.fileSlug}.html`)
+  const candidates = [...(args.candidates || []), fallback]
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || candidate.trim().length === 0) continue
+    const resolved = path.isAbsolute(candidate)
+      ? path.resolve(candidate)
+      : path.resolve(projectRoot, candidate)
+    const relativeToProject = path.relative(projectRoot, resolved)
+    if (relativeToProject.startsWith('..') || path.isAbsolute(relativeToProject)) continue
+    if (fs.existsSync(resolved)) return resolved
+  }
+  return fallback
+}
 
 export const isEditValidationRetryableError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error || '')

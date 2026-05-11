@@ -1,6 +1,6 @@
 import type { IpcContext } from '../context'
 import type { EmitAssistantFn, RetryContext } from './types'
-import { uiText } from './generation-utils'
+import { resolvePageHtmlPath, uiText } from './generation-utils'
 import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
@@ -109,10 +109,11 @@ export async function executeRetryFailedPages(
       title: page.title || snapshot?.title || page.file_slug,
       content_outline: snapshot?.content_outline || '',
       layout_intent: snapshot?.layout_intent || null,
-      html_path:
-        page.html_path ||
-        snapshot?.html_path ||
-        path.join(context.entry.projectDir, `${page.file_slug}.html`),
+      html_path: resolvePageHtmlPath({
+        projectDir: context.entry.projectDir,
+        fileSlug: page.file_slug,
+        candidates: [page.html_path, snapshot?.html_path]
+      }),
       retry_count: snapshot?.retry_count || 0,
       status: page.status,
       error: page.error
@@ -161,7 +162,11 @@ export async function executeRetryFailedPages(
     layoutIntent: page.layout_intent
       ? normalizeLayoutIntent(page.layout_intent)
       : undefined,
-    htmlPath: page.html_path || path.join(context.entry.projectDir, `${page.page_id}.html`),
+    htmlPath: resolvePageHtmlPath({
+      projectDir: context.entry.projectDir,
+      fileSlug: page.page_id,
+      candidates: [page.html_path]
+    }),
     retryCount: page.retry_count + 1
   }))
   const pageFileMap = Object.fromEntries(retryPages.map((page) => [page.pageId, page.htmlPath]))
@@ -476,8 +481,11 @@ export async function executeRetryFailedPages(
     sessionPages
       .filter((page) => page.status === 'completed' && !retryPageIdSet.has(page.file_slug))
       .map(async (page) => {
-        const htmlPath =
-          page.html_path || path.join(context.entry.projectDir, `${page.file_slug}.html`)
+        const htmlPath = resolvePageHtmlPath({
+          projectDir: context.entry.projectDir,
+          fileSlug: page.file_slug,
+          candidates: [page.html_path]
+        })
         const html = fs.existsSync(htmlPath)
           ? await fs.promises.readFile(htmlPath, 'utf-8')
           : ''

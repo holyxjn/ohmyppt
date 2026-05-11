@@ -24,6 +24,7 @@ type RecordOperationArgs = {
   metadata?: Record<string, unknown>
   targetOperationId?: string | null
   targetCommit?: string | null
+  allowEmptySnapshot?: boolean
 }
 
 type GitStatusMatrixRow = [string, number, number, number]
@@ -55,6 +56,10 @@ const pageIdFromPath = (relativePath: string): string | undefined => {
   return rel.replace(/\.html?$/i, '')
 }
 
+const hasRestorableDeckFiles = (files: string[]): boolean =>
+  files.some((file) => file === 'index.html') &&
+  files.some((file) => /^[^/]+\.html?$/i.test(file) && file.toLowerCase() !== 'index.html')
+
 const ensureDir = async (dir: string): Promise<void> => {
   await fs.promises.mkdir(dir, { recursive: true })
 }
@@ -81,12 +86,14 @@ export class GitHistoryService {
 
   async ensureBaseline(sessionId: string, projectDir: string): Promise<void> {
     const resolvedProjectDir = path.resolve(projectDir)
-    await this.ensureRepository(resolvedProjectDir)
-    const head = await this.resolveHead(resolvedProjectDir)
-    const session = await this.db.getSession(sessionId)
-    if (!head && !session?.currentCommit) {
+    if (!(await this.db.hasAnyOperationPageSnapshots(sessionId))) {
+      await fs.promises.rm(path.join(resolvedProjectDir, '.git'), { recursive: true, force: true })
+      await this.db.cleanupSessionOperations(sessionId)
+      await this.ensureRepository(resolvedProjectDir)
       await this.createLegacyImport(sessionId, resolvedProjectDir)
+      return
     }
+    await this.ensureRepository(resolvedProjectDir)
   }
 
   async recordOperation(args: RecordOperationArgs): Promise<SessionOperationRecord | null> {
@@ -111,6 +118,44 @@ export class GitHistoryService {
     const changedPages = Array.from(
       new Set(changedFiles.map((file) => file.pageId).filter(Boolean) as string[])
     ).sort()
+    if (changedFiles.length === 0 && args.allowEmptySnapshot && beforeCommit) {
+      const trackedFiles = await this.listTrackedFiles(projectDir, beforeCommit).catch(() =>
+        walkFiles(projectDir)
+      )
+      const operationId = crypto.randomUUID()
+      await this.db.createSessionOperation({
+        id: operationId,
+        sessionId: args.sessionId,
+        type: args.type,
+        scope: args.scope,
+        prompt: args.prompt || null,
+        parentOperationId,
+        beforeCommit,
+        targetOperationId: args.targetOperationId || null,
+        targetCommit: args.targetCommit || null,
+        metadata
+      })
+      await this.captureOperationPageSnapshot(args.sessionId, operationId, projectDir)
+      await this.db.completeSessionOperation({
+        id: operationId,
+        status: 'completed',
+        afterCommit: beforeCommit,
+        changedFiles: [],
+        changedPages: [],
+        trackedFiles,
+        metadata: {
+          ...metadata,
+          emptySnapshot: true
+        }
+      })
+      await this.db.updateSessionHistoryPointer({
+        sessionId: args.sessionId,
+        operationId,
+        commit: beforeCommit
+      })
+      return this.db.getSessionOperation(operationId) as Promise<SessionOperationRecord | null>
+    }
+
     if (changedFiles.length === 0) {
       log.debug('[history] skip operation without controlled file changes', {
         sessionId: args.sessionId,
@@ -135,7 +180,7 @@ export class GitHistoryService {
     })
 
     try {
-      await this.captureOperationPageSnapshot(args.sessionId, operationId)
+      await this.captureOperationPageSnapshot(args.sessionId, operationId, projectDir)
       const afterCommit = await git.commit({
         fs,
         dir: projectDir,
@@ -224,21 +269,18 @@ export class GitHistoryService {
       throw new Error('当前会话尚未建立历史记录，不能回退。')
     }
     await this.assertCommitExists(projectDir, targetOperation.after_commit)
-    if (beforeCommit === targetOperation.after_commit) {
-      throw new Error('当前已经是该历史版本。')
-    }
     const beforePages = await this.db.listSessionPages(args.sessionId, { includeDeleted: true })
     const beforeMetadata = parseJson<Record<string, unknown>>(session?.metadata, {})
     const beforeOperationId =
       typeof session?.currentOperationId === 'string' ? session.currentOperationId : null
     const beforeFiles = await this.listTrackedFiles(projectDir, beforeCommit)
 
-    const targetFiles =
+    const operationTrackedFiles =
       parseJson<string[]>(targetOperation.tracked_files_json, []).filter(isControlledFile)
-    const filesToRestore =
-      targetFiles.length > 0
-        ? targetFiles
-        : await this.listTrackedFiles(projectDir, targetOperation.after_commit)
+    const commitTrackedFiles = await this.listTrackedFiles(projectDir, targetOperation.after_commit)
+    const filesToRestore = hasRestorableDeckFiles(operationTrackedFiles)
+      ? operationTrackedFiles
+      : commitTrackedFiles
     try {
       await this.restoreCommitFiles(projectDir, targetOperation.after_commit, filesToRestore)
       const targetMetadata = parseJson<Record<string, unknown>>(targetOperation.metadata_json, {})
@@ -308,6 +350,24 @@ export class GitHistoryService {
       const pageNumberRaw = Number(item.pageNumber)
       const pageNumber = Number.isFinite(pageNumberRaw) && pageNumberRaw > 0 ? Math.floor(pageNumberRaw) : index + 1
       const title = typeof item.title === 'string' && item.title.trim().length > 0 ? item.title.trim() : `Page ${pageNumber}`
+      const snapshotHtmlPath =
+        typeof item.htmlPath === 'string' && item.htmlPath.trim().length > 0
+          ? item.htmlPath.trim()
+          : ''
+      const htmlPath = this.resolveRestoredHtmlPath({
+        fileSlug,
+        projectDir,
+        snapshotHtmlPath,
+        existingHtmlPath: existing?.html_path || ''
+      })
+      const restoredStatus =
+        fs.existsSync(htmlPath)
+          ? 'completed'
+          : ((typeof item.status === 'string' ? item.status : existing?.status) as
+              | 'completed'
+              | 'failed'
+              | 'pending'
+              | undefined) || 'failed'
       await this.db.upsertSessionPage({
         id: pageId,
         sessionId,
@@ -315,9 +375,9 @@ export class GitHistoryService {
         fileSlug,
         pageNumber,
         title,
-        htmlPath: existing?.html_path || path.resolve(projectDir, `${fileSlug}.html`),
-        status: existing?.status || 'completed',
-        error: existing?.error || null
+        htmlPath,
+        status: restoredStatus,
+        error: restoredStatus === 'failed' ? existing?.error || '页面文件不存在' : null
       })
     }
 
@@ -336,13 +396,16 @@ export class GitHistoryService {
       pageNumber: page.page_number,
       pageId: page.file_slug,
       title: page.title,
-      htmlPath: page.html_path
+      htmlPath: page.html_path,
+      status: page.status,
+      error: page.error
     }))
   }
 
   private async captureOperationPageSnapshot(
     sessionId: string,
-    operationId: string
+    operationId: string,
+    projectDir: string
   ): Promise<void> {
     const pages = await this.db.listSessionPages(sessionId)
     await this.db.replaceSessionOperationPages(
@@ -354,11 +417,42 @@ export class GitHistoryService {
         fileSlug: page.file_slug,
         pageNumber: page.page_number,
         title: page.title,
-        htmlPath: page.html_path,
+        htmlPath: this.resolveRestoredHtmlPath({
+          fileSlug: page.file_slug,
+          projectDir,
+          snapshotHtmlPath: '',
+          existingHtmlPath: page.html_path
+        }),
         status: page.status,
         error: page.error
       }))
     )
+  }
+
+  private resolveRestoredHtmlPath(args: {
+    fileSlug: string
+    projectDir: string
+    snapshotHtmlPath?: string
+    existingHtmlPath?: string
+  }): string {
+    const candidates = [
+      args.snapshotHtmlPath,
+      args.existingHtmlPath,
+      path.resolve(args.projectDir, `${args.fileSlug}.html`)
+    ]
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter((item) => item.length > 0)
+
+    for (const candidate of candidates) {
+      const resolved = path.isAbsolute(candidate)
+        ? path.resolve(candidate)
+        : path.resolve(args.projectDir, candidate)
+      const relativeToProject = path.relative(args.projectDir, resolved)
+      if (relativeToProject.startsWith('..') || path.isAbsolute(relativeToProject)) continue
+      if (fs.existsSync(resolved)) return resolved
+    }
+
+    return path.resolve(args.projectDir, `${args.fileSlug}.html`)
   }
 
   private async ensureRepository(projectDir: string): Promise<void> {
@@ -381,8 +475,6 @@ export class GitHistoryService {
   }
 
   private async createLegacyImport(sessionId: string, projectDir: string): Promise<void> {
-    const session = await this.db.getSession(sessionId)
-    if (session?.currentCommit) return
     const files = await walkFiles(projectDir)
     if (
       !files.some((file) => file === 'index.html') ||
@@ -399,7 +491,8 @@ export class GitHistoryService {
       metadata: {
         legacy: true,
         reason: 'legacy_import'
-      }
+      },
+      allowEmptySnapshot: true
     })
   }
 
@@ -564,7 +657,14 @@ export class GitHistoryService {
     commit: string,
     targetFiles: string[]
   ): Promise<void> {
-    const targetSet = new Set(targetFiles.filter(isControlledFile))
+    const normalizedTargetFiles = targetFiles.filter(isControlledFile)
+    const restorableFiles = hasRestorableDeckFiles(normalizedTargetFiles)
+      ? normalizedTargetFiles
+      : await this.listTrackedFiles(projectDir, commit)
+    if (!hasRestorableDeckFiles(restorableFiles)) {
+      throw new Error('目标历史版本缺少可恢复的页面文件，无法回退。')
+    }
+    const targetSet = new Set(restorableFiles)
     for (const relativePath of targetSet) {
       const { blob } = await git.readBlob({
         fs,

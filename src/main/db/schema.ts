@@ -40,6 +40,7 @@ export const projects = sqliteTable('projects', {
   sessionId: text('session_id').notNull(),
   title: text('title').notNull(),
   outputPath: text('output_path').notNull(),
+  rootPath: text('root_path'),
   fileCount: integer('file_count').default(0),
   totalSize: integer('total_size').default(0),
   status: text('status').notNull().default('draft'),

@@ -265,6 +265,8 @@ export const ipc = {
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
   listHistoryVersions: (payload: { sessionId: string; limit?: number }) =>
     getIpc().invoke('history:listVersions', payload) as Promise<HistoryVersion[]>,
+  ensureHistoryBaseline: (sessionId: string) =>
+    getIpc().invoke('history:ensureBaseline', { sessionId }) as Promise<{ ok: boolean }>,
   rollbackToHistoryVersion: (payload: { sessionId: string; versionId: string }) =>
     getIpc().invoke('history:rollbackToVersion', payload) as Promise<RollbackHistoryResult>,
   recordHistorySnapshot: (payload: {

@@ -235,18 +235,9 @@ export function createIpcContext(
       return { session, pages: [] }
     }
 
+    const projectDir = await resolveSessionProjectDir(sessionId)
     const project = await db.getProject(sessionId)
-    const metadataIndexPath =
-      typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0
-        ? metadata.indexPath.trim()
-        : ''
-    const projectDir =
-      typeof project?.output_path === 'string' && project.output_path.trim().length > 0
-        ? project.output_path.trim()
-        : metadataIndexPath
-          ? path.dirname(metadataIndexPath)
-          : path.join(await resolveStoragePath(), sessionId)
-    const indexPath = metadataIndexPath || path.join(projectDir, 'index.html')
+    const indexPath = path.join(projectDir, 'index.html')
     const pages: Array<{
       pageNumber: number
       title: string
@@ -261,7 +252,7 @@ export function createIpcContext(
     for (const page of sessionPages) {
       const pageId = page.file_slug
       const title = page.title || `第 ${page.page_number} 页`
-      const htmlPath = page.html_path || path.join(projectDir, `${pageId}.html`)
+      const htmlPath = resolveProjectPageHtmlPath(projectDir, pageId, page.html_path)
       const html =
         options?.includeHtml && fs.existsSync(htmlPath)
           ? await fs.promises.readFile(htmlPath, 'utf-8')
@@ -579,6 +570,22 @@ export function createIpcContext(
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
   }
 
+  const resolveProjectPageHtmlPath = (
+    projectDir: string,
+    fileSlug: string,
+    candidatePath?: string | null
+  ): string => {
+    const projectRoot = path.resolve(projectDir)
+    const fallbackPath = path.resolve(projectRoot, `${fileSlug}.html`)
+    const rawCandidate = typeof candidatePath === 'string' ? candidatePath.trim() : ''
+    if (!rawCandidate) return fallbackPath
+    const resolvedCandidate = path.isAbsolute(rawCandidate)
+      ? path.resolve(rawCandidate)
+      : path.resolve(projectRoot, rawCandidate)
+    if (!isPathInside(resolvedCandidate, projectRoot)) return fallbackPath
+    return fs.existsSync(resolvedCandidate) ? resolvedCandidate : fallbackPath
+  }
+
   const toSafeAssetBaseName = (value: string): string => {
     const parsed = path.parse(value)
     const fallback = parsed.name || 'image'
@@ -594,9 +601,9 @@ export function createIpcContext(
     const session = await db.getSession(sessionId)
     if (!session) throw new Error('Session not found')
     const project = await db.getProject(sessionId)
-    const outputPath = typeof project?.output_path === 'string' ? project.output_path.trim() : ''
-    if (outputPath) return path.resolve(outputPath)
-    return path.resolve(await resolveStoragePath(), sessionId)
+    const rootPath = typeof project?.root_path === 'string' ? project.root_path.trim() : ''
+    if (!rootPath) throw new Error(`Session ${sessionId} has no root_path`)
+    return path.resolve(rootPath)
   }
 
   const formatImagePathsForPrompt = (imagePaths?: string[], videoPaths?: string[]): string => {
@@ -792,12 +799,12 @@ export function createIpcContext(
 
     if (sessionId) {
       const project = await db.getProject(sessionId)
-      const outputPath = typeof project?.output_path === 'string' ? project.output_path : ''
-      if (outputPath) {
-        const resolvedOutputPath = fs.existsSync(outputPath)
-          ? await fs.promises.realpath(outputPath)
-          : path.resolve(outputPath)
-        roots.add(resolvedOutputPath)
+      const rootPath = typeof project?.root_path === 'string' ? project.root_path : ''
+      if (rootPath) {
+        const resolvedRootPath = fs.existsSync(rootPath)
+          ? await fs.promises.realpath(rootPath)
+          : path.resolve(rootPath)
+        roots.add(resolvedRootPath)
       }
     }
     return [...roots]
@@ -817,10 +824,29 @@ export function createIpcContext(
     if (htmlOnly && extension !== '.html' && extension !== '.htm') {
       throw new Error(`仅允许访问 HTML 文件，当前扩展名: ${extension || '(none)'}`)
     }
-    const targetPath =
-      mode === 'read'
-        ? await resolveExistingFileRealPath(filePath)
-        : await resolveWritableFileRealPath(filePath)
+    const resolveSessionHtmlFallbackPath = async (): Promise<string | null> => {
+      if (mode !== 'read' || !sessionId) return null
+      if (extension !== '.html' && extension !== '.htm') return null
+      const fileName = path.basename(filePath)
+      if (!fileName) return null
+      const projectDir = await resolveSessionProjectDir(sessionId)
+      const fallbackPath = path.join(projectDir, fileName)
+      if (path.resolve(fallbackPath) === path.resolve(filePath)) return null
+      return fs.existsSync(fallbackPath) ? fallbackPath : null
+    }
+
+    let targetPath: string
+    if (mode === 'read') {
+      try {
+        targetPath = await resolveExistingFileRealPath(filePath)
+      } catch (error) {
+        const fallbackPath = await resolveSessionHtmlFallbackPath()
+        if (!fallbackPath) throw error
+        targetPath = await resolveExistingFileRealPath(fallbackPath)
+      }
+    } else {
+      targetPath = await resolveWritableFileRealPath(filePath)
+    }
     const allowedRoots = await resolveAllowedRoots(sessionId)
     const allowed = allowedRoots.some((root) => isPathInside(targetPath, root))
     if (!allowed) {
@@ -970,14 +996,7 @@ export function createIpcContext(
     }
     const sessionRecord = session as unknown as Record<string, unknown>
 
-    const project = await db.getProject(sessionId)
-    const projectDirCandidate =
-      typeof project?.output_path === 'string' && project.output_path.trim().length > 0
-        ? project.output_path.trim()
-        : ''
-    const projectDir = projectDirCandidate
-      ? path.resolve(projectDirCandidate)
-      : path.resolve(await resolveStoragePath(), sessionId)
+    const projectDir = await resolveSessionProjectDir(sessionId)
     const sessionPages = await db.listSessionPages(sessionId)
     if (sessionPages.length === 0) {
       throw new Error(
@@ -988,7 +1007,7 @@ export function createIpcContext(
       pageNumber: sp.page_number,
       pageId: sp.file_slug,
       title: sp.title,
-      htmlPath: sp.html_path || path.resolve(projectDir, `${sp.file_slug}.html`)
+      htmlPath: resolveProjectPageHtmlPath(projectDir, sp.file_slug, sp.html_path)
     }))
 
     const missingPages: string[] = []
