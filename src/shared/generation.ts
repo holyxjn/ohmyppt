@@ -85,6 +85,7 @@ export interface GenerateRetrySinglePagePayload {
 }
 
 export interface GeneratedPagePayload {
+  id?: string
   pageNumber: number
   title: string
   html: string

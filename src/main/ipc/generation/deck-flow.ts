@@ -11,6 +11,7 @@ import { buildProjectIndexHtml, type DeckPageFile } from '../engine/template'
 import { buildDesignContractWithLLM, planDeckWithLLM, runDeepAgentDeckGeneration } from '../engine/generate'
 import type { GeneratedPagePayload } from '@shared/generation'
 import { sleep } from '../utils'
+import { customAlphabet, nanoid } from 'nanoid'
 import {
   buildOutlineTitles,
   buildTotalPages,
@@ -18,7 +19,8 @@ import {
   resolveCommonContext,
   resolveSourceDocuments
 } from './context'
-import { derivePageNumber } from './metadata-parser'
+
+const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
 
 export async function resolveDeckContext(
   ctx: IpcContext,
@@ -134,10 +136,11 @@ export async function executeDeckGeneration(
 
   const pageRefs = Array.from({ length: context.totalPages }, (_unused, index) => {
     const pageNumber = index + 1
-    const pageId = `page-${pageNumber}`
+    const id = nanoid()
+    const pageId = `page-${pageSlugId()}`
     const htmlPath = path.join(context.entry.projectDir, `${pageId}.html`)
     const fallbackTitle = context.userProvidedOutlineTitles[index] || `Slide ${pageNumber}`
-    return { pageNumber, title: fallbackTitle, pageId, htmlPath }
+    return { id, pageNumber, title: fallbackTitle, pageId, htmlPath }
   })
   const pageFileMap = Object.fromEntries(pageRefs.map((page) => [page.pageId, page.htmlPath]))
   const indexPath = path.join(context.entry.projectDir, 'index.html')
@@ -255,6 +258,7 @@ export async function executeDeckGeneration(
       context.deckTitle,
       pageRefs.map(
         (page): DeckPageFile => ({
+          id: page.id,
           pageNumber: page.pageNumber,
           pageId: page.pageId,
           title: page.title,
@@ -322,14 +326,6 @@ export async function executeDeckGeneration(
     await db.updateSessionMetadata(context.sessionId, {
       lastRunId: context.runId,
       entryMode: 'multi_page',
-      generatedPages: Array.from(persistedGeneratedPagesById.values()).sort(
-        (a, b) => a.pageNumber - b.pageNumber
-      ),
-      failedPages: Array.from(persistedFailedPagesById.values()).sort((a, b) => {
-        const aNumber = Number(a.pageId.match(/^page-(\d+)$/i)?.[1] || 0)
-        const bNumber = Number(b.pageId.match(/^page-(\d+)$/i)?.[1] || 0)
-        return aNumber - bNumber
-      }),
       indexPath,
       projectId: context.projectId
     })
@@ -363,7 +359,7 @@ export async function executeDeckGeneration(
     })
     persistedFailedPagesById.delete(page.pageId)
     persistedGeneratedPagesById.set(page.pageId, {
-      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
+      pageNumber: page.pageNumber,
       title: page.title,
       pageId: page.pageId,
       htmlPath: page.htmlPath
@@ -416,6 +412,13 @@ export async function executeDeckGeneration(
     userMessage: context.userMessage,
     outlineTitles,
     outlineItems,
+    pageTasks: pageRefs.map((page, index) => ({
+      pageNumber: page.pageNumber,
+      pageId: page.pageId,
+      title: page.title,
+      contentOutline: outlineItems[index]?.contentOutline || '',
+      layoutIntent: outlineItems[index]?.layoutIntent
+    })),
     sourceDocumentPaths: context.sourceDocumentPaths,
     generationMode: 'generate',
     designContract,
@@ -515,6 +518,7 @@ export async function executeDeckGeneration(
 
   const placeholderPages: string[] = []
   const pageDescriptors: Array<{
+    id: string
     pageNumber: number
     title: string
     pageId: string
@@ -546,6 +550,7 @@ export async function executeDeckGeneration(
       continue
     }
     const page: GeneratedPagePayload = {
+      id: pageRef.id,
       pageNumber: pageRef.pageNumber,
       title: pageRef.title,
       html,
@@ -554,6 +559,7 @@ export async function executeDeckGeneration(
       sourceUrl: getPageSourceUrl(pageRef.htmlPath)
     }
     pageDescriptors.push({
+      id: pageRef.id,
       pageNumber: pageRef.pageNumber,
       title: pageRef.title,
       pageId: pageRef.pageId,
@@ -635,6 +641,39 @@ export async function executeDeckGeneration(
         error: failedPage.reason
       })
     }
+    const existingSessionPages = await db.listSessionPages(context.sessionId, { includeDeleted: true })
+    const existingBySlug = new Map(existingSessionPages.map((sp) => [sp.file_slug, sp]))
+    for (const failedPage of failedPages) {
+      const pageRef = pageRefs.find((page) => page.pageId === failedPage.pageId)
+      if (!pageRef) continue
+      const existing = existingBySlug.get(pageRef.pageId)
+      await db.upsertSessionPage({
+        id: existing?.id || pageRef.id,
+        sessionId: context.sessionId,
+        legacyPageId:
+          existing?.legacy_page_id || (pageRef.pageId.match(/^page-\d+$/) ? pageRef.pageId : null),
+        fileSlug: pageRef.pageId,
+        pageNumber: pageRef.pageNumber,
+        title: pageRef.title,
+        htmlPath: pageRef.htmlPath,
+        status: 'failed',
+        error: failedPage.reason
+      })
+    }
+    for (const page of pageDescriptors) {
+      const existing = existingBySlug.get(page.pageId)
+      await db.upsertSessionPage({
+        id: existing?.id || page.id,
+        sessionId: context.sessionId,
+        legacyPageId: existing?.legacy_page_id || (page.pageId.match(/^page-\d+$/) ? page.pageId : null),
+        fileSlug: page.pageId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        htmlPath: page.htmlPath,
+        status: 'completed',
+        error: null
+      })
+    }
     await db.updateGenerationRunStatus(
       context.runId,
       pageDescriptors.length > 0 ? 'partial' : 'failed',
@@ -643,17 +682,6 @@ export async function executeDeckGeneration(
     await db.updateSessionMetadata(context.sessionId, {
       lastRunId: context.runId,
       entryMode: 'multi_page',
-      generatedPages: pageDescriptors.map((page) => ({
-        pageNumber: derivePageNumber(page.pageId, page.pageNumber),
-        title: page.title,
-        pageId: page.pageId,
-        htmlPath: page.htmlPath
-      })),
-      failedPages: failedPages.map((page) => ({
-        pageId: page.pageId,
-        title: page.title,
-        reason: page.reason
-      })),
       indexPath,
       projectId: context.projectId
     })

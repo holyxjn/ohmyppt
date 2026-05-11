@@ -56,7 +56,7 @@ export function SessionsPage(): React.JSX.Element {
     void fetchSessions()
   }, [fetchSessions])
 
-  const sortedSessions = [...sessions].sort((a, b) => b.updated_at - a.updated_at)
+  const sortedSessions = sessions
   const canEnterEditor = (session: {
     id: string
     status: string
@@ -239,6 +239,9 @@ export function SessionsPage(): React.JSX.Element {
                       })()}
                     </span>
                   ) : null}
+                  <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
+                    {dayjs.unix(session.updated_at).format('YYYY/MM/DD HH:mm')}
+                  </span>
                   {!isComplete && editorGate.failedCount > 0 && (
                     <span className="rounded-lg border border-[#d7b5ae]/70 bg-[#fff7f2]/80 px-2 py-1 text-[#93564f]">
                       {t('sessions.failedCount', { count: editorGate.failedCount })}

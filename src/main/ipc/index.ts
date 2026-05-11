@@ -9,6 +9,7 @@ import { registerExportHandlers } from './io/export-handlers'
 import { registerStyleHandlers } from './config/style-handlers'
 import { registerSettingsHandlers } from './config/settings-handlers'
 import { registerPreviewHandlers } from './session/preview-handlers'
+import { registerPageManagementHandlers } from './session/page-management-handlers'
 import { registerFileHandlers } from './io/file-handlers'
 import { registerDragEditorHandlers } from './editor/drag-editor-handlers'
 import { registerTextEditorHandlers } from './editor/text-editor-handlers'
@@ -25,6 +26,7 @@ export function setupIPC(
   const context = createIpcContext(mainWindow, db, agentManager)
 
   registerSessionHandlers(context)
+  registerPageManagementHandlers(context)
   registerAssetHandlers(context)
   registerGenerationHandlers(context)
   registerExportHandlers(context)

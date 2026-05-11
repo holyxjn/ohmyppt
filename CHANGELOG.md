@@ -1,5 +1,31 @@
 # 更新日志 / Changelog
 
+## 2026-05-11 · v2.0.5
+
+### 中文
+
+- 新增页面支持拖拽排序调整位置功能
+- 新增可以删除页面的功能
+- 优化历史版本体验：让历史列表更像一条清楚的创作时间线（增加更多操作日志记录）。
+- 优化回退体验：回退到历史版本后，页面列表、页面顺序和预览内容更稳定。
+- 优化老会话体验：从旧版本创建或切换过输出目录的会话，在预览、编辑、回退时更稳定。
+- 优化页面编辑稳定性：单页编辑、全局修改和局部修改更稳，系统会更主动地修正不完整的编辑结果。
+- 优化生成和编辑的错误提示：用户看到的是可理解的进度和失败提示。
+- 优化导入和历史会话编辑：PPTX 导入会话和历史会话在继续编辑时更稳定。
+- 优化风格表达：生成结果更强调情绪、叙事和表达，更加感性。
+
+### English
+
+- Added drag-and-drop page reordering.
+- Added page deletion.
+- Added history entries for page deletion.
+- Improved the version history experience so the timeline reads like a clear creation story.
+- Improved rollback reliability so the page list, page order, and preview stay consistent after reverting.
+- Improved older sessions created in previous versions or sessions affected by output directory changes, making previewing, editing, and rollback more stable.
+- Improved edit reliability for single-slide edits, deck-wide edits, and element-level edits, with more proactive recovery for incomplete edit results.
+- Improved error messages for generation and editing so users see clear progress and understandable failures.
+- Improved continuing edits for PPTX-imported sessions and historical sessions.
+- Improved style expression so results feel more emotional, narrative, and expressive.
 
 ## 2026-05-09
 

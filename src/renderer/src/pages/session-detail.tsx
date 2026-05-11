@@ -27,6 +27,7 @@ import type { HistoryVersion } from '@shared/history.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
+import dayjs from 'dayjs'
 
 const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
   text: '',
@@ -37,6 +38,7 @@ const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
 
 function normalizePagesForSelection(
   pages: Array<{
+    id: string
     pageNumber: number
     title: string
     html: string
@@ -49,9 +51,14 @@ function normalizePagesForSelection(
 ): SessionPreviewPage[] {
   return [...pages]
     .sort((a, b) => a.pageNumber - b.pageNumber)
-    .map((page) =>
-      page.pageId ? (page as SessionPreviewPage) : { ...page, pageId: `page-${page.pageNumber}` }
-    )
+    .map((page) => {
+      const pageId = page.pageId || `page-${page.pageNumber}`
+      return {
+        ...page,
+        id: page.id || pageId,
+        pageId
+      } as SessionPreviewPage
+    })
 }
 
 function rgbToHex(value: string | undefined): string {
@@ -93,7 +100,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const { isGenerating, updateProgress, cancelGeneration, progress, currentPages, error } =
     useGenerateStore()
   const chatType = useSessionDetailUiStore((state) => state.chatType)
-  const selectedPageNumber = useSessionDetailUiStore((state) => state.selectedPageNumber)
+  const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
   const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
@@ -101,6 +108,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const addPageDialogOpen = useSessionDetailUiStore((state) => state.addPageDialogOpen)
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
   const isRetryingSinglePage = useSessionDetailUiStore((state) => state.isRetryingSinglePage)
+  const isManagingPages = useSessionDetailUiStore((state) => state.isManagingPages)
   const setAddPageDialogOpen = useSessionDetailUiStore((state) => state.setAddPageDialogOpen)
   const setIsAddingPage = useSessionDetailUiStore((state) => state.setIsAddingPage)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
@@ -119,6 +127,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyRollbackId, setHistoryRollbackId] = useState<string | null>(null)
   const [rollbackConfirmVersion, setRollbackConfirmVersion] = useState<HistoryVersion | null>(null)
+  const [deleteConfirmPage, setDeleteConfirmPage] = useState<SessionPreviewPage | null>(null)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
   const sendingMessageRef = useRef(false)
   const [addPageInput, setAddPageInput] = useState('')
@@ -141,10 +150,10 @@ export function SessionDetailPage(): React.JSX.Element {
 
   const selectedPage = useMemo(
     () =>
-      normalizedOrderedPages.find((page) => page.pageNumber === selectedPageNumber) ??
+      normalizedOrderedPages.find((page) => page.id === selectedPageId) ??
       normalizedOrderedPages[0] ??
       null,
-    [normalizedOrderedPages, selectedPageNumber]
+    [normalizedOrderedPages, selectedPageId]
   )
 
   useEffect(() => {
@@ -173,14 +182,10 @@ export function SessionDetailPage(): React.JSX.Element {
     sessionStatus === 'active'
 
   const formatHistoryTime = (value: number): string => {
-    const date = new Date(value > 1e12 ? value : value * 1000)
-    if (Number.isNaN(date.getTime())) return ''
-    return date.toLocaleString(undefined, {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    const timestamp = value > 1e12 ? value : value * 1000
+    const parsed = dayjs(timestamp)
+    if (!parsed.isValid()) return ''
+    return parsed.format('YYYY/MM/DD HH:mm')
   }
 
   const loadHistoryVersions = async (): Promise<void> => {
@@ -240,6 +245,14 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }, [id, loadSession, resetForSessionChange, setMessages])
 
+  // Ensure git history baseline exists for old sessions (runs once per session)
+  const baselineDoneRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!id || !currentSession || baselineDoneRef.current === id) return
+    baselineDoneRef.current = id
+    void ipc.ensureHistoryBaseline(id)
+  }, [id, currentSession])
+
   useEffect(() => {
     useGenerateStore.getState().setPages(currentGeneratedPages)
   }, [currentGeneratedPages])
@@ -255,12 +268,9 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     if (!id) return
-    const saved = window.localStorage.getItem(`workbench:selected-page:${id}`)
+    const saved = window.localStorage.getItem(`workbench:selected-page-id:${id}`)
     if (!saved) return
-    const parsed = Number(saved)
-    if (Number.isFinite(parsed) && parsed > 0) {
-      useSessionDetailUiStore.getState().setSelectedPageNumber(parsed)
-    }
+    useSessionDetailUiStore.getState().setSelectedPageId(saved)
   }, [id])
 
   useEffect(() => {
@@ -268,50 +278,47 @@ export function SessionDetailPage(): React.JSX.Element {
     if (useSessionDetailUiStore.getState().isAddingPage || useSessionDetailUiStore.getState().isRetryingSinglePage) return
 
     if (normalizedOrderedPages.length === 0) {
-      useSessionDetailUiStore.getState().setSelectedPageNumber(null)
+      useSessionDetailUiStore.getState().setSelectedPageId(null)
       return
     }
 
-    if (
-      selectedPageNumber &&
-      normalizedOrderedPages.some((page) => page.pageNumber === selectedPageNumber)
-    ) {
+    if (selectedPageId && normalizedOrderedPages.some((page) => page.id === selectedPageId)) {
       return
     }
 
-    useSessionDetailUiStore.getState().setSelectedPageNumber(normalizedOrderedPages[0].pageNumber)
-  }, [normalizedOrderedPages, selectedPageNumber])
+    useSessionDetailUiStore.getState().setSelectedPageId(normalizedOrderedPages[0].id)
+  }, [normalizedOrderedPages, selectedPageId])
 
   useEffect(() => {
-    if (!id || !selectedPageNumber) return
-    window.localStorage.setItem(`workbench:selected-page:${id}`, String(selectedPageNumber))
-  }, [id, selectedPageNumber])
+    if (!id || !selectedPageId) return
+    window.localStorage.setItem(`workbench:selected-page-id:${id}`, String(selectedPageId))
+  }, [id, selectedPageId])
 
   useEffect(() => {
     setChatType('page')
   }, [id, setChatType])
 
   useEffect(() => {
-    const pageId = chatType === 'page' ? selectedPage?.pageId : undefined
+    const pageId = chatType === 'page' ? selectedPage?.id : undefined
     activeChatRef.current = { chatType, pageId }
-  }, [chatType, selectedPage?.pageId])
+  }, [chatType, selectedPage?.id])
 
   useEffect(() => {
     if (!id) return
-    if (chatType === 'page' && !selectedPage?.pageId) {
+    if (chatType === 'page' && !selectedPage?.id) {
       void loadMessages({
         sessionId: id,
         chatType: 'page',
-        pageId: 'page-1'
+        pageId: undefined
       })
       return
     }
     void loadMessages({
       sessionId: id,
       chatType,
-      pageId: chatType === 'page' ? selectedPage?.pageId : undefined
+      pageId: chatType === 'page' ? selectedPage?.id : undefined
     })
-  }, [id, chatType, selectedPage?.pageId, loadMessages, setMessages])
+  }, [id, chatType, selectedPage?.id, loadMessages, setMessages])
 
   useEffect(() => {
     if (!id) return
@@ -346,11 +353,21 @@ export function SessionDetailPage(): React.JSX.Element {
             return
           }
           const store = useGenerateStore.getState()
+          const existingPage = store.currentPages.find((page) =>
+            payload.id
+              ? page.id === payload.id
+              : payload.pageId
+                ? page.pageId === payload.pageId
+                : page.pageNumber === payload.pageNumber
+          )
+          const entityId =
+            payload.id || existingPage?.id || payload.pageId || `page-${payload.pageNumber}`
           // 全新生成：第 1 页到来时清掉旧页面，避免新旧混合
           if (payload.pageNumber === 1 && store.currentPages.length > 0) {
             store.setPages([])
           }
           store.addPage({
+            id: entityId,
             pageNumber: payload.pageNumber,
             title: payload.title,
             html: payload.html,
@@ -360,12 +377,23 @@ export function SessionDetailPage(): React.JSX.Element {
             status: 'completed',
             error: null
           })
-          useSessionDetailUiStore.getState().setSelectedPageNumber(payload.pageNumber)
+          useSessionDetailUiStore.getState().setSelectedPageId(entityId)
           useSessionDetailUiStore.getState().bumpPreviewKey()
         }
       } else if (type === 'page_updated') {
         useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
+        const store = useGenerateStore.getState()
+        const existingPage = store.currentPages.find((page) =>
+          payload.id
+            ? page.id === payload.id
+            : payload.pageId
+              ? page.pageId === payload.pageId
+              : page.pageNumber === payload.pageNumber
+        )
+        const entityId =
+          payload.id || existingPage?.id || payload.pageId || `page-${payload.pageNumber}`
         useGenerateStore.getState().addPage({
+          id: entityId,
           pageNumber: payload.pageNumber,
           title: payload.title,
           html: payload.html,
@@ -375,7 +403,7 @@ export function SessionDetailPage(): React.JSX.Element {
           status: 'completed',
           error: null
         })
-        useSessionDetailUiStore.getState().setSelectedPageNumber(payload.pageNumber)
+        useSessionDetailUiStore.getState().setSelectedPageId(entityId)
         useSessionDetailUiStore.getState().bumpPreviewKey()
       } else if (type === 'assistant_message') {
         const incomingType = payload.chatType === 'page' && payload.pageId ? 'page' : 'main'
@@ -408,6 +436,7 @@ export function SessionDetailPage(): React.JSX.Element {
       } else if (type === 'run_error') {
         if (!useSessionDetailUiStore.getState().isAddingPage) {
           useGenerateStore.getState().setError(payload.message)
+          void loadSession(id)
         }
       }
     }
@@ -495,7 +524,7 @@ export function SessionDetailPage(): React.JSX.Element {
     const selectorForMessage = hasSelector ? detailState.selectedSelector!.trim() : null
     const effectiveChatType: 'main' | 'page' = hasSelector ? 'page' : detailState.chatType
     const effectivePage = selectedPage ?? normalizedOrderedPages[0] ?? null
-    const targetPageId = effectiveChatType === 'page' ? effectivePage?.pageId : undefined
+    const targetPageId = effectiveChatType === 'page' ? effectivePage?.id : undefined
     const targetPagePath =
       effectiveChatType === 'page'
         ? effectivePage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
@@ -564,11 +593,11 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const handleRetryFailedPage = async (page: SessionPreviewPage): Promise<void> => {
-    if (!id || !page.pageId) return
+    if (!id || !page.id) return
     useSessionDetailUiStore.getState().setIsRetryingSinglePage(true)
     useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
     try {
-      await ipc.retrySinglePage({ sessionId: id, pageId: page.pageId })
+      await ipc.retrySinglePage({ sessionId: id, pageId: page.id })
       await loadSession(id)
       useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
     } catch (err) {
@@ -588,9 +617,9 @@ export function SessionDetailPage(): React.JSX.Element {
     setAddPageDialogOpen(false)
     setAddPageInput('')
     setIsAddingPage(true)
-    const insertAfter = selectedPageNumber ?? normalizedOrderedPages.length
+    const insertAfter = selectedPage?.pageNumber ?? normalizedOrderedPages.length
     useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
-    let targetSelection: number | null | undefined = undefined
+    let targetSelection: string | null | undefined = undefined
 
     try {
       await ipc.addPage({
@@ -616,13 +645,60 @@ export function SessionDetailPage(): React.JSX.Element {
       const fallbackPage =
         latestPages[Math.min(insertAfter, Math.max(latestPages.length - 1, 0))] ||
         latestPages[latestPages.length - 1]
-      targetSelection = (addedPage || fallbackPage)?.pageNumber ?? null
+      targetSelection = (addedPage || fallbackPage)?.id ?? null
     } catch (err) {
       const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
       toastError(message)
     } finally {
       useSessionDetailUiStore.getState().finishAddPage(targetSelection)
       useGenerateStore.getState().finishGeneration()
+    }
+  }
+
+  const handleReorderPages = async (
+    orderedPageIds: string[],
+    selectedForKeep?: string
+  ): Promise<void> => {
+    if (!id) return
+    useSessionDetailUiStore.getState().setIsManagingPages(true)
+    try {
+      const result = await ipc.reorderSessionPages({
+        sessionId: id,
+        orderedPageIds,
+        selectedPageId: selectedForKeep
+      })
+      useGenerateStore.getState().setPages(result.generatedPages)
+      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId)
+      useSessionDetailUiStore.getState().bumpPreviewKey()
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('pageManagement.reorderFailed'))
+    } finally {
+      useSessionDetailUiStore.getState().setIsManagingPages(false)
+    }
+  }
+
+  const handleDeletePage = async (page: SessionPreviewPage): Promise<void> => {
+    setDeleteConfirmPage(page)
+  }
+
+  const handleConfirmDeletePage = async (): Promise<void> => {
+    if (!id) return
+    if (!deleteConfirmPage) return
+    useSessionDetailUiStore.getState().setIsManagingPages(true)
+    try {
+      const result = await ipc.deleteSessionPages({
+        sessionId: id,
+        pageIds: [deleteConfirmPage.id],
+        selectedPageId: selectedPageId || undefined
+      })
+      useGenerateStore.getState().setPages(result.generatedPages)
+      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId)
+      useSessionDetailUiStore.getState().bumpPreviewKey()
+      setDeleteConfirmPage(null)
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('pageManagement.deleteFailed'))
+    } finally {
+      useSessionDetailUiStore.getState().setIsManagingPages(false)
     }
   }
 
@@ -661,8 +737,8 @@ export function SessionDetailPage(): React.JSX.Element {
   const openProjectPreview = async (): Promise<void> => {
     const basePath = selectedPage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
     if (!basePath) return
-    const indexPath = basePath.replace(/page-\d+\.html$/i, 'index.html')
-    const pageHash = selectedPage?.pageId || normalizedOrderedPages[0]?.pageId
+    const indexPath = basePath.replace(/[^/\\]+\.html$/i, 'index.html')
+    const pageHash = selectedPage?.id || normalizedOrderedPages[0]?.id
     await ipc.openInBrowser(indexPath, pageHash ? `#${pageHash}` : undefined, id || undefined)
   }
 
@@ -976,6 +1052,9 @@ export function SessionDetailPage(): React.JSX.Element {
             disabled={interactionMode === 'ai-inspect' && isGenerating}
             onAddPage={handleOpenAddPageDialog}
             onRetryFailedPage={handleRetryFailedPage}
+            onReorderPages={handleReorderPages}
+            onDeletePage={handleDeletePage}
+            pageManagementDisabled={isGenerating || isAddingPage || isRetryingSinglePage}
           />
 
           <PreviewStage
@@ -1196,6 +1275,39 @@ export function SessionDetailPage(): React.JSX.Element {
             </div>
           </div>
         )}
+        <Dialog
+          open={Boolean(deleteConfirmPage)}
+          onOpenChange={(open) => {
+            if (!open && !isManagingPages) setDeleteConfirmPage(null)
+          }}
+        >
+          <DialogContent showClose={false}>
+            <DialogHeader>
+              <DialogTitle>{t('pageManagement.deleteConfirmTitle')}</DialogTitle>
+              <DialogDescription>{t('pageManagement.deleteConfirmDescription')}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteConfirmPage(null)}
+                disabled={isManagingPages}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => void handleConfirmDeletePage()}
+                disabled={isManagingPages}
+              >
+                {t('pageManagement.deleteConfirmAction')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <Dialog
           open={Boolean(rollbackConfirmVersion)}
           onOpenChange={(open) => {

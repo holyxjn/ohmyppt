@@ -16,7 +16,7 @@ import { ScrollArea } from '../components/ui/ScrollArea'
 import videoSrc from '../assets/images/video.mp4'
 import dayjs from 'dayjs'
 import { getEditorGate, type EditorGate } from '../lib/sessionMetadata'
-import { useLang } from '../i18n'
+import { useLang, type Lang } from '../i18n'
 
 type LocationState = {
   initialPrompt?: string
@@ -29,7 +29,7 @@ const NEUTRAL_GENERATION_PROMPT =
 
 const extractFailedPages = (message: string | null): string[] => {
   if (!message) return []
-  const matches = Array.from(message.matchAll(/page-\d+\([^)]+\)/g))
+  const matches = Array.from(message.matchAll(/\S+\([^)]+\)/g))
   return matches.map((match) => match[0]).slice(0, 12)
 }
 
@@ -41,11 +41,135 @@ const LOG_AUTO_SCROLL_THRESHOLD = 48
 const isNearLogBottom = (el: HTMLDivElement): boolean =>
   el.scrollHeight - el.scrollTop - el.clientHeight <= LOG_AUTO_SCROLL_THRESHOLD
 
+const compactWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+const eventDedupeKey = (value: string): string =>
+  compactWhitespace(value)
+    .replace(/\s*·\s*\d{1,3}%$/g, '')
+    .replace(/\s+\d{1,3}%$/g, '')
+
+const hasTechnicalDetail = (message: string): boolean => {
+  const compact = compactWhitespace(message)
+  if (compact.length > 160 || message.includes('\n')) return true
+  return /Received tool input did not match expected schema|Error invoking tool|ZodError|expected schema|HTML 验证失败|HTML 落盘校验失败|页面编辑结果验证失败|ERR_FILE_NOT_FOUND|Failed to load URL|文件不存在|at\s+\S+.*:\d+:\d+|<html|<!doctype|data-ppt/i.test(
+    compact
+  ) || /HTML 末尾|未闭合标签|开闭标签数量不一致|内容可能被截断|<\/?[a-z][\w:-]*(\s|>|\/>)/i.test(compact)
+}
+
+const friendlyText = (lang: Lang, zh: string, en: string): string => (lang === 'en' ? en : zh)
+
+const friendlyProgressDetail = (detail: string, lang: Lang): string => {
+  const compact = compactWhitespace(detail)
+  if (!compact) return ''
+  const pageMatch = compact.match(/(\d+)\/(\d+)\s*(页|pages?)/i)
+  if (pageMatch) {
+    return friendlyText(
+      lang,
+      `已处理 ${pageMatch[1]}/${pageMatch[2]} 页`,
+      `Processed ${pageMatch[1]}/${pageMatch[2]} pages`
+    )
+  }
+  if (/没有检测到.*变化|without any detected page changes|no page changes/i.test(compact)) {
+    return friendlyText(lang, '刚才没有写入变化，正在换一种方式重试。', 'No changes were written yet; trying another way.')
+  }
+  if (/HTML 末尾|未闭合标签|开闭标签数量不一致|内容可能被截断|<\/?[a-z][\w:-]*(\s|>|\/>)/i.test(compact)) {
+    return friendlyText(
+      lang,
+      '页面结构检查未通过，正在尝试修复。',
+      'The page structure needs a fix; trying to repair it.'
+    )
+  }
+  if (/schema|工具调用参数|tool call/i.test(compact)) {
+    return friendlyText(lang, '工具参数需要修正，正在自动重试。', 'Tool arguments need a quick fix; retrying automatically.')
+  }
+  if (/校验|验证|validat/i.test(compact)) {
+    return friendlyText(lang, '页面结构需要修正，正在自动重试。', 'The page structure needs a fix; retrying automatically.')
+  }
+  if (/重试|retry/i.test(compact)) {
+    return friendlyText(lang, '处理中遇到问题，正在自动重试。', 'Something needs another pass; retrying automatically.')
+  }
+  if (/准备完成|ready/i.test(compact)) {
+    return friendlyText(lang, '准备完成，开始生成页面。', 'Ready. Starting page generation.')
+  }
+  const pageTitleMatch = compact.match(/^page-[\w-]+\s*·\s*(.+)$/i)
+  if (pageTitleMatch?.[1]) {
+    const title = pageTitleMatch[1].trim()
+    return friendlyText(lang, `正在处理「${title}」`, `Processing "${title}"`)
+  }
+  return hasTechnicalDetail(compact) ? '' : compact
+}
+
+const isFailureProgress = (label: string | undefined, detail: string): boolean =>
+  /失败|failed|fail|error|错误/i.test(`${label || ''} ${detail}`)
+
+const friendlyProgressLabel = (label: string | undefined, detail: string, lang: Lang): string => {
+  const compactLabel = compactWhitespace(label || '')
+  if (isFailureProgress(label, detail)) {
+    return friendlyText(lang, '检查页面', 'Checking pages')
+  }
+  return compactLabel
+}
+
+const friendlyFailureProgressDetail = (lang: Lang): string =>
+  friendlyText(
+    lang,
+    '页面结构检查未通过，正在尝试修复。',
+    'The page structure needs a fix; trying to repair it.'
+  )
+
+const friendlyFailureMessage = (message: string | null | undefined, lang: Lang): string => {
+  const compact = compactWhitespace(message || '')
+  if (!compact) {
+    return friendlyText(lang, '生成没有完成，请重试。', 'Generation did not finish. Please retry.')
+  }
+  if (/API Key|api key|provider|模型|model|timeout|timed out|ECONN|network|fetch failed/i.test(compact)) {
+    return friendlyText(
+      lang,
+      '模型服务暂时不可用，请检查设置后重试。',
+      'The model service is not available. Check settings and retry.'
+    )
+  }
+  if (/文件不存在|ERR_FILE_NOT_FOUND|Failed to load URL|ENOENT/i.test(compact)) {
+    return friendlyText(
+      lang,
+      '页面文件暂时不可用，请返回会话后重试。',
+      'The page files are not available. Return to the session and retry.'
+    )
+  }
+  if (/schema|tool call|工具调用参数/i.test(compact)) {
+    return friendlyText(
+      lang,
+      '生成工具调用失败，请重试一次。',
+      'The generation tool call failed. Please retry.'
+    )
+  }
+  if (/校验|验证|validat|HTML/i.test(compact)) {
+    return friendlyText(
+      lang,
+      '页面结果没有通过检查，请重试一次。',
+      'The page result did not pass checks. Please retry.'
+    )
+  }
+  return hasTechnicalDetail(compact)
+    ? friendlyText(lang, '生成没有完成，请重试。', 'Generation did not finish. Please retry.')
+    : compact
+}
+
+const progressLine = (args: {
+  label?: string
+  detail?: string
+}): string => {
+  const label = compactWhitespace(args.label || '')
+  const detail = compactWhitespace(args.detail || '')
+  const parts = [label, detail].filter(Boolean)
+  return parts.join(' · ')
+}
+
 export function SessionGeneratingPage(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const { t } = useLang()
+  const { lang, t } = useLang()
   const state = (location.state as LocationState | null) || null
   const startedSessionRef = useRef<string | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
@@ -54,6 +178,7 @@ export function SessionGeneratingPage(): React.JSX.Element {
   const stickToBottomRef = useRef(true)
   const shouldAutoScrollRef = useRef(true)
   const currentStageRef = useRef<string>('preflight')
+  const lastProgressLogRef = useRef<{ stage: string; progress: number; time: number } | null>(null)
 
   const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
   const [progress, setProgress] = useState(0)
@@ -74,12 +199,25 @@ export function SessionGeneratingPage(): React.JSX.Element {
     setEvents((prev) => {
       const normalized = line.replace(/\s+/g, ' ').trim()
       if (!normalized) return prev
-      const normalizedPrev = prev.map((item) => item.text.replace(/\s+/g, ' ').trim())
-      if (normalizedPrev[normalizedPrev.length - 1] === normalized) {
+      const normalizedKey = eventDedupeKey(normalized)
+      const normalizedPrev = prev.map((item) => eventDedupeKey(item.text))
+      const previousKey = normalizedPrev[normalizedPrev.length - 1]
+      if (previousKey === normalizedKey || previousKey?.startsWith(`${normalizedKey} · `)) {
         return prev
       }
+      if (previousKey && normalizedKey.startsWith(`${previousKey} · `)) {
+        const next = [...prev.slice(0, -1), { text: line, time: timestamp }]
+        return next.length > 300 ? next.slice(next.length - 300) : next
+      }
       const recent = normalizedPrev.slice(-4)
-      if (recent.includes(normalized)) {
+      if (
+        recent.some(
+          (item) =>
+            item === normalizedKey ||
+            item.startsWith(`${normalizedKey} · `) ||
+            normalizedKey.startsWith(`${item} · `)
+        )
+      ) {
         return prev
       }
       const next = [...prev, { text: line, time: timestamp }]
@@ -152,11 +290,34 @@ export function SessionGeneratingPage(): React.JSX.Element {
       if (event.type === 'stage_started' || event.type === 'stage_progress') {
         applyProgress(event.payload.progress)
         applyTotalPages(event.payload.totalPages)
+        const prevStage = currentStageRef.current
+        const stageChanged = event.payload.stage && event.payload.stage !== prevStage
         if (event.payload.stage) {
           currentStageRef.current = event.payload.stage
           setCurrentStage(event.payload.stage)
         }
-        appendEvent(event.payload.label, event.payload.timestamp)
+        const now = Date.now()
+        const previousLog = lastProgressLogRef.current
+        const progressValue = Math.round(event.payload.progress ?? 0)
+        const shouldLogProgress =
+          stageChanged ||
+          event.type === 'stage_started' ||
+          !previousLog ||
+          progressValue - previousLog.progress >= 6 ||
+          now - previousLog.time >= 8000
+        if (shouldLogProgress) {
+          lastProgressLogRef.current = {
+            stage: event.payload.stage || currentStageRef.current,
+            progress: progressValue,
+            time: now
+          }
+          appendEvent(
+            progressLine({
+              label: event.payload.label
+            }),
+            event.payload.timestamp
+          )
+        }
         return
       }
 
@@ -174,6 +335,10 @@ export function SessionGeneratingPage(): React.JSX.Element {
 
         // Parse page completion count from detail
         const detail = event.payload.detail || ''
+        const failureProgress = isFailureProgress(event.payload.label, detail)
+        const friendlyDetail = failureProgress
+          ? friendlyFailureProgressDetail(lang)
+          : friendlyProgressDetail(detail, lang)
         const pageMatch = detail.match(/(\d+)\/(\d+)\s*(页|pages?)/)
         if (pageMatch) {
           setCompletedPageCount(parseInt(pageMatch[1], 10))
@@ -181,17 +346,42 @@ export function SessionGeneratingPage(): React.JSX.Element {
 
         // Filter: only append meaningful events to log
         const hasPageCompletion = Boolean(pageMatch)
+        const now = Date.now()
+        const previousLog = lastProgressLogRef.current
+        const progressValue = Math.round(event.payload.progress ?? 0)
+        const progressMoved =
+          !previousLog ||
+          progressValue - previousLog.progress >= 6 ||
+          (event.payload.stage || currentStageRef.current) !== previousLog.stage
+        const progressTimedOut = !previousLog || now - previousLog.time >= 8000
         const isValidationOrError =
+          Boolean(friendlyDetail) ||
           detail.includes('校验') || detail.includes('validat') ||
           detail.includes('失败') || detail.includes('fail') ||
           detail.includes('重试') || detail.includes('retry') ||
           detail.includes('准备完成') || detail.includes('ready')
         const isRetryLabel =
           event.payload.label?.includes('重试') || event.payload.label?.includes('retry')
+        const friendlyLabel = friendlyProgressLabel(event.payload.label, detail, lang)
 
-        if (stageChanged || hasPageCompletion || isValidationOrError || isRetryLabel) {
+        if (
+          stageChanged ||
+          hasPageCompletion ||
+          isValidationOrError ||
+          isRetryLabel ||
+          progressMoved ||
+          progressTimedOut
+        ) {
+          lastProgressLogRef.current = {
+            stage: event.payload.stage || currentStageRef.current,
+            progress: progressValue,
+            time: now
+          }
           appendEvent(
-            `${event.payload.label}${detail ? ` · ${detail}` : ''}`,
+            progressLine({
+              label: friendlyLabel,
+              detail: friendlyDetail
+            }),
             event.payload.timestamp
           )
         }
@@ -232,7 +422,7 @@ export function SessionGeneratingPage(): React.JSX.Element {
         if (!active) return
         terminalStatusRef.current = 'failed'
         setStatus('failed')
-        setError(event.payload.message)
+        setError(friendlyFailureMessage(event.payload.message, lang))
         appendEvent(t('generating.failedRetryOrBack'), event.payload.timestamp)
         void ipc
           .getSession(id)
@@ -301,7 +491,8 @@ export function SessionGeneratingPage(): React.JSX.Element {
             })
           }
           if (!active) return
-          const message = e instanceof Error ? e.message : t('generating.failed')
+          const rawMessage = e instanceof Error ? e.message : t('generating.failed')
+          const message = friendlyFailureMessage(rawMessage, lang)
           appendEvent(t('generating.failedRetryOrBack'), new Date().toISOString())
           setStatus('failed')
           setError(message)
@@ -373,7 +564,7 @@ export function SessionGeneratingPage(): React.JSX.Element {
             setProgress((prev) => Math.max(prev, safeProgress))
           }
           if (shouldHydrateFromSnapshot && runState.status === 'failed' && runState.error) {
-            setError(runState.error)
+            setError(friendlyFailureMessage(runState.error, lang))
           }
           if (
             shouldHydrateFromSnapshot &&
@@ -390,7 +581,11 @@ export function SessionGeneratingPage(): React.JSX.Element {
           }
           if (runState.status === 'failed' && !state?.retry && !explicitRerun) {
             setStatus('failed')
-            setError(runState.error || t('generating.previousFailed'))
+            setError(
+              runState.error
+                ? friendlyFailureMessage(runState.error, lang)
+                : t('generating.previousFailed')
+            )
             appendEvent(t('generating.keptFailed'), new Date().toISOString())
             return
           }
@@ -448,7 +643,7 @@ export function SessionGeneratingPage(): React.JSX.Element {
       active = false
       unsubscribe?.()
     }
-  }, [id, navigate, location.key, state?.initialPrompt, state?.retry, state?.rerunToken, t])
+  }, [id, navigate, location.key, state?.initialPrompt, state?.retry, state?.rerunToken, lang, t])
 
   const displayProgress = Math.max(0, Math.min(100, Math.round(progress)))
   const failedPages = extractFailedPages(error)

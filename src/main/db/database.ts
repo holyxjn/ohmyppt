@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
-import { eq, ne, gt, lte, count, max, asc, desc, sql, and } from 'drizzle-orm'
+import { eq, ne, gt, lte, count, max, asc, desc, sql, and, or, isNull, inArray } from 'drizzle-orm'
 import * as schema from './schema'
 import path from 'path'
 import { app } from 'electron'
@@ -17,7 +17,16 @@ type StyleSource = 'builtin' | 'custom' | 'override'
 type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
-type SessionOperationType = 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+type SessionPageStatus = schema.SessionPageStatus
+type SessionOperationType =
+  | 'generate'
+  | 'edit'
+  | 'addPage'
+  | 'retry'
+  | 'import'
+  | 'rollback'
+  | 'reorder'
+  | 'delete'
 type SessionOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
 type SessionOperationStatus = 'committing' | 'completed' | 'failed' | 'noop'
 
@@ -82,6 +91,7 @@ interface Project {
   session_id: string
   title: string
   output_path: string
+  root_path: string | null
   file_count: number
   total_size: number
   status: 'draft' | 'published' | 'exported'
@@ -117,6 +127,45 @@ export interface GenerationPageRecord {
   created_at: number
   updated_at: number
 }
+
+export interface SessionPageRecord {
+  id: string
+  session_id: string
+  legacy_page_id: string | null
+  file_slug: string
+  page_number: number
+  title: string
+  html_path: string
+  status: SessionPageStatus
+  error: string | null
+  created_at: number
+  updated_at: number
+  deleted_at: number | null
+}
+
+export interface SessionPageInput {
+  id: string
+  sessionId: string
+  legacyPageId?: string | null
+  fileSlug: string
+  pageNumber: number
+  title: string
+  htmlPath: string
+  status?: SessionPageStatus
+  error?: string | null
+}
+
+export const sessionPageRecordToInput = (page: SessionPageRecord): SessionPageInput => ({
+  id: page.id,
+  sessionId: page.session_id,
+  legacyPageId: page.legacy_page_id,
+  fileSlug: page.file_slug,
+  pageNumber: page.page_number,
+  title: page.title,
+  htmlPath: page.html_path,
+  status: page.status,
+  error: page.error
+})
 
 export interface StyleRow {
   id: string
@@ -161,6 +210,22 @@ export interface SessionOperationRecord {
   metadata_json: string
   created_at: number
   completed_at: number | null
+}
+
+export interface SessionOperationPageRecord {
+  id: string
+  operation_id: string
+  session_id: string
+  page_id: string
+  legacy_page_id: string | null
+  file_slug: string
+  page_number: number
+  title: string
+  html_path: string
+  status: SessionPageStatus
+  error: string | null
+  created_at: number
+  updated_at: number
 }
 
 export class PPTDatabase {
@@ -399,6 +464,29 @@ export class PPTDatabase {
     }
   }
 
+  private normalizeSessionPageRow(row: Record<string, unknown>): SessionPageRecord {
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      legacy_page_id:
+        typeof (row.legacyPageId ?? row.legacy_page_id) === 'string'
+          ? String(row.legacyPageId ?? row.legacy_page_id)
+          : null,
+      file_slug: String(row.fileSlug ?? row.file_slug ?? ''),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ''),
+      html_path: String(row.htmlPath ?? row.html_path ?? ''),
+      status: String(row.status || 'pending') as SessionPageStatus,
+      error: typeof row.error === 'string' ? row.error : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
+      deleted_at:
+        typeof (row.deletedAt ?? row.deleted_at) === 'number'
+          ? Number(row.deletedAt ?? row.deleted_at)
+          : null
+    }
+  }
+
   async createGenerationRun(data: {
     id?: string
     sessionId: string
@@ -544,6 +632,92 @@ export class PPTDatabase {
     return Array.from(latestByPageId.values()).sort((a, b) => a.page_number - b.page_number)
   }
 
+  async listSessionPages(
+    sessionId: string,
+    options?: { includeDeleted?: boolean }
+  ): Promise<SessionPageRecord[]> {
+    const conditions = [eq(schema.sessionPages.sessionId, sessionId)]
+    if (!options?.includeDeleted) {
+      conditions.push(isNull(schema.sessionPages.deletedAt))
+    }
+    const rows = await this.db
+      .select()
+      .from(schema.sessionPages)
+      .where(and(...conditions))
+      .orderBy(asc(schema.sessionPages.pageNumber))
+      .all()
+    return rows.map((row) => this.normalizeSessionPageRow(row as Record<string, unknown>))
+  }
+
+  async upsertSessionPage(page: SessionPageInput): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.sessionPages)
+      .values({
+        id: page.id,
+        sessionId: page.sessionId,
+        legacyPageId: page.legacyPageId || null,
+        fileSlug: page.fileSlug,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        htmlPath: page.htmlPath,
+        status: page.status || 'pending',
+        error: page.error || null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null
+      })
+      .onConflictDoUpdate({
+        target: schema.sessionPages.id,
+        set: {
+          legacyPageId: page.legacyPageId || null,
+          fileSlug: page.fileSlug,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          htmlPath: page.htmlPath,
+          status: page.status || 'pending',
+          error: page.error || null,
+          deletedAt: null,
+          updatedAt: now
+        }
+      })
+      .run()
+  }
+
+  async replaceSessionPageOrder(
+    sessionId: string,
+    pages: Array<{ id: string; pageNumber: number }>
+  ): Promise<void> {
+    if (pages.length === 0) return
+    const now = Math.floor(Date.now() / 1000)
+    const pageIds = pages.map((page) => page.id)
+    const caseWhenFragments = pages.map(
+      (page) => sql`WHEN ${schema.sessionPages.id} = ${page.id} THEN ${page.pageNumber}`
+    )
+    const pageNumberExpr = sql<number>`CASE ${sql.join(caseWhenFragments, sql` `)} ELSE ${schema.sessionPages.pageNumber} END`
+    await this.db
+      .update(schema.sessionPages)
+      .set({
+        pageNumber: pageNumberExpr,
+        updatedAt: now
+      })
+      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, pageIds)))
+      .run()
+  }
+
+  async softDeleteSessionPages(sessionId: string, ids: string[]): Promise<void> {
+    if (!Array.isArray(ids) || ids.length === 0) return
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .update(schema.sessionPages)
+      .set({
+        deletedAt: now,
+        updatedAt: now
+      })
+      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, ids)))
+      .run()
+  }
+
   // ========== Session History ==========
 
   private normalizeSessionOperationRow(row: Record<string, unknown>): SessionOperationRecord {
@@ -589,6 +763,27 @@ export class PPTDatabase {
         typeof (row.completedAt ?? row.completed_at) === 'number'
           ? Number(row.completedAt ?? row.completed_at)
           : null
+    }
+  }
+
+  private normalizeSessionOperationPageRow(row: Record<string, unknown>): SessionOperationPageRecord {
+    return {
+      id: String(row.id || ''),
+      operation_id: String(row.operationId ?? row.operation_id ?? ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      page_id: String(row.pageId ?? row.page_id ?? ''),
+      legacy_page_id:
+        typeof (row.legacyPageId ?? row.legacy_page_id) === 'string'
+          ? String(row.legacyPageId ?? row.legacy_page_id)
+          : null,
+      file_slug: String(row.fileSlug ?? row.file_slug ?? ''),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ''),
+      html_path: String(row.htmlPath ?? row.html_path ?? ''),
+      status: String(row.status || 'pending') as SessionPageStatus,
+      error: typeof row.error === 'string' ? String(row.error) : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
     }
   }
 
@@ -663,6 +858,39 @@ export class PPTDatabase {
     return row ? this.normalizeSessionOperationRow(row as Record<string, unknown>) : undefined
   }
 
+  async hasAnyOperationPageSnapshots(sessionId: string): Promise<boolean> {
+    const row = await this.db
+      .select({ id: schema.sessionOperationPages.id })
+      .from(schema.sessionOperationPages)
+      .where(eq(schema.sessionOperationPages.sessionId, sessionId))
+      .limit(1)
+      .get()
+    return !!row
+  }
+
+  async cleanupSessionOperations(sessionId: string): Promise<number> {
+    const rows = await this.db
+      .select({ id: schema.sessionOperations.id })
+      .from(schema.sessionOperations)
+      .where(eq(schema.sessionOperations.sessionId, sessionId))
+      .all()
+    if (rows.length === 0) {
+      await this.updateSessionHistoryPointer({ sessionId, operationId: null, commit: null })
+      return 0
+    }
+    const ids = rows.map((r) => r.id)
+    await this.db
+      .delete(schema.sessionOperationPages)
+      .where(inArray(schema.sessionOperationPages.operationId, ids))
+      .run()
+    await this.db
+      .delete(schema.sessionOperations)
+      .where(inArray(schema.sessionOperations.id, ids))
+      .run()
+    await this.updateSessionHistoryPointer({ sessionId, operationId: null, commit: null })
+    return ids.length
+  }
+
   async listSessionOperations(
     sessionId: string,
     options?: { limit?: number; includeNoop?: boolean }
@@ -683,6 +911,57 @@ export class PPTDatabase {
       )
   }
 
+  async replaceSessionOperationPages(
+    operationId: string,
+    sessionId: string,
+    pages: Array<{
+      pageId: string
+      legacyPageId?: string | null
+      fileSlug: string
+      pageNumber: number
+      title: string
+      htmlPath: string
+      status?: SessionPageStatus
+      error?: string | null
+    }>
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .delete(schema.sessionOperationPages)
+      .where(eq(schema.sessionOperationPages.operationId, operationId))
+      .run()
+    for (const page of pages) {
+      await this.db
+        .insert(schema.sessionOperationPages)
+        .values({
+          id: `${operationId}:${page.pageId}`,
+          operationId,
+          sessionId,
+          pageId: page.pageId,
+          legacyPageId: page.legacyPageId || null,
+          fileSlug: page.fileSlug,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          htmlPath: page.htmlPath,
+          status: page.status || 'pending',
+          error: page.error || null,
+          createdAt: now,
+          updatedAt: now
+        })
+        .run()
+    }
+  }
+
+  async listSessionOperationPages(operationId: string): Promise<SessionOperationPageRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.sessionOperationPages)
+      .where(eq(schema.sessionOperationPages.operationId, operationId))
+      .orderBy(asc(schema.sessionOperationPages.pageNumber))
+      .all()
+    return rows.map((row) => this.normalizeSessionOperationPageRow(row as Record<string, unknown>))
+  }
+
   // ========== Messages ==========
 
   async getSessionMessages(
@@ -700,14 +979,76 @@ export class PPTDatabase {
     if (chatScope === 'page' && !normalizedPageId) {
       return []
     }
-    const whereClause =
-      chatScope === 'page' && normalizedPageId
-        ? and(
+    if (chatScope === 'page' && normalizedPageId) {
+      // Rollback / page-management may switch between canonical id and fileSlug.
+      // Query messages by all known aliases to keep page chat continuous.
+      const aliases = new Set<string>([normalizedPageId])
+      const directRows = await this.db
+        .select({
+          id: schema.sessionPages.id,
+          fileSlug: schema.sessionPages.fileSlug,
+          legacyPageId: schema.sessionPages.legacyPageId
+        })
+        .from(schema.sessionPages)
+        .where(
+          and(
+            eq(schema.sessionPages.sessionId, sessionId),
+            or(
+              eq(schema.sessionPages.id, normalizedPageId),
+              eq(schema.sessionPages.fileSlug, normalizedPageId),
+              eq(schema.sessionPages.legacyPageId, normalizedPageId)
+            )
+          )
+        )
+        .all()
+      const matchedSlugs = Array.from(
+        new Set(
+          directRows
+            .map((row) => String(row.fileSlug || '').trim())
+            .filter((item) => item.length > 0)
+        )
+      )
+      if (matchedSlugs.length > 0) {
+        const relatedRows = await this.db
+          .select({
+            id: schema.sessionPages.id,
+            fileSlug: schema.sessionPages.fileSlug,
+            legacyPageId: schema.sessionPages.legacyPageId
+          })
+          .from(schema.sessionPages)
+          .where(
+            and(
+              eq(schema.sessionPages.sessionId, sessionId),
+              inArray(schema.sessionPages.fileSlug, matchedSlugs)
+            )
+          )
+          .all()
+        for (const row of relatedRows) {
+          if (typeof row.id === 'string' && row.id.trim().length > 0) aliases.add(row.id.trim())
+          if (typeof row.fileSlug === 'string' && row.fileSlug.trim().length > 0)
+            aliases.add(row.fileSlug.trim())
+          if (typeof row.legacyPageId === 'string' && row.legacyPageId.trim().length > 0)
+            aliases.add(row.legacyPageId.trim())
+        }
+      }
+      const results = await this.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
             eq(schema.messages.sessionId, sessionId),
             eq(schema.messages.chatScope, 'page'),
-            eq(schema.messages.pageId, normalizedPageId)
+            inArray(schema.messages.pageId, Array.from(aliases))
           )
-        : and(eq(schema.messages.sessionId, sessionId), eq(schema.messages.chatScope, 'main'))
+        )
+        .orderBy(asc(schema.messages.createdAt))
+        .all()
+      return results.map((message) => this.normalizeMessageRow(message as Record<string, unknown>))
+    }
+    const whereClause = and(
+      eq(schema.messages.sessionId, sessionId),
+      eq(schema.messages.chatScope, 'main')
+    )
     const results = await this.db
       .select()
       .from(schema.messages)
@@ -1193,6 +1534,7 @@ export class PPTDatabase {
     session_id: string
     title: string
     output_path: string
+    root_path?: string | null
   }): Promise<string> {
     const id = crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
@@ -1204,6 +1546,7 @@ export class PPTDatabase {
         sessionId: data.session_id,
         title: data.title,
         outputPath: data.output_path,
+        rootPath: data.root_path || data.output_path,
         fileCount: 0,
         totalSize: 0,
         status: 'draft',
@@ -1216,15 +1559,26 @@ export class PPTDatabase {
   }
 
   async getProject(sessionId: string): Promise<Project | undefined> {
-    const result = await this.db
-      .select()
+    const row = await this.db
+      .select({
+        id: schema.projects.id,
+        session_id: schema.projects.sessionId,
+        title: schema.projects.title,
+        output_path: schema.projects.outputPath,
+        root_path: schema.projects.rootPath,
+        file_count: schema.projects.fileCount,
+        total_size: schema.projects.totalSize,
+        status: schema.projects.status,
+        created_at: schema.projects.createdAt,
+        updated_at: schema.projects.updatedAt
+      })
       .from(schema.projects)
       .where(eq(schema.projects.sessionId, sessionId))
       .orderBy(desc(schema.projects.createdAt))
       .limit(1)
       .get()
 
-    return result as Project | undefined
+    return row as Project | undefined
   }
 
   async updateProjectStatus(

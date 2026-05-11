@@ -1,6 +1,8 @@
 import type { createClient } from '@libsql/client'
 import type { drizzle } from 'drizzle-orm/libsql'
 import path from 'path'
+import fs from 'fs'
+import { nanoid } from 'nanoid'
 import * as schema from '../schema'
 import type { GenerationPageStatus, GenerationRunStatus } from '../schema'
 import { defaultModelTimeoutMs } from '@shared/model-timeout'
@@ -65,6 +67,7 @@ CREATE TABLE IF NOT EXISTS projects (
   session_id TEXT NOT NULL,
   title TEXT NOT NULL,
   output_path TEXT NOT NULL,
+  root_path TEXT,
   file_count INTEGER DEFAULT 0,
   total_size INTEGER DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'draft',
@@ -135,6 +138,22 @@ CREATE TABLE IF NOT EXISTS generation_pages (
 CREATE INDEX IF NOT EXISTS idx_generation_pages_run ON generation_pages(run_id, page_number);
 CREATE INDEX IF NOT EXISTS idx_generation_pages_session_status ON generation_pages(session_id, status, page_number);
 
+CREATE TABLE IF NOT EXISTS session_pages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  legacy_page_id TEXT,
+  file_slug TEXT NOT NULL,
+  page_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  html_path TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_session_pages_session_number ON session_pages(session_id, page_number);
+
 CREATE TABLE IF NOT EXISTS user_preferences (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -180,6 +199,24 @@ CREATE TABLE IF NOT EXISTS session_operations (
 );
 CREATE INDEX IF NOT EXISTS idx_session_operations_session_created ON session_operations(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_session_operations_session_status ON session_operations(session_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS session_operation_pages (
+  id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES session_operations(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  page_id TEXT NOT NULL,
+  legacy_page_id TEXT,
+  file_slug TEXT NOT NULL,
+  page_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  html_path TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_operation_pages_order ON session_operation_pages(operation_id, page_number);
+CREATE INDEX IF NOT EXISTS idx_session_operation_pages_session ON session_operation_pages(session_id, operation_id);
 `
 
 const getRowValue = (row: unknown, key: string): unknown => {
@@ -232,7 +269,7 @@ const resolveLegacyPagePath = (
 
 const getTableColumns = async (
   client: LibSqlClient,
-  tableName: 'settings' | 'messages' | 'sessions' | 'generation_pages'
+  tableName: 'settings' | 'messages' | 'sessions' | 'projects' | 'generation_pages' | 'session_pages'
 ): Promise<Set<string>> => {
   const result = await client.execute(`PRAGMA table_info(${tableName})`)
   const rows = Array.isArray((result as { rows?: unknown[] }).rows)
@@ -304,6 +341,113 @@ const enforceSessionsSchema = async (client: LibSqlClient): Promise<void> => {
   }
 }
 
+const enforceProjectsSchema = async (client: LibSqlClient): Promise<void> => {
+  const columns = await getTableColumns(client, 'projects')
+  if (!columns.has('root_path')) {
+    await client.execute('ALTER TABLE projects ADD COLUMN root_path TEXT')
+  }
+}
+
+const hasSessionHtmlFiles = (dir: string): boolean => {
+  try {
+    if (!fsExistsSafe(path.join(dir, 'index.html'))) return false
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .some((entry) => entry.isFile() && /^page-\d+\.html?$/i.test(entry.name))
+  } catch {
+    return false
+  }
+}
+
+const inferProjectRootPath = async (
+  client: LibSqlClient,
+  sessionId: string,
+  outputPath: string,
+  metadata: Record<string, unknown>,
+  resolveStoragePath: () => Promise<string>
+): Promise<string> => {
+  const candidateDirs: string[] = []
+  const addCandidate = (value: unknown): void => {
+    if (typeof value !== 'string' || value.trim().length === 0) return
+    const resolved = path.resolve(value.trim())
+    if (!candidateDirs.includes(resolved)) candidateDirs.push(resolved)
+  }
+
+  if (typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0) {
+    addCandidate(path.dirname(metadata.indexPath.trim()))
+  }
+  addCandidate(outputPath)
+
+  const generatedPages = Array.isArray(metadata.generatedPages) ? metadata.generatedPages : []
+  for (const page of generatedPages) {
+    if (!page || typeof page !== 'object' || Array.isArray(page)) continue
+    const htmlPath = (page as Record<string, unknown>).htmlPath
+    if (typeof htmlPath === 'string' && htmlPath.trim().length > 0) {
+      addCandidate(path.dirname(htmlPath.trim()))
+    }
+  }
+
+  const pageRows = await client
+    .execute({
+      sql: 'SELECT html_path FROM session_pages WHERE session_id = ?',
+      args: [sessionId]
+    })
+    .catch(() => ({ rows: [] as unknown[] }))
+  for (const row of pageRows.rows || []) {
+    const htmlPath = getRowValue(row, 'html_path')
+    if (typeof htmlPath === 'string' && fsExistsSafe(htmlPath)) {
+      addCandidate(path.dirname(htmlPath))
+    }
+  }
+
+  const storagePath = await resolveStoragePath().catch(() => '')
+  addCandidate(path.join(storagePath || process.cwd(), sessionId))
+
+  for (const dir of candidateDirs) {
+    if (hasSessionHtmlFiles(dir)) return dir
+  }
+  for (const dir of candidateDirs) {
+    if (fsExistsSafe(path.join(dir, '.git'))) return dir
+  }
+  return ''
+}
+
+const patchProjectRootPaths = async (args: {
+  client: LibSqlClient
+  resolveStoragePath: () => Promise<string>
+}): Promise<void> => {
+  const { client, resolveStoragePath } = args
+  const result = await client.execute(`
+    SELECT projects.id AS project_id,
+           projects.session_id AS session_id,
+           projects.output_path AS output_path,
+           sessions.metadata AS metadata
+    FROM projects
+    LEFT JOIN sessions ON sessions.id = projects.session_id
+    WHERE projects.root_path IS NULL OR TRIM(projects.root_path) = ''
+  `)
+
+  for (const row of result.rows || []) {
+    const projectId = String(getRowValue(row, 'project_id') || '')
+    const sessionId = String(getRowValue(row, 'session_id') || '')
+    const outputPath = String(getRowValue(row, 'output_path') || '')
+    if (!projectId || !sessionId) continue
+    const metadata = parseJsonObject(getRowValue(row, 'metadata'))
+    const rootPath = await inferProjectRootPath(
+      client,
+      sessionId,
+      outputPath,
+      metadata,
+      resolveStoragePath
+    )
+    if (!rootPath) continue
+    await client.execute({
+      sql: 'UPDATE projects SET root_path = ? WHERE id = ? AND (root_path IS NULL OR TRIM(root_path) = ?)',
+      args: [rootPath, projectId, '']
+    })
+  }
+}
+
 const enforceSessionOperationsSchema = async (client: LibSqlClient): Promise<void> => {
   await client.execute(`
     CREATE TABLE IF NOT EXISTS session_operations (
@@ -331,6 +475,32 @@ const enforceSessionOperationsSchema = async (client: LibSqlClient): Promise<voi
   )
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_session_operations_session_status ON session_operations(session_id, status, created_at)'
+  )
+}
+
+const enforceSessionOperationPagesSchema = async (client: LibSqlClient): Promise<void> => {
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS session_operation_pages (
+      id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL REFERENCES session_operations(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      page_id TEXT NOT NULL,
+      legacy_page_id TEXT,
+      file_slug TEXT NOT NULL,
+      page_number INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      html_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_session_operation_pages_order ON session_operation_pages(operation_id, page_number)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_session_operation_pages_session ON session_operation_pages(session_id, operation_id)'
   )
 }
 
@@ -394,6 +564,30 @@ const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
   )
 }
 
+const enforceSessionPagesSchema = async (client: LibSqlClient): Promise<void> => {
+  const columns = await getTableColumns(client, 'session_pages')
+  if (!columns.has('legacy_page_id')) {
+    await client.execute('ALTER TABLE session_pages ADD COLUMN legacy_page_id TEXT')
+  }
+  if (!columns.has('file_slug')) {
+    await client.execute("ALTER TABLE session_pages ADD COLUMN file_slug TEXT NOT NULL DEFAULT ''")
+  }
+  if (!columns.has('status')) {
+    await client.execute(
+      "ALTER TABLE session_pages ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
+    )
+  }
+  if (!columns.has('error')) {
+    await client.execute('ALTER TABLE session_pages ADD COLUMN error TEXT')
+  }
+  if (!columns.has('deleted_at')) {
+    await client.execute('ALTER TABLE session_pages ADD COLUMN deleted_at INTEGER')
+  }
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_session_pages_session_number ON session_pages(session_id, page_number)'
+  )
+}
+
 const ensureDefaultSettings = async (client: LibSqlClient): Promise<void> => {
   const now = Math.floor(Date.now() / 1000)
   const defaults = [
@@ -421,17 +615,32 @@ const resolveLegacyProjectDir = async (
 ): Promise<string> => {
   const projectResult = await client
     .execute({
-      sql: 'SELECT output_path FROM projects WHERE session_id = ? LIMIT 1',
+      sql: 'SELECT root_path, output_path FROM projects WHERE session_id = ? LIMIT 1',
       args: [sessionId]
     })
     .catch(() => ({ rows: [] as unknown[] }))
+  const rootPath = getRowValue(projectResult.rows?.[0], 'root_path')
+  if (typeof rootPath === 'string' && rootPath.trim().length > 0) {
+    return rootPath.trim()
+  }
   const outputPath = getRowValue(projectResult.rows?.[0], 'output_path')
+  const metadataProjectDir =
+    typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0
+      ? path.dirname(metadata.indexPath.trim())
+      : ''
+  if (
+    metadataProjectDir &&
+    fsExistsSafe(String(metadata.indexPath)) &&
+    (!(typeof outputPath === 'string') ||
+      outputPath.trim().length === 0 ||
+      !fsExistsSafe(path.join(outputPath.trim(), 'index.html')))
+  ) {
+    return metadataProjectDir
+  }
   if (typeof outputPath === 'string' && outputPath.trim().length > 0) {
     return outputPath.trim()
   }
-  if (typeof metadata.indexPath === 'string' && metadata.indexPath.trim().length > 0) {
-    return path.dirname(metadata.indexPath.trim())
-  }
+  if (metadataProjectDir) return metadataProjectDir
   const storagePath = await resolveStoragePath().catch(() => '')
   return path.join(storagePath || process.cwd(), sessionId)
 }
@@ -642,6 +851,241 @@ const patchGenerationRecordsFromMetadata = async (args: {
   }
 }
 
+const patchSessionPagesFromLegacy = async (args: {
+  client: LibSqlClient
+  db: DrizzleDb
+  resolveStoragePath: () => Promise<string>
+}): Promise<void> => {
+  const { client, db, resolveStoragePath } = args
+  const sessions = await client.execute(`
+    SELECT id, metadata, updated_at
+    FROM sessions
+    WHERE metadata IS NOT NULL
+      AND TRIM(metadata) <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM session_pages WHERE session_pages.session_id = sessions.id
+      )
+    ORDER BY updated_at DESC
+  `)
+
+  for (const row of sessions.rows || []) {
+    const sessionId = String(getRowValue(row, 'id') || '')
+    if (!sessionId) continue
+    const metadata = parseJsonObject(getRowValue(row, 'metadata'))
+    const generatedPages = Array.isArray(metadata.generatedPages)
+      ? metadata.generatedPages.filter(
+          (page): page is Record<string, unknown> =>
+            Boolean(page) && typeof page === 'object' && !Array.isArray(page)
+        )
+      : []
+    const failedPages = Array.isArray(metadata.failedPages)
+      ? metadata.failedPages.filter(
+          (page): page is Record<string, unknown> =>
+            Boolean(page) && typeof page === 'object' && !Array.isArray(page)
+        )
+      : []
+    if (generatedPages.length === 0 && failedPages.length === 0) continue
+
+    const pageMap = new Map<
+      string,
+      {
+        pageNumber: number
+        fileSlug: string
+        title: string
+        htmlPath: string
+        status: 'completed' | 'failed'
+        error: string | null
+      }
+    >()
+    const failedById = new Map<string, string>()
+    for (const failed of failedPages) {
+      const pageNumber = inferPageNumber(failed, generatedPages.length + failedById.size + 1)
+      const failedPageId =
+        typeof (failed.pageId ?? failed.page_id) === 'string'
+          ? String(failed.pageId ?? failed.page_id).trim()
+          : ''
+      const fileSlug = failedPageId || `page-${pageNumber}`
+      failedById.set(fileSlug, String(failed.reason || failed.error || '页面生成失败'))
+      pageMap.set(fileSlug, {
+        pageNumber,
+        fileSlug,
+        title: String(failed.title || `第 ${pageNumber} 页`),
+        htmlPath: '',
+        status: 'failed',
+        error: String(failed.reason || failed.error || '页面生成失败')
+      })
+    }
+
+    const projectDir = await resolveLegacyProjectDir(
+      client,
+      sessionId,
+      metadata,
+      resolveStoragePath
+    )
+    const now = Math.floor(Date.now() / 1000)
+
+    for (let index = 0; index < generatedPages.length; index += 1) {
+      const page = generatedPages[index]
+      const pageNumber = inferPageNumber(page, index + 1)
+      const rawPageId =
+        typeof (page.pageId ?? page.page_id) === 'string'
+          ? String(page.pageId ?? page.page_id).trim()
+          : ''
+      const fileSlug = rawPageId || `page-${pageNumber}`
+      const htmlPath = resolveLegacyPagePath(page, projectDir, fileSlug)
+      const title = String(page.title || `第 ${pageNumber} 页`)
+      const failedReason = failedById.get(fileSlug)
+      const status = failedReason
+        ? ('failed' as const)
+        : fsExistsSafe(htmlPath)
+          ? ('completed' as const)
+          : ('failed' as const)
+      const error = failedReason || (status === 'failed' ? '页面文件不存在' : null)
+      pageMap.set(fileSlug, {
+        pageNumber,
+        fileSlug,
+        title,
+        htmlPath,
+        status,
+        error
+      })
+    }
+
+    for (const page of pageMap.values()) {
+      if (!page.htmlPath) {
+        page.htmlPath = path.join(projectDir, `${page.fileSlug}.html`)
+      }
+      await db
+        .insert(schema.sessionPages)
+        .values({
+          id: nanoid(),
+          sessionId,
+          legacyPageId: /^page-\d+$/i.test(page.fileSlug) ? page.fileSlug : null,
+          fileSlug: page.fileSlug,
+          pageNumber: page.pageNumber,
+          title: page.title,
+          htmlPath: page.htmlPath,
+          status: page.status,
+          error: page.error,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null
+        })
+        .onConflictDoNothing()
+        .run()
+    }
+  }
+}
+
+const patchSessionPagesFromGenerationPages = async (args: {
+  client: LibSqlClient
+  db: DrizzleDb
+  resolveStoragePath: () => Promise<string>
+}): Promise<void> => {
+  const { client, db, resolveStoragePath } = args
+  const rows = await client.execute(`
+    SELECT
+      sessions.id AS session_id,
+      sessions.metadata AS metadata,
+      sessions.updated_at AS session_updated_at,
+      generation_pages.page_id AS page_id,
+      generation_pages.page_number AS page_number,
+      generation_pages.title AS title,
+      generation_pages.html_path AS html_path,
+      generation_pages.status AS status,
+      generation_pages.error AS error,
+      generation_pages.created_at AS created_at,
+      generation_pages.updated_at AS updated_at
+    FROM sessions
+    INNER JOIN generation_pages ON generation_pages.session_id = sessions.id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM session_pages WHERE session_pages.session_id = sessions.id
+    )
+    ORDER BY sessions.updated_at DESC, generation_pages.page_number ASC, generation_pages.updated_at DESC
+  `)
+
+  const bySession = new Map<string, unknown[]>()
+  for (const row of rows.rows || []) {
+    const sessionId = String(getRowValue(row, 'session_id') || '')
+    if (!sessionId) continue
+    const list = bySession.get(sessionId) || []
+    list.push(row)
+    bySession.set(sessionId, list)
+  }
+
+  for (const [sessionId, sessionRows] of bySession.entries()) {
+    const firstRow = sessionRows[0]
+    const metadata = parseJsonObject(getRowValue(firstRow, 'metadata'))
+    const projectDir = await resolveLegacyProjectDir(
+      client,
+      sessionId,
+      metadata,
+      resolveStoragePath
+    )
+    const latestBySlug = new Map<string, Record<string, unknown>>()
+    for (const row of sessionRows) {
+      const pageId = String(getRowValue(row, 'page_id') || '').trim()
+      if (!pageId || latestBySlug.has(pageId)) continue
+      latestBySlug.set(pageId, row as Record<string, unknown>)
+    }
+
+    const now = Math.floor(Date.now() / 1000)
+    const pages = Array.from(latestBySlug.values()).sort((a, b) => {
+      const aNumber = toPositiveInt(getRowValue(a, 'page_number'), 0)
+      const bNumber = toPositiveInt(getRowValue(b, 'page_number'), 0)
+      return aNumber - bNumber
+    })
+
+    for (let index = 0; index < pages.length; index += 1) {
+      const row = pages[index]
+      const fileSlug = String(getRowValue(row, 'page_id') || `page-${index + 1}`).trim()
+      const pageNumber = toPositiveInt(getRowValue(row, 'page_number'), index + 1)
+      const rawHtmlPath = String(getRowValue(row, 'html_path') || '').trim()
+      const htmlPath = rawHtmlPath
+        ? path.isAbsolute(rawHtmlPath)
+          ? rawHtmlPath
+          : path.join(projectDir, rawHtmlPath)
+        : path.join(projectDir, `${fileSlug}.html`)
+      const rawStatus = String(getRowValue(row, 'status') || '').trim()
+      const status =
+        rawStatus === 'completed' && fsExistsSafe(htmlPath)
+          ? ('completed' as const)
+          : ('failed' as const)
+      const error =
+        status === 'failed'
+          ? String(getRowValue(row, 'error') || (fsExistsSafe(htmlPath) ? '页面生成失败' : '页面文件不存在'))
+          : null
+
+      await db
+        .insert(schema.sessionPages)
+        .values({
+          id: nanoid(),
+          sessionId,
+          legacyPageId: /^page-\d+$/i.test(fileSlug) ? fileSlug : null,
+          fileSlug,
+          pageNumber,
+          title: String(getRowValue(row, 'title') || `第 ${pageNumber} 页`),
+          htmlPath,
+          status,
+          error,
+          createdAt: toPositiveInt(getRowValue(row, 'created_at'), now),
+          updatedAt: now,
+          deletedAt: null
+        })
+        .onConflictDoNothing()
+        .run()
+    }
+  }
+}
+
+const fsExistsSafe = (filePath: string): boolean => {
+  try {
+    return fs.existsSync(filePath)
+  } catch {
+    return false
+  }
+}
+
 export const runDatabasePatches = async (args: {
   client: LibSqlClient
   db: DrizzleDb
@@ -650,12 +1094,18 @@ export const runDatabasePatches = async (args: {
   const { client, db, resolveStoragePath } = args
   await client.executeMultiple(INIT_SQL)
   await enforceSessionsSchema(client)
+  await enforceProjectsSchema(client)
   await enforceSettingsSchema(client)
   await enforceModelConfigsSchema(client)
   await enforceMessagesSchema(client)
   await enforceGenerationSchema(client)
+  await enforceSessionPagesSchema(client)
   await enforceSessionOperationsSchema(client)
+  await enforceSessionOperationPagesSchema(client)
   await client.execute('PRAGMA foreign_keys = ON;')
   await ensureDefaultSettings(client)
+  await patchProjectRootPaths({ client, resolveStoragePath })
   await patchGenerationRecordsFromMetadata({ client, db, resolveStoragePath })
+  await patchSessionPagesFromLegacy({ client, db, resolveStoragePath })
+  await patchSessionPagesFromGenerationPages({ client, db, resolveStoragePath })
 }

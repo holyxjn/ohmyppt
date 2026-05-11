@@ -1,6 +1,6 @@
 import type { IpcContext } from '../context'
 import type { EmitAssistantFn, RetryContext } from './types'
-import { uiText } from './generation-utils'
+import { resolvePageHtmlPath, uiText } from './generation-utils'
 import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
@@ -8,8 +8,8 @@ import fs from 'fs'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import type { DesignContract } from '../../tools/types'
-import { parseSessionMetadata, derivePageNumber } from './metadata-parser'
 import { buildDesignContractWithLLM, runDeepAgentDeckGeneration } from '../engine/generate'
+import { nanoid } from 'nanoid'
 import {
   buildRetryUserMessage,
   buildTotalPages,
@@ -95,33 +95,36 @@ export async function executeRetryFailedPages(
   const emitRetryChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
   let savedDesignContract: DesignContract | undefined
   const sessionRecord = (context.session || {}) as Record<string, unknown>
-  const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
-  const incompleteSnapshotRecords = latestPageSnapshot.filter(
-    (page) => page.status !== 'completed'
-  )
-  let metadataGeneratedPageCount = 0
-  let metadataFailedPages: Array<Record<string, unknown>> = []
-  if (typeof sessionRecord.metadata === 'string' && sessionRecord.metadata.trim().length > 0) {
-    const metadata = parseSessionMetadata(sessionRecord.metadata)
-    metadataGeneratedPageCount = Array.isArray(metadata.generatedPages)
-      ? metadata.generatedPages.length
-      : 0
-    metadataFailedPages =
-      incompleteSnapshotRecords.length === 0 && Array.isArray(metadata.failedPages)
-        ? metadata.failedPages as Array<Record<string, unknown>>
-        : []
+  const sessionPages = await db.listSessionPages(context.sessionId)
+  if (sessionPages.length === 0) {
+    throw new Error('session_pages is empty after migration; cannot retry this session')
   }
-  if (incompleteSnapshotRecords.length === 0 && metadataFailedPages.length === 0) {
+  const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
+  const failedSessionPages = sessionPages.filter((page) => page.status !== 'completed')
+  const retryRecords = failedSessionPages.map((page) => {
+    const snapshot = latestPageSnapshot.find((item) => item.page_id === page.file_slug)
+    return {
+      page_number: page.page_number,
+      page_id: page.file_slug,
+      title: page.title || snapshot?.title || page.file_slug,
+      content_outline: snapshot?.content_outline || '',
+      layout_intent: snapshot?.layout_intent || null,
+      html_path: resolvePageHtmlPath({
+        projectDir: context.entry.projectDir,
+        fileSlug: page.file_slug,
+        candidates: [page.html_path, snapshot?.html_path]
+      }),
+      retry_count: snapshot?.retry_count || 0,
+      status: page.status,
+      error: page.error
+    }
+  })
+  const completedSessionPageCount = sessionPages.filter((page) => page.status === 'completed').length
+  if (retryRecords.length === 0) {
     throw new Error('当前会话没有可继续生成的页面。')
   }
-  if (metadataGeneratedPageCount === 0) {
-    const latestSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
-    const completedSnapshotCount = latestSnapshot.filter(
-      (page) => page.status === 'completed'
-    ).length
-    if (completedSnapshotCount === 0) {
-      throw new Error('当前没有成功页面可保留，请使用完整重新生成。')
-    }
+  if (completedSessionPageCount === 0) {
+    throw new Error('当前没有成功页面可保留，请使用完整重新生成。')
   }
   if (
     typeof sessionRecord.designContract === 'string' &&
@@ -145,65 +148,68 @@ export async function executeRetryFailedPages(
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
       appLocale: context.appLocale,
-      totalPages: context.totalPages,
+      totalPages: sessionPages.length,
       emit: (chunk) => emitRetryChunk(chunk),
       runId: context.runId,
       signal: context.entry.abortController.signal
     }))
 
-  const retryPages =
-    incompleteSnapshotRecords.length > 0
-      ? incompleteSnapshotRecords.map((page) => ({
-          pageNumber: page.page_number,
-          pageId: page.page_id,
-          title: page.title || page.page_id,
-          contentOutline: page.content_outline || '',
-          layoutIntent: page.layout_intent
-            ? normalizeLayoutIntent(page.layout_intent)
-            : undefined,
-          htmlPath: page.html_path || path.join(context.entry.projectDir, `${page.page_id}.html`),
-          retryCount: page.retry_count + 1
-        }))
-      : metadataFailedPages
-          .map((page, index) => {
-            const rawPageId = typeof page.pageId === 'string' ? page.pageId.trim() : ''
-            const inferredNumber = Number(rawPageId.match(/^page-(\d+)$/i)?.[1] || 0)
-            const rawPageNumber = Number(page.pageNumber)
-            const pageNumber =
-              Number.isFinite(rawPageNumber) && rawPageNumber > 0
-                ? Math.floor(rawPageNumber)
-                : inferredNumber > 0
-                  ? inferredNumber
-                  : index + 1
-            const pageId = rawPageId || `page-${pageNumber}`
-            const title =
-              typeof page.title === 'string' && page.title.trim().length > 0
-                ? page.title.trim()
-                : `第 ${pageNumber} 页`
-            const htmlPathRaw = typeof page.htmlPath === 'string' ? page.htmlPath.trim() : ''
-            return {
-              pageNumber,
-              pageId,
-              title,
-              contentOutline:
-                typeof page.contentOutline === 'string' ? page.contentOutline.trim() : '',
-              layoutIntent:
-                typeof page.layoutIntent === 'string'
-                  ? normalizeLayoutIntent(page.layoutIntent)
-                  : undefined,
-              htmlPath: htmlPathRaw
-                ? path.isAbsolute(htmlPathRaw)
-                  ? htmlPathRaw
-                  : path.join(context.entry.projectDir, htmlPathRaw)
-                : path.join(context.entry.projectDir, `${pageId}.html`),
-              retryCount: 1
-            }
-          })
-          .filter(
-            (page, index, pages) =>
-              pages.findIndex((item) => item.pageId === page.pageId) === index
-          )
+  const retryPages = retryRecords.map((page) => ({
+    pageNumber: page.page_number,
+    pageId: page.page_id,
+    title: page.title || page.page_id,
+    contentOutline: page.content_outline || '',
+    layoutIntent: page.layout_intent
+      ? normalizeLayoutIntent(page.layout_intent)
+      : undefined,
+    htmlPath: resolvePageHtmlPath({
+      projectDir: context.entry.projectDir,
+      fileSlug: page.page_id,
+      candidates: [page.html_path]
+    }),
+    retryCount: page.retry_count + 1
+  }))
   const pageFileMap = Object.fromEntries(retryPages.map((page) => [page.pageId, page.htmlPath]))
+  const existingSessionPages = await db.listSessionPages(context.sessionId, { includeDeleted: true })
+  const existingSessionPageBySlug = new Map(existingSessionPages.map((page) => [page.file_slug, page]))
+  const upsertRetrySessionPage = async (
+    page: {
+      pageNumber: number
+      pageId: string
+      title: string
+      htmlPath: string
+    },
+    status: 'completed' | 'failed' | 'pending',
+    error: string | null
+  ): Promise<void> => {
+    const existing = existingSessionPageBySlug.get(page.pageId)
+    const id = existing?.id || nanoid()
+    await db.upsertSessionPage({
+      id,
+      sessionId: context.sessionId,
+      legacyPageId: existing?.legacy_page_id || (page.pageId.match(/^page-\d+$/) ? page.pageId : null),
+      fileSlug: page.pageId,
+      pageNumber: page.pageNumber,
+      title: page.title,
+      htmlPath: page.htmlPath,
+      status,
+      error
+    })
+    existingSessionPageBySlug.set(page.pageId, {
+      id,
+      session_id: context.sessionId,
+      legacy_page_id: existing?.legacy_page_id || (page.pageId.match(/^page-\d+$/) ? page.pageId : null),
+      file_slug: page.pageId,
+      page_number: page.pageNumber,
+      title: page.title,
+      html_path: page.htmlPath,
+      status,
+      error,
+      created_at: existing?.created_at || Math.floor(Date.now() / 1000),
+      updated_at: Math.floor(Date.now() / 1000),
+      deleted_at: null
+    })
+  }
 
   await db.createGenerationRun({
     id: context.runId,
@@ -212,10 +218,7 @@ export async function executeRetryFailedPages(
     totalPages: retryPages.length,
     metadata: {
       retryOnly: true,
-      source:
-        incompleteSnapshotRecords.length > 0
-          ? 'latest_incomplete_pages'
-          : 'metadata_failed_pages',
+      source: 'session_pages',
       pageIds: retryPages.map((page) => page.pageId)
     }
   })
@@ -285,6 +288,7 @@ export async function executeRetryFailedPages(
       status: 'completed',
       retryCount: retryPage?.retryCount || 0
     })
+    await upsertRetrySessionPage(page, 'completed', null)
     persistedRetryFailedPageIds.delete(page.pageId)
     persistedRetryCompletedPageIds.add(page.pageId)
   }
@@ -311,6 +315,7 @@ export async function executeRetryFailedPages(
       error: page.reason,
       retryCount: retryPage?.retryCount || 0
     })
+    await upsertRetrySessionPage(page, 'failed', page.reason)
     persistedRetryCompletedPageIds.delete(page.pageId)
     persistedRetryFailedPageIds.add(page.pageId)
   }
@@ -388,6 +393,7 @@ export async function executeRetryFailedPages(
           error: failure?.reason || '页面重试失败',
           retryCount: page.retryCount
         })
+        await upsertRetrySessionPage(page, 'failed', failure?.reason || '页面重试失败')
         persistedRetryFailedPageIds.add(page.pageId)
       }
       continue
@@ -409,6 +415,7 @@ export async function executeRetryFailedPages(
           error: reason,
           retryCount: page.retryCount
         })
+        await upsertRetrySessionPage(page, 'failed', reason)
         persistedRetryFailedPageIds.add(page.pageId)
       }
       continue
@@ -432,6 +439,7 @@ export async function executeRetryFailedPages(
           error: reason,
           retryCount: page.retryCount
         })
+        await upsertRetrySessionPage(page, 'failed', reason)
         persistedRetryFailedPageIds.add(page.pageId)
       }
       continue
@@ -456,6 +464,7 @@ export async function executeRetryFailedPages(
         status: 'completed',
         retryCount: page.retryCount
       })
+      await upsertRetrySessionPage(page, 'completed', null)
       persistedRetryCompletedPageIds.add(page.pageId)
     }
   }
@@ -468,40 +477,39 @@ export async function executeRetryFailedPages(
     htmlPath: string
     html: string
   }> = []
-  if (context.session?.metadata) {
-    const metadata = parseSessionMetadata(context.session.metadata)
-    const restoredPages = await Promise.all(
-      (metadata.generatedPages || [])
-        .filter((page) => !retryPageIdSet.has(page.pageId || `page-${page.pageNumber}`))
-        .map(async (page) => {
-          const pageId = page.pageId || `page-${page.pageNumber}`
-          const htmlPath =
-            page.htmlPath || path.join(context.entry.projectDir, `${pageId}.html`)
-          const html = fs.existsSync(htmlPath)
-            ? await fs.promises.readFile(htmlPath, 'utf-8')
-            : ''
-          if (!html.trim()) return null
-          return {
-            pageNumber: page.pageNumber,
-            title: page.title,
-            pageId,
-            htmlPath,
-            html
-          }
+  const restoredPages = await Promise.all(
+    sessionPages
+      .filter((page) => page.status === 'completed' && !retryPageIdSet.has(page.file_slug))
+      .map(async (page) => {
+        const htmlPath = resolvePageHtmlPath({
+          projectDir: context.entry.projectDir,
+          fileSlug: page.file_slug,
+          candidates: [page.html_path]
         })
-    )
-    previousGeneratedPages = restoredPages.filter(
-      (
-        page
-      ): page is {
-        pageNumber: number
-        title: string
-        pageId: string
-        htmlPath: string
-        html: string
-      } => Boolean(page)
-    )
-  }
+        const html = fs.existsSync(htmlPath)
+          ? await fs.promises.readFile(htmlPath, 'utf-8')
+          : ''
+        if (!html.trim()) return null
+        return {
+          pageNumber: page.page_number,
+          title: page.title,
+          pageId: page.file_slug,
+          htmlPath,
+          html
+        }
+      })
+  )
+  previousGeneratedPages = restoredPages.filter(
+    (
+      page
+    ): page is {
+      pageNumber: number
+      title: string
+      pageId: string
+      htmlPath: string
+      html: string
+    } => Boolean(page)
+  )
   const mergedGeneratedPages = [...previousGeneratedPages, ...retrySuccessPages].sort(
     (a, b) => a.pageNumber - b.pageNumber
   )
@@ -509,17 +517,6 @@ export async function executeRetryFailedPages(
   await db.updateSessionMetadata(context.sessionId, {
     lastRunId: context.runId,
     entryMode: 'multi_page',
-    generatedPages: mergedGeneratedPages.map((page) => ({
-      pageNumber: derivePageNumber(page.pageId, page.pageNumber),
-      title: page.title,
-      pageId: page.pageId,
-      htmlPath: page.htmlPath
-    })),
-    failedPages: retryFailures.map((page) => ({
-      pageId: page.pageId,
-      title: page.title,
-      reason: page.reason
-    })),
     indexPath,
     projectId: context.projectId
   })
@@ -553,11 +550,11 @@ export async function executeRetryFailedPages(
     )
   }
 
-  if (mergedGeneratedPages.length < context.totalPages) {
+  if (mergedGeneratedPages.length < sessionPages.length) {
     const message = uiText(
       context.appLocale,
-      `重试页面已完成，但当前只恢复 ${mergedGeneratedPages.length}/${context.totalPages} 页，请继续重试或重新生成。`,
-      `Retry completed, but only ${mergedGeneratedPages.length}/${context.totalPages} pages were restored. Retry again or regenerate.`
+      `重试页面已完成，但当前只恢复 ${mergedGeneratedPages.length}/${sessionPages.length} 页，请继续重试或重新生成。`,
+      `Retry completed, but only ${mergedGeneratedPages.length}/${sessionPages.length} pages were restored. Retry again or regenerate.`
     )
     await db.updateGenerationRunStatus(context.runId, 'partial', message)
     emitRetryChunk({
@@ -586,7 +583,7 @@ export async function executeRetryFailedPages(
   await finalizeGenerationSuccess(ctx, {
     context,
     indexPath,
-    totalPages: context.totalPages,
+    totalPages: sessionPages.length,
     generatedPages: mergedGeneratedPages,
     designContract
   })

@@ -104,7 +104,7 @@ export const PreviewIframe = forwardRef<
     return url.toString()
   }
 
-  // Always preview concrete page file (page-xx.html). index.html is only for external full-deck preview.
+  // Always preview concrete page file (<pageId>.html). index.html is only for external full-deck preview.
   const pageHtmlPath = resolvePageHtmlPath(htmlPath, pageId)
   const webviewSrc = pageHtmlPath
     ? toFileUrl(pageHtmlPath)

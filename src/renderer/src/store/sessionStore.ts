@@ -16,6 +16,8 @@ export interface Session {
   updated_at: number
   metadata: string | null
   generation_duration_sec?: number | null
+  generated_count?: number | null
+  failed_count?: number | null
 }
 
 export interface Message {
@@ -36,6 +38,7 @@ export interface Message {
 }
 
 export interface GeneratedPage {
+  id: string
   pageNumber: number
   title: string
   html: string

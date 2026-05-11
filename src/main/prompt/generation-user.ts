@@ -11,7 +11,7 @@ import {
 export function buildDeckGenerationPrompt(context: SessionDeckGenerationContext): string {
   const pageList = buildOutlinePageList(context)
   return [
-    'Use the tools to write the deck content into each /page-x.html according to the user requirements and page outline below:',
+    'Use the tools to write the deck content into each /<pageId>.html according to the user requirements and page outline below:',
     '',
     `Topic: ${context.topic}`,
     `Deck title: ${context.deckTitle}`,

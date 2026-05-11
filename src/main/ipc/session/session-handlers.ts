@@ -3,14 +3,11 @@ import log from 'electron-log/main.js'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import { pathToFileURL } from 'url'
 import { normalizeSession, normalizeMessage } from '../utils'
-import { extractPagesDataFromIndex } from '../engine/template'
 import { getStyleDetail, hasStyleSkill } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig } from '../config/model-config-utils'
 import { readAppLocale, uiText } from '../config/locale-utils'
-import { parseSessionMetadata } from '../generation/metadata-parser'
 
 export function registerSessionHandlers(ctx: IpcContext): void {
   const {
@@ -19,8 +16,26 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     resolveStoragePath,
     ensureSessionAssets,
     buildSessionGenerationSnapshot,
-    getPageSourceUrl
+    getPageSourceUrl,
+    resolveSessionProjectDir
   } = ctx
+
+  const resolvePageHtmlPath = (
+    projectDir: string,
+    fileSlug: string,
+    candidatePath?: string | null
+  ): string => {
+    const projectRoot = path.resolve(projectDir)
+    const fallbackPath = path.resolve(projectRoot, `${fileSlug}.html`)
+    const rawCandidate = typeof candidatePath === 'string' ? candidatePath.trim() : ''
+    if (!rawCandidate) return fallbackPath
+    const resolvedCandidate = path.isAbsolute(rawCandidate)
+      ? path.resolve(rawCandidate)
+      : path.resolve(projectRoot, rawCandidate)
+    const relative = path.relative(projectRoot, resolvedCandidate)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return fallbackPath
+    return fs.existsSync(resolvedCandidate) ? resolvedCandidate : fallbackPath
+  }
 
   ipcMain.handle('session:create', async (_event, payload) => {
     const { topic, styleId, pageCount } = payload
@@ -117,6 +132,13 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       referenceDocumentPath: sessionReferenceDocumentPath
     })
 
+    await db.createProject({
+      session_id: sessionId,
+      title: String(topic || 'Untitled'),
+      output_path: projectDir,
+      root_path: projectDir
+    })
+
     return { sessionId }
   })
 
@@ -168,8 +190,16 @@ export function registerSessionHandlers(ctx: IpcContext): void {
 
   ipcMain.handle('session:get', async (_event, sessionId) => {
     const session = await db.getSession(sessionId)
+    if (!session) {
+      return {
+        session: normalizeSession(undefined),
+        messages: [],
+        generatedPages: []
+      }
+    }
     const messages = await db.getSessionMessages(sessionId, { chatScope: 'main' })
     const generatedPages: Array<{
+      id: string
       pageNumber: number
       title: string
       html: string
@@ -179,161 +209,47 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       status?: string
       error?: string | null
     }> = []
-    const metadataForSnapshot = parseSessionMetadata(session?.metadata)
-
-    if (session?.metadata) {
+    const sessionPages = await db.listSessionPages(sessionId)
+    if (sessionPages.length === 0) {
+      throw new Error('session_pages is empty after migration; please re-run migration patch')
+    }
+    const projectDir = await resolveSessionProjectDir(sessionId)
+    for (const sp of sessionPages) {
+      const htmlPath = resolvePageHtmlPath(projectDir, sp.file_slug, sp.html_path)
+      let html = ''
       try {
-        const metadata = metadataForSnapshot as {
-          entryMode?: 'single_index' | 'multi_page'
-          indexPath?: string
-          generatedPages?: Array<{
-            pageNumber: number
-            title: string
-            pageId?: string
-            htmlPath?: string
-            html?: string
-          }>
-        }
-
-        if (metadata.entryMode === 'multi_page') {
-          const indexPath = metadata.indexPath || ''
-          const restoredPages = await Promise.all(
-            (metadata.generatedPages || []).map(async (page) => {
-              const pageId = page.pageId || `page-${page.pageNumber}`
-              const pagePath = page.htmlPath || path.join(path.dirname(indexPath), `${pageId}.html`)
-              if (!fs.existsSync(pagePath)) return null
-              const html = await fs.promises.readFile(pagePath, 'utf-8')
-              return {
-                pageNumber: page.pageNumber,
-                title: page.title,
-                html,
-                htmlPath: pagePath,
-                pageId,
-                sourceUrl: getPageSourceUrl(pagePath),
-                status: 'completed'
-              }
-            })
-          )
-          for (const page of restoredPages) {
-            if (page) generatedPages.push(page)
-          }
-        } else if (
-          metadata.entryMode === 'single_index' &&
-          metadata.indexPath &&
-          fs.existsSync(metadata.indexPath)
-        ) {
-          const resolvedIndexPath = metadata.indexPath
-          const indexHtml = await fs.promises.readFile(resolvedIndexPath, 'utf-8')
-          const baseUrl = pathToFileURL(resolvedIndexPath).toString()
-          const parsedPages = extractPagesDataFromIndex(indexHtml)
-          const parsedById = new Map(parsedPages.map((item) => [item.pageId, item]))
-          const restoredPages = await Promise.all(
-            (metadata.generatedPages || []).map(async (page) => {
-              const pageId = page.pageId || `page-${page.pageNumber}`
-              const parsed = parsedById.get(pageId)
-              const pagePath =
-                page.htmlPath ||
-                (typeof parsed?.htmlPath === 'string'
-                  ? path.resolve(path.dirname(resolvedIndexPath), parsed.htmlPath)
-                  : resolvedIndexPath)
-              const html =
-                pagePath && pagePath !== resolvedIndexPath && fs.existsSync(pagePath)
-                  ? await fs.promises.readFile(pagePath, 'utf-8')
-                  : page.html || parsed?.html || indexHtml
-              return {
-                pageNumber: page.pageNumber,
-                title: page.title,
-                html,
-                htmlPath: pagePath,
-                pageId,
-                sourceUrl: `${baseUrl}?embed=1#${encodeURIComponent(pageId)}`,
-                status: 'completed'
-              }
-            })
-          )
-          generatedPages.push(...restoredPages)
-        } else {
-          const restoredPages = await Promise.all(
-            (metadata.generatedPages || []).map(async (page) => {
-              if (!page.htmlPath || !fs.existsSync(page.htmlPath)) return null
-              const html = await fs.promises.readFile(page.htmlPath, 'utf-8')
-              return {
-                pageNumber: page.pageNumber,
-                title: page.title,
-                html,
-                htmlPath: page.htmlPath,
-                pageId: page.pageId || `page-${page.pageNumber}`,
-                sourceUrl: getPageSourceUrl(page.htmlPath),
-                status: 'completed'
-              }
-            })
-          )
-          for (const page of restoredPages) {
-            if (page) generatedPages.push(page)
-          }
+        if (htmlPath && fs.existsSync(htmlPath)) {
+          html = fs.readFileSync(htmlPath, 'utf-8')
         }
       } catch {
-        // Ignore malformed metadata and let the session open without restored pages.
+        html = ''
       }
+      generatedPages.push({
+        id: sp.id,
+        pageNumber: sp.page_number,
+        title: sp.title,
+        html,
+        htmlPath,
+        pageId: sp.file_slug,
+        sourceUrl: getPageSourceUrl(htmlPath),
+        status: sp.status,
+        error: sp.error
+      })
     }
-
-    if (session) {
-      const existingPageIds = new Set(
-        generatedPages.map((page) => page.pageId || `page-${page.pageNumber}`)
-      )
-      const generationSnapshot = await db.listLatestGenerationPageSnapshot(sessionId)
-      if (generationSnapshot.length > 0) {
-        const project = await db.getProject(sessionId)
-        const metadataIndexPath =
-          typeof metadataForSnapshot.indexPath === 'string' &&
-          metadataForSnapshot.indexPath.trim().length > 0
-            ? metadataForSnapshot.indexPath.trim()
-            : ''
-        const projectDir =
-          typeof project?.output_path === 'string' && project.output_path.trim().length > 0
-            ? project.output_path.trim()
-            : metadataIndexPath
-              ? path.dirname(metadataIndexPath)
-              : path.join(await resolveStoragePath(), sessionId)
-
-        for (const page of generationSnapshot) {
-          const pageId = page.page_id || `page-${page.page_number}`
-          if (existingPageIds.has(pageId)) continue
-          const htmlPath = page.html_path || path.join(projectDir, `${pageId}.html`)
-          if (!fs.existsSync(htmlPath)) continue
-          const html = await fs.promises.readFile(htmlPath, 'utf-8')
-          generatedPages.push({
-            pageNumber: page.page_number,
-            title: page.title || `第 ${page.page_number} 页`,
-            html,
-            htmlPath,
-            pageId,
-            sourceUrl: getPageSourceUrl(htmlPath),
-            status: page.status,
-            error: page.error
-          })
-          existingPageIds.add(pageId)
-        }
-      }
-    }
-    generatedPages.sort((a, b) => a.pageNumber - b.pageNumber)
-
-    const snapshotForGate = await buildSessionGenerationSnapshot(
-      session as unknown as Record<string, unknown> | undefined,
-      {
-        includeHtml: true
-      }
-    )
-    const responsePages = snapshotForGate.pages.length > 0 ? snapshotForGate.pages : generatedPages
+    const completedCount = generatedPages.filter((page) => page.status === 'completed').length
+    const failedCount = generatedPages.filter((page) => page.status === 'failed').length
 
     return {
-      session: normalizeSession(
-        snapshotForGate.session as unknown as Record<string, unknown> | undefined
-      ),
+      session: normalizeSession({
+        ...(session as unknown as Record<string, unknown>),
+        page_count: generatedPages.length,
+        generated_count: completedCount,
+        failed_count: failedCount
+      }),
       messages: messages.map((message) =>
         normalizeMessage(message as unknown as Record<string, unknown>)
       ),
-      generatedPages: responsePages
+      generatedPages
     }
   })
 

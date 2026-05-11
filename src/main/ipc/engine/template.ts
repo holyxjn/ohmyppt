@@ -5,6 +5,7 @@ import { BASE_PAGE_STYLE_TAG, FIT_SCRIPT } from '../../tools'
 import { buildSessionAssetHeadTags } from './page-assets'
 
 export interface DeckPageFile {
+  id?: string
   pageNumber: number
   pageId: string
   title: string
@@ -78,6 +79,7 @@ export const buildProjectIndexHtml = (title: string, pages: DeckPageFile[]): str
   const safeTitle = escapeHtml(title || 'OpenPPT Preview')
   const pagesData = JSON.stringify(
     pages.map((page) => ({
+      id: page.id || undefined,
       pageNumber: page.pageNumber,
       pageId: page.pageId,
       title: page.title,
@@ -86,17 +88,22 @@ export const buildProjectIndexHtml = (title: string, pages: DeckPageFile[]): str
   ).replace(/</g, '\\u003c')
   const thumbButtons = pages
     .map(
-      (page) => `<button class="ppt-thumb-item" data-page-id="${page.pageId}">
+      (page) => {
+        const pageKey = page.id || page.pageId
+        return `<button class="ppt-thumb-item" data-page-id="${pageKey}" data-legacy-page-id="${page.pageId}">
   <div class="ppt-thumb-index">P${page.pageNumber}</div>
   <div class="ppt-thumb-title">${escapeHtml(page.title)}</div>
 </button>`
+      }
     )
     .join('\n')
 
   const frameElements = pages
     .map(
-      (page) =>
-        `<iframe class="ppt-preview-frame" data-page-id="${page.pageId}" title="${escapeHtml(page.title)}"></iframe>`
+      (page) => {
+        const pageKey = page.id || page.pageId
+        return `<iframe class="ppt-preview-frame" data-page-id="${pageKey}" data-legacy-page-id="${page.pageId}" title="${escapeHtml(page.title)}"></iframe>`
+      }
     )
     .join('\n')
 
@@ -251,7 +258,7 @@ export const buildProjectIndexHtml = (title: string, pages: DeckPageFile[]): str
       <section class="ppt-stage">
         <div id="frameViewport" class="ppt-preview-viewport">
           ${frameElements}
-          <div class="ppt-empty">暂无页面，请先生成 page-xx.html 内容</div>
+          <div class="ppt-empty">暂无页面，请先生成 /&lt;pageId&gt;.html 内容</div>
         </div>
       </section>
     </div>
@@ -290,6 +297,7 @@ export const buildProjectIndexScaffold = (
 export const extractPagesDataFromIndex = (
   indexHtml: string
 ): Array<{
+  id?: string
   pageNumber: number
   pageId: string
   title: string
@@ -307,6 +315,7 @@ export const extractPagesDataFromIndex = (
     }
   })() as Array<{
     pageNumber?: number
+    id?: string
     pageId?: string
     title?: string
     htmlPath?: string
@@ -319,6 +328,7 @@ export const extractPagesDataFromIndex = (
     const pageId = String(item.pageId || `page-${pageNumber}`)
     const rawPath = typeof item.htmlPath === 'string' ? item.htmlPath.trim() : ''
     return {
+      id: typeof item.id === 'string' ? item.id : undefined,
       pageNumber,
       pageId,
       title: String(item.title || `Page ${pageNumber}`),

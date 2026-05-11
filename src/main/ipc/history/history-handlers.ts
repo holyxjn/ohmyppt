@@ -6,6 +6,26 @@ import { GitHistoryService } from '../../history/git-history-service'
 export function registerHistoryHandlers(ctx: IpcContext): void {
   const { db, resolveSessionProjectDir, sessionRunStates } = ctx
 
+  ipcMain.handle('history:ensureBaseline', async (_event, payload: { sessionId?: unknown }) => {
+    const sessionId =
+      typeof payload?.sessionId === 'string' && payload.sessionId.trim().length > 0
+        ? payload.sessionId.trim()
+        : ''
+    if (!sessionId) return { ok: false }
+    try {
+      const projectDir = await resolveSessionProjectDir(sessionId)
+      const service = new GitHistoryService(db)
+      await service.ensureBaseline(sessionId, projectDir)
+      return { ok: true }
+    } catch (error) {
+      log.warn('[history:ensureBaseline] failed', {
+        sessionId,
+        message: error instanceof Error ? error.message : String(error)
+      })
+      return { ok: false }
+    }
+  })
+
   ipcMain.handle(
     'history:listVersions',
     async (_event, payload: { sessionId?: unknown; limit?: unknown }) => {
@@ -66,7 +86,7 @@ export function registerHistoryHandlers(ctx: IpcContext): void {
           : ''
       if (!sessionId) throw new Error('缺少 sessionId')
       const projectDir = await resolveSessionProjectDir(sessionId)
-      const type = payload?.type === 'retry' || payload?.type === 'rollback' || payload?.type === 'addPage' || payload?.type === 'generate' || payload?.type === 'import'
+      const type = payload?.type === 'retry' || payload?.type === 'rollback' || payload?.type === 'addPage' || payload?.type === 'generate' || payload?.type === 'import' || payload?.type === 'reorder' || payload?.type === 'delete'
         ? payload.type
         : 'edit'
       const scope = payload?.scope === 'deck' || payload?.scope === 'selector' || payload?.scope === 'shell' || payload?.scope === 'session'

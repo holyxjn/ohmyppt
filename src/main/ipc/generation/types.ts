@@ -75,6 +75,7 @@ export type FinalizeGenerationArgs = {
   indexPath: string
   totalPages: number
   generatedPages: Array<{
+    id?: string
     pageNumber: number
     title: string
     pageId: string

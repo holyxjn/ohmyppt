@@ -178,6 +178,7 @@ export const ipc = {
       session: unknown
       messages: unknown[]
       generatedPages: Array<{
+        id: string
         pageNumber: number
         title: string
         html: string
@@ -187,6 +188,44 @@ export const ipc = {
         status?: string
         error?: string | null
       }>
+    }>,
+  reorderSessionPages: (payload: {
+    sessionId: string
+    orderedPageIds: string[]
+    selectedPageId?: string
+  }) =>
+    getIpc().invoke('session:reorderPages', payload) as Promise<{
+      ok: boolean
+      generatedPages: Array<{
+        id: string
+        pageNumber: number
+        pageId: string
+        title: string
+        html: string
+        htmlPath?: string
+        status?: string
+        error?: string | null
+      }>
+      selectedPageId: string | null
+    }>,
+  deleteSessionPages: (payload: {
+    sessionId: string
+    pageIds: string[]
+    selectedPageId?: string
+  }) =>
+    getIpc().invoke('session:deletePages', payload) as Promise<{
+      ok: boolean
+      generatedPages: Array<{
+        id: string
+        pageNumber: number
+        pageId: string
+        title: string
+        html: string
+        htmlPath?: string
+        status?: string
+        error?: string | null
+      }>
+      selectedPageId: string | null
     }>,
   getSessionMessages: (payload: {
     sessionId: string
@@ -226,11 +265,13 @@ export const ipc = {
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
   listHistoryVersions: (payload: { sessionId: string; limit?: number }) =>
     getIpc().invoke('history:listVersions', payload) as Promise<HistoryVersion[]>,
+  ensureHistoryBaseline: (sessionId: string) =>
+    getIpc().invoke('history:ensureBaseline', { sessionId }) as Promise<{ ok: boolean }>,
   rollbackToHistoryVersion: (payload: { sessionId: string; versionId: string }) =>
     getIpc().invoke('history:rollbackToVersion', payload) as Promise<RollbackHistoryResult>,
   recordHistorySnapshot: (payload: {
     sessionId: string
-    type?: 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+    type?: 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback' | 'reorder' | 'delete'
     scope?: 'session' | 'deck' | 'page' | 'selector' | 'shell'
     prompt?: string
     metadata?: Record<string, unknown>

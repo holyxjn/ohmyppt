@@ -17,3 +17,5 @@ logs
 docs/*.md
 
 doc/*.md
+
+patch/*.md

@@ -140,13 +140,20 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
     (Boolean(context.selectedPageId) ||
       (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length === 1) ||
       context.outlineTitles.length === 1)
+  const orderedPageIdsForProgress =
+    Array.isArray(context.allowedPageIds) && context.allowedPageIds.length > 0
+      ? context.allowedPageIds.filter((pid) => Boolean(context.pageFileMap[pid]))
+      : Object.keys(context.pageFileMap)
 
   const parsePageNumber = (pageId?: string): number | null => {
     if (!pageId) return null
     const match = pageId.match(/^page-(\d+)$/i)
-    if (!match) return null
-    const num = Number(match[1])
-    return Number.isFinite(num) && num > 0 ? num : null
+    if (match) {
+      const num = Number(match[1])
+      if (Number.isFinite(num) && num > 0) return num
+    }
+    const fallbackIndex = orderedPageIdsForProgress.indexOf(pageId)
+    return fallbackIndex >= 0 ? fallbackIndex + 1 : null
   }
 
   const inferProgressFromStatus = (args: {
@@ -271,35 +278,35 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
           ? [
               '当前为演示容器编辑（presentation-container）：只允许修改 index.html 容器能力',
               '只允许使用 set_index_transition(type, durationMs)，禁止调用 update_index_file / update_page_file / update_single_page_file',
-              '禁止修改任何 page-x.html 文件',
+              '禁止修改任何 /<pageId>.html 文件',
               '必须保留 hash 导航、frameViewport、pages-data、controls、全屏/演示模式逻辑',
               '禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许本地资源'
             ]
           : hasSelector
             ? [
-                'index.html 只是总览壳，主要内容在 page-x.html',
+                'index.html 只是总览壳，主要内容在 /<pageId>.html',
                 '禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源',
                 'Selector 编辑模式：先用 read_file 读取目标页面，再用 grep 搜索选择器/文本定位，最后用 edit_file(old_string, new_string) 精准替换',
-                '文件工具只能使用虚拟路径（例如 /page-7.html），禁止使用宿主机绝对路径',
+                '文件工具只能使用虚拟路径（例如 /<pageId>.html），禁止使用宿主机绝对路径',
                 '不要调用 write_file / update_page_file / update_single_page_file，edit_file 直接修改即可',
                 '仅修改 selector 命中节点，禁止整页重写、禁止改动无关区域',
                 isDeckScopeEdit
-                  ? '主会话 deck 编辑禁止修改 index.html，只能改 page-x.html'
+                  ? '主会话 deck 编辑禁止修改 index.html，只能改 /<pageId>.html'
                   : '尽量不要修改 index.html 的导航与控制逻辑'
               ]
             : [
-                'index.html 只是总览壳，主要内容写入 page-x.html',
+                'index.html 只是总览壳，主要内容写入 /<pageId>.html',
                 '禁止使用 CDN/远程 script/link（http/https/协议相对地址）；仅允许系统预注入的本地 ./assets/* 资源',
                 '单页任务只允许使用 update_single_page_file(pageId, content)，禁止调用 update_page_file',
                 '单页任务必须写入 selectedPagePath 对应的 page 文件，不需要改 index.html',
-                'read_file/edit_file/write_file 等文件工具只能使用虚拟路径（例如 /page-7.html），禁止使用宿主机绝对路径',
+                'read_file/edit_file/write_file 等文件工具只能使用虚拟路径（例如 /<pageId>.html），禁止使用宿主机绝对路径',
                 isEditMode
                   ? '多页/全局编辑使用 update_page_file(pageId, content)，必须显式传 pageId'
                   : '多页生成优先使用 update_page_file(content)（可选传 pageId 覆盖自动定位）',
                 '每页写入后会自动注入动画运行时与防溢出保护',
                 '不要在最终答案里返回大块 HTML，必须把变更落盘',
                 isDeckScopeEdit
-                  ? '主会话 deck 编辑禁止修改 index.html，只能改 page-x.html'
+                  ? '主会话 deck 编辑禁止修改 index.html，只能改 /<pageId>.html'
                   : '尽量不要修改 index.html 的导航与控制逻辑'
               ]
         return JSON.stringify(
@@ -511,7 +518,7 @@ export function createSessionBoundDeckTools(context: SessionDeckGenerationContex
         const remoteRuntimePages = results.filter((r) => r.hasRemoteRuntime).map((r) => r.pageId)
         const filledCount = results.filter((r) => r.hasContent).length
         if (missingFiles.length > 0) {
-          return `验证发现问题：以下页面文件缺失或为空: ${missingFiles.join(', ')}。请检查 page-x.html 是否已创建。`
+          return `验证发现问题：以下页面文件缺失或为空: ${missingFiles.join(', ')}。请检查对应 /<pageId>.html 是否已创建。`
         }
         if (emptyPages.length > 0) {
           return `部分页面尚未填充: ${emptyPages.join(', ')}。已完成 ${filledCount}/${targetPageIds.length} 页。单页任务请用 update_single_page_file(pageId, content)，多页任务请用 update_page_file(content) 继续填充。`

@@ -8,7 +8,7 @@ export type EditSubMode = 'layout' | 'text'
 interface SessionDetailUiStore {
   input: string
   chatType: SessionDetailChatType
-  selectedPageNumber: number | null
+  selectedPageId: string | null
   consoleOpen: boolean
   previewKey: number
   isExportingPdf: boolean
@@ -27,10 +27,11 @@ interface SessionDetailUiStore {
   addPageDialogOpen: boolean
   isAddingPage: boolean
   isRetryingSinglePage: boolean
+  isManagingPages: boolean
 
   setInput: (input: string) => void
   setChatType: (chatType: SessionDetailChatType) => void
-  setSelectedPageNumber: (pageNumber: number | null) => void
+  setSelectedPageId: (pageId: string | null) => void
   setConsoleOpen: (open: boolean | ((open: boolean) => boolean)) => void
   bumpPreviewKey: () => void
   setIsExportingPdf: (isExporting: boolean) => void
@@ -54,7 +55,8 @@ interface SessionDetailUiStore {
   setAddPageDialogOpen: (open: boolean) => void
   setIsAddingPage: (adding: boolean) => void
   setIsRetryingSinglePage: (retrying: boolean) => void
-  finishAddPage: (selectedPageNumber?: number | null) => void
+  setIsManagingPages: (managing: boolean) => void
+  finishAddPage: (selectedPageId?: string | null) => void
   resetForPageChange: () => void
   resetForSessionChange: () => void
 }
@@ -62,7 +64,7 @@ interface SessionDetailUiStore {
 export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   input: '',
   chatType: 'page',
-  selectedPageNumber: null,
+  selectedPageId: null,
   consoleOpen: true,
   previewKey: 0,
   isExportingPdf: false,
@@ -81,10 +83,11 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   addPageDialogOpen: false,
   isAddingPage: false,
   isRetryingSinglePage: false,
+  isManagingPages: false,
 
   setInput: (input) => set({ input }),
   setChatType: (chatType) => set({ chatType }),
-  setSelectedPageNumber: (selectedPageNumber) => set({ selectedPageNumber }),
+  setSelectedPageId: (selectedPageId) => set({ selectedPageId }),
   setConsoleOpen: (open) =>
     set((state) => ({
       consoleOpen: typeof open === 'function' ? open(state.consoleOpen) : open
@@ -133,11 +136,11 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   setAddPageDialogOpen: (addPageDialogOpen) => set({ addPageDialogOpen }),
   setIsAddingPage: (isAddingPage) => set({ isAddingPage }),
   setIsRetryingSinglePage: (isRetryingSinglePage) => set({ isRetryingSinglePage }),
-  finishAddPage: (selectedPageNumber) =>
+  setIsManagingPages: (isManagingPages) => set({ isManagingPages }),
+  finishAddPage: (selectedPageId) =>
     set((state) => ({
       isAddingPage: false,
-      selectedPageNumber:
-        typeof selectedPageNumber === 'undefined' ? state.selectedPageNumber : selectedPageNumber
+      selectedPageId: typeof selectedPageId === 'undefined' ? state.selectedPageId : selectedPageId
     })),
   resetForPageChange: () =>
     set({
@@ -152,7 +155,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
     set({
       input: '',
       chatType: 'page',
-      selectedPageNumber: null,
+      selectedPageId: null,
       interactionMode: 'preview' as InteractionMode,
       editSubMode: 'layout' as EditSubMode,
       selectedSelector: null,
@@ -165,6 +168,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       thumbnailVersions: {},
       addPageDialogOpen: false,
       isAddingPage: false,
-      isRetryingSinglePage: false
+      isRetryingSinglePage: false,
+      isManagingPages: false
     })
 }))

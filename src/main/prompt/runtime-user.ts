@@ -53,7 +53,7 @@ export function buildEditUserPrompt(args: {
       "",
       "Edit scope: presentation-container",
       "Target file: index.html",
-      "Do not modify any page-x.html files.",
+      "Do not modify any /<pageId>.html files.",
       "Only set page transitions through set_index_transition(type, durationMs).",
       "Allowed type values: fade or none. durationMs range: 120-1200.",
       args.existingPageIds?.length ? `Existing pages: ${args.existingPageIds.join(", ")}` : "",
@@ -67,7 +67,7 @@ export function buildEditUserPrompt(args: {
 
   return [
     isDeckScope
-      ? "Apply the following edit instruction to the relevant page-x.html files. You may edit multiple pages, but must not modify index.html:"
+      ? "Apply the following edit instruction to the relevant /<pageId>.html files. You may edit multiple pages, but must not modify index.html:"
       : "Apply the following edit instruction only to the specified page content. Do not modify other pages:",
     "",
     args.userMessage,
@@ -77,7 +77,7 @@ export function buildEditUserPrompt(args: {
     args.selectedPageId
       ? `Target page: ${args.selectedPageId} (slide ${args.selectedPageNumber ?? "?"})`
       : isDeckScope
-        ? "Target pages: all page-x.html files relevant to the instruction"
+        ? "Target pages: all /<pageId>.html files relevant to the instruction"
         : "Target page: all pages",
     selector ? `Target element CSS selector: ${selector}` : "",
     elementDesc ? `Target element description: ${elementDesc}` : "",

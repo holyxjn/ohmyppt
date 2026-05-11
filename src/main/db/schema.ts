@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core'
 
 export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
@@ -40,6 +40,7 @@ export const projects = sqliteTable('projects', {
   sessionId: text('session_id').notNull(),
   title: text('title').notNull(),
   outputPath: text('output_path').notNull(),
+  rootPath: text('root_path'),
   fileCount: integer('file_count').default(0),
   totalSize: integer('total_size').default(0),
   status: text('status').notNull().default('draft'),
@@ -81,6 +82,30 @@ export const generationPages = sqliteTable('generation_pages', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
 })
+
+export const sessionPages = sqliteTable(
+  'session_pages',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    legacyPageId: text('legacy_page_id'),
+    fileSlug: text('file_slug').notNull(),
+    pageNumber: integer('page_number').notNull(),
+    title: text('title').notNull(),
+    htmlPath: text('html_path').notNull(),
+    status: text('status').notNull().default('pending'),
+    error: text('error'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at')
+  },
+  (table) => ({
+    sessionPageNumberIdx: index('idx_session_pages_session_number').on(
+      table.sessionId,
+      table.pageNumber
+    )
+  })
+)
 
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
@@ -155,15 +180,50 @@ export const sessionOperations = sqliteTable('session_operations', {
   completedAt: integer('completed_at')
 })
 
+export const sessionOperationPages = sqliteTable(
+  'session_operation_pages',
+  {
+    id: text('id').primaryKey(),
+    operationId: text('operation_id')
+      .notNull()
+      .references(() => sessionOperations.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    pageId: text('page_id').notNull(),
+    legacyPageId: text('legacy_page_id'),
+    fileSlug: text('file_slug').notNull(),
+    pageNumber: integer('page_number').notNull(),
+    title: text('title').notNull(),
+    htmlPath: text('html_path').notNull(),
+    status: text('status').notNull().default('pending'),
+    error: text('error'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull()
+  },
+  (table) => ({
+    sessionOperationPagesOrderIdx: index('idx_session_operation_pages_order').on(
+      table.operationId,
+      table.pageNumber
+    ),
+    sessionOperationPagesSessionIdx: index('idx_session_operation_pages_session').on(
+      table.sessionId,
+      table.operationId
+    )
+  })
+)
+
 export type Session = typeof sessions.$inferSelect
 export type Message = typeof messages.$inferSelect
 export type Project = typeof projects.$inferSelect
 export type GenerationRun = typeof generationRuns.$inferSelect
 export type GenerationPage = typeof generationPages.$inferSelect
+export type SessionPage = typeof sessionPages.$inferSelect
 export type ModelConfig = typeof modelConfigs.$inferSelect
 export type MemorySummary = typeof memorySummaries.$inferSelect
 export type UserPreference = typeof userPreferences.$inferSelect
 export type SessionOperation = typeof sessionOperations.$inferSelect
+export type SessionOperationPage = typeof sessionOperationPages.$inferSelect
 
 export type SessionStatus = 'active' | 'completed' | 'failed' | 'archived'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
@@ -172,6 +232,15 @@ export type ChatScope = 'main' | 'page'
 export type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 export type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 export type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
-export type SessionOperationType = 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+export type SessionPageStatus = 'completed' | 'failed' | 'pending'
+export type SessionOperationType =
+  | 'generate'
+  | 'edit'
+  | 'addPage'
+  | 'retry'
+  | 'import'
+  | 'rollback'
+  | 'reorder'
+  | 'delete'
 export type SessionOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
 export type SessionOperationStatus = 'committing' | 'completed' | 'failed' | 'noop'
