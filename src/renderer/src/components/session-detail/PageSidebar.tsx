@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
-import { GripVertical, Home, Plus, Trash2 } from 'lucide-react'
+import { Home, Move, Plus, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGenerateStore, useSessionStore } from '@renderer/store'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
@@ -180,13 +180,13 @@ export const PageSidebar = memo(function PageSidebar({
                                 onClick={(e) => {
                                   e.stopPropagation()
                                 }}
-                                className="cursor-grab rounded bg-white/90 p-1 shadow-sm active:cursor-grabbing disabled:cursor-not-allowed"
+                                className="cursor-grab rounded bg-white/90 p-1 text-[#5d6b4d] shadow-sm transition-colors hover:bg-[#f5f1e8] hover:text-[#3e4a32] active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
                                 aria-label={t('pageManagement.dragHandle')}
                                 title={t('pageManagement.dragHandle')}
                                 {...attributes}
                                 {...listeners}
                               >
-                                <GripVertical className={`h-4 w-4 ${isDragging ? 'opacity-60' : ''}`} />
+                                <Move className={`h-4 w-4 ${isDragging ? 'opacity-60' : ''}`} />
                               </button>
                               {onDeletePage ? (
                                 <button

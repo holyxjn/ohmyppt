@@ -91,7 +91,7 @@ export const PreviewStage = forwardRef<
           <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_14px_32px_rgba(93,107,77,0.14)]">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="absolute left-5 top-5 z-20 w-[clamp(250px,38%,500px)] truncate rounded-[8px] bg-[#f5f1e8]/82 px-3 py-1 text-sm font-semibold tracking-[0.01em] text-[#3e4a32] shadow-[0_6px_18px_rgba(93,107,77,0.11)] backdrop-blur-md">
+                <div className="absolute left-5 top-5 z-20 max-w-[460px] truncate border-l-2 border-[#7f9468] bg-[#fffaf1]/68 px-3 py-1.5 text-sm font-medium leading-5 text-[#3e4a32] shadow-[0_8px_22px_rgba(74,59,42,0.08)] backdrop-blur-md">
                   {displayTitle}
                 </div>
               </TooltipTrigger>
