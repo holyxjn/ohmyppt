@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import log from 'electron-log/main.js'
+import dayjs from 'dayjs'
 import { PPTDatabase } from './db/database'
 import { AgentManager } from './agent'
 import { setupIPC } from './ipc'
@@ -60,15 +61,14 @@ function configureLogging(): void {
     log.transports.file.resolvePathFn = () => join(logDir, 'main.log')
   } else {
     log.transports.file.resolvePathFn = () => {
-      const date = new Date()
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
+      const now = dayjs()
+      const yearMonth = now.format('YYYY-MM')
+      const yearMonthDay = now.format('YYYY-MM-DD')
       return join(
         app.getPath('userData'),
         'ohmyppt_logs',
-        `${year}-${month}`,
-        `${year}-${month}-${day}-v${app.getVersion()}.log`
+        yearMonth,
+        `${yearMonthDay}-v${app.getVersion()}.log`
       )
     }
   }

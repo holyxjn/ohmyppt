@@ -101,6 +101,9 @@ export class GitHistoryService {
     await this.ensureRepository(projectDir)
 
     let beforeCommit = await this.resolveHead(projectDir)
+    const beforeFiles = beforeCommit
+      ? await this.listTrackedFiles(projectDir, beforeCommit).catch(() => walkFiles(projectDir))
+      : []
     let session = await this.db.getSession(args.sessionId)
     let parentOperationId =
       typeof session?.currentOperationId === 'string' ? session.currentOperationId : null
@@ -122,6 +125,9 @@ export class GitHistoryService {
       const trackedFiles = await this.listTrackedFiles(projectDir, beforeCommit).catch(() =>
         walkFiles(projectDir)
       )
+      if (!hasRestorableDeckFiles(trackedFiles)) {
+        throw new Error('历史记录写入失败：未记录到可恢复的页面文件。')
+      }
       const operationId = crypto.randomUUID()
       await this.db.createSessionOperation({
         id: operationId,
@@ -164,7 +170,6 @@ export class GitHistoryService {
       })
       return null
     }
-    const trackedFiles = await walkFiles(projectDir)
     const operationId = crypto.randomUUID()
     await this.db.createSessionOperation({
       id: operationId,
@@ -179,6 +184,7 @@ export class GitHistoryService {
       metadata
     })
 
+    let committedAfter: string | null = null
     try {
       await this.captureOperationPageSnapshot(args.sessionId, operationId, projectDir)
       const afterCommit = await git.commit({
@@ -190,9 +196,11 @@ export class GitHistoryService {
           email: 'history@oh-my-ppt.local'
         }
       })
-      const trackedAfterCommit = await this.listTrackedFiles(projectDir, afterCommit).catch(
-        () => trackedFiles
-      )
+      committedAfter = afterCommit
+      const trackedAfterCommit = await this.listTrackedFiles(projectDir, afterCommit)
+      if (!hasRestorableDeckFiles(trackedAfterCommit)) {
+        throw new Error('历史记录写入失败：提交后未记录到可恢复的页面文件。')
+      }
       await this.db.completeSessionOperation({
         id: operationId,
         status: 'completed',
@@ -209,6 +217,22 @@ export class GitHistoryService {
       })
       return this.db.getSessionOperation(operationId) as Promise<SessionOperationRecord | null>
     } catch (error) {
+      if (committedAfter) {
+        await this.rollbackFailedCommit(projectDir, beforeCommit, beforeFiles).catch(
+          (rollbackError) => {
+            log.error('[history] rollback failed after operation commit', {
+              sessionId: args.sessionId,
+              operationId,
+              beforeCommit,
+              committedAfter,
+              message:
+                rollbackError instanceof Error
+                  ? rollbackError.message
+                  : String(rollbackError)
+            })
+          }
+        )
+      }
       await this.db.completeSessionOperation({
         id: operationId,
         status: 'failed',
@@ -275,12 +299,13 @@ export class GitHistoryService {
       typeof session?.currentOperationId === 'string' ? session.currentOperationId : null
     const beforeFiles = await this.listTrackedFiles(projectDir, beforeCommit)
 
-    const operationTrackedFiles =
-      parseJson<string[]>(targetOperation.tracked_files_json, []).filter(isControlledFile)
-    const commitTrackedFiles = await this.listTrackedFiles(projectDir, targetOperation.after_commit)
-    const filesToRestore = hasRestorableDeckFiles(operationTrackedFiles)
-      ? operationTrackedFiles
-      : commitTrackedFiles
+    const operationTrackedFiles = parseJson<string[]>(targetOperation.tracked_files_json, []).filter(
+      isControlledFile
+    )
+    if (!hasRestorableDeckFiles(operationTrackedFiles)) {
+      throw new Error('目标历史版本记录不完整（tracked_files_json 缺少页面文件），无法回退。')
+    }
+    const filesToRestore = operationTrackedFiles
     try {
       await this.restoreCommitFiles(projectDir, targetOperation.after_commit, filesToRestore)
       const targetMetadata = parseJson<Record<string, unknown>>(targetOperation.metadata_json, {})
@@ -638,18 +663,29 @@ export class GitHistoryService {
   }
 
   private async listTrackedFiles(projectDir: string, commit: string): Promise<string[]> {
-    const files = await git.walk({
+    const files = await git.listFiles({
       fs,
       dir: projectDir,
-      trees: [git.TREE({ ref: commit })],
-      map: async (filepath, [entry]) => {
-        if (filepath === '.' || !entry) return null
-        const type = await entry.type()
-        if (type !== 'blob') return null
-        return isControlledFile(filepath) ? filepath : null
-      }
+      ref: commit
     })
-    return (files ?? []).filter((file): file is string => typeof file === 'string').sort()
+    return files.filter(isControlledFile).sort()
+  }
+
+  private async rollbackFailedCommit(
+    projectDir: string,
+    beforeCommit: string | null,
+    beforeFiles: string[]
+  ): Promise<void> {
+    if (!beforeCommit) {
+      await fs.promises.rm(path.join(projectDir, '.git'), { recursive: true, force: true })
+      await this.ensureRepository(projectDir)
+      return
+    }
+
+    await this.moveHeadToCommit(projectDir, beforeCommit)
+    if (hasRestorableDeckFiles(beforeFiles)) {
+      await this.restoreCommitFiles(projectDir, beforeCommit, beforeFiles)
+    }
   }
 
   private async restoreCommitFiles(
@@ -658,13 +694,10 @@ export class GitHistoryService {
     targetFiles: string[]
   ): Promise<void> {
     const normalizedTargetFiles = targetFiles.filter(isControlledFile)
-    const restorableFiles = hasRestorableDeckFiles(normalizedTargetFiles)
-      ? normalizedTargetFiles
-      : await this.listTrackedFiles(projectDir, commit)
-    if (!hasRestorableDeckFiles(restorableFiles)) {
+    if (!hasRestorableDeckFiles(normalizedTargetFiles)) {
       throw new Error('目标历史版本缺少可恢复的页面文件，无法回退。')
     }
-    const targetSet = new Set(restorableFiles)
+    const targetSet = new Set(normalizedTargetFiles)
     for (const relativePath of targetSet) {
       const { blob } = await git.readBlob({
         fs,
@@ -720,6 +753,7 @@ export class GitHistoryService {
     const metadata = parseJson<Record<string, unknown>>(operation.metadata_json, {})
     const changedFiles = parseJson<ChangedHistoryFile[]>(operation.changed_files_json, [])
     const changedPages = parseJson<string[]>(operation.changed_pages_json, [])
+    const trackedFiles = parseJson<string[]>(operation.tracked_files_json, []).filter(isControlledFile)
     const commit = operation.after_commit || ''
     return {
       id: operation.id,
@@ -737,7 +771,7 @@ export class GitHistoryService {
         (current.currentCommit && commit === current.currentCommit) ||
           (current.currentOperationId && operation.id === current.currentOperationId)
       ),
-      isRestorable: Boolean(commit)
+      isRestorable: Boolean(commit) && hasRestorableDeckFiles(trackedFiles)
     }
   }
 

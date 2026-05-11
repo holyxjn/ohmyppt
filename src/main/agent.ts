@@ -2,7 +2,7 @@ import type { PPTDatabase } from "./db/database";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatOpenAI } from "@langchain/openai";
 import type { BaseLanguageModel } from "@langchain/core/language_models/base";
-import { FilesystemBackend, createDeepAgent } from "deepagents";
+import { FilesystemBackend, createDeepAgent, type EditResult } from "deepagents";
 import log from "electron-log/main.js";
 import { createSessionBoundDeckTools, type SessionDeckGenerationContext } from "./tools";
 import {
@@ -36,6 +36,41 @@ interface AgentSessionEntry {
   temperature?: number;
 }
 
+class GuardedFilesystemBackend extends FilesystemBackend {
+  constructor(
+    options: { rootDir?: string; virtualMode?: boolean; maxFileSizeMb?: number } & {
+      disableEditFile?: boolean;
+      editBlockedReason?: string;
+    }
+  ) {
+    super(options);
+    this.disableEditFile = Boolean(options.disableEditFile);
+    this.editBlockedReason =
+      options.editBlockedReason ||
+      "当前任务禁止调用 edit_file。请使用 update_single_page_file(pageId, content) 或 update_page_file(pageId, content)。";
+  }
+
+  private readonly disableEditFile: boolean;
+  private readonly editBlockedReason: string;
+
+  async edit(
+    filePath: string,
+    oldString: string,
+    newString: string,
+    replaceAll?: boolean
+  ): Promise<EditResult> {
+    if (this.disableEditFile) {
+      return { error: this.editBlockedReason };
+    }
+    return super.edit(filePath, oldString, newString, replaceAll);
+  }
+}
+
+function shouldBlockNativeEditFile(context: SessionDeckGenerationContext): boolean {
+  if (context.editScope === "presentation-container") return true;
+  return !Boolean(context.selectedSelector?.trim());
+}
+
 // ── Agent factory ──
 
 export function createSessionEditAgent(args: {
@@ -48,9 +83,14 @@ export function createSessionEditAgent(args: {
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
   const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
-  const backend = new FilesystemBackend({
+  const disableNativeEditFile = shouldBlockNativeEditFile(args.context);
+  const backend = new GuardedFilesystemBackend({
     rootDir: args.context.projectDir,
     virtualMode: true,
+    disableEditFile: disableNativeEditFile,
+    editBlockedReason: disableNativeEditFile
+      ? "当前编辑任务禁止使用 edit_file。请改用 update_single_page_file(pageId, content) 或 update_page_file(pageId, content)。"
+      : undefined,
   });
   const tools = createSessionBoundDeckTools(args.context);
   const systemPrompt = buildEditAgentSystemPrompt(args.styleId, args.context);
@@ -63,6 +103,7 @@ export function createSessionEditAgent(args: {
     projectDir: args.context.projectDir,
     indexPath: args.context.indexPath,
     selectedPageId: args.context.selectedPageId,
+    disableNativeEditFile,
   });
 
   return createDeepAgent({
@@ -83,9 +124,12 @@ export function createSessionDeckAgent(args: {
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
   const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
-  const backend = new FilesystemBackend({
+  const backend = new GuardedFilesystemBackend({
     rootDir: args.context.projectDir,
     virtualMode: true,
+    disableEditFile: true,
+    editBlockedReason:
+      "当前生成/全局编辑任务禁止使用 edit_file。请使用 update_single_page_file(pageId, content) 或 update_page_file(pageId, content)。",
   });
   const getToolName = (tool: unknown): string => {
     const maybe = tool as { name?: unknown; lc_kwargs?: { name?: unknown } };

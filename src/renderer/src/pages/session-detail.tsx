@@ -27,6 +27,7 @@ import type { HistoryVersion } from '@shared/history.js'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
+import dayjs from 'dayjs'
 
 const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
   text: '',
@@ -181,14 +182,10 @@ export function SessionDetailPage(): React.JSX.Element {
     sessionStatus === 'active'
 
   const formatHistoryTime = (value: number): string => {
-    const date = new Date(value > 1e12 ? value : value * 1000)
-    if (Number.isNaN(date.getTime())) return ''
-    return date.toLocaleString(undefined, {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    const timestamp = value > 1e12 ? value : value * 1000
+    const parsed = dayjs(timestamp)
+    if (!parsed.isValid()) return ''
+    return parsed.format('YYYY/MM/DD HH:mm')
   }
 
   const loadHistoryVersions = async (): Promise<void> => {

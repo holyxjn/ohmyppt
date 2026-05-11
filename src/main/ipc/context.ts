@@ -8,6 +8,7 @@ import { progressLabel, type AppLocale } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
+import dayjs from 'dayjs'
 import { pathToFileURL } from 'url'
 import { sleep } from './utils'
 import {
@@ -640,16 +641,7 @@ export function createIpcContext(
   }
 
   const buildAssetTimestamp = (): string => {
-    const now = new Date()
-    return [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, '0'),
-      String(now.getDate()).padStart(2, '0'),
-      '-',
-      String(now.getHours()).padStart(2, '0'),
-      String(now.getMinutes()).padStart(2, '0'),
-      String(now.getSeconds()).padStart(2, '0')
-    ].join('')
+    return dayjs().format('YYYYMMDD-HHmmss')
   }
 
   const uploadSessionFiles = async (
