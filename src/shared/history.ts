@@ -5,6 +5,8 @@ export type HistoryOperationKind =
   | 'retry'
   | 'import'
   | 'rollback'
+  | 'reorder'
+  | 'delete'
 
 export type HistoryOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
 

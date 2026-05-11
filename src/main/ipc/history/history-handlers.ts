@@ -86,7 +86,7 @@ export function registerHistoryHandlers(ctx: IpcContext): void {
           : ''
       if (!sessionId) throw new Error('缺少 sessionId')
       const projectDir = await resolveSessionProjectDir(sessionId)
-      const type = payload?.type === 'retry' || payload?.type === 'rollback' || payload?.type === 'addPage' || payload?.type === 'generate' || payload?.type === 'import'
+      const type = payload?.type === 'retry' || payload?.type === 'rollback' || payload?.type === 'addPage' || payload?.type === 'generate' || payload?.type === 'import' || payload?.type === 'reorder' || payload?.type === 'delete'
         ? payload.type
         : 'edit'
       const scope = payload?.scope === 'deck' || payload?.scope === 'selector' || payload?.scope === 'shell' || payload?.scope === 'session'

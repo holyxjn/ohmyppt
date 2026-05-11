@@ -779,16 +779,29 @@ export class GitHistoryService {
     operation: SessionOperationRecord,
     metadata: Record<string, unknown>
   ): string {
+    const type = String(operation.type || '').trim()
+    const scope = typeof operation.scope === 'string' ? operation.scope : ''
+    const effectiveMode =
+      typeof metadata.effectiveMode === 'string' ? metadata.effectiveMode.trim() : ''
+
+    if (effectiveMode === 'addPage' || metadata.addPage === true) return '新增页面'
+    if (effectiveMode === 'retrySinglePage') return '重试页面'
+    if (effectiveMode === 'retry') return '重试失败页面'
+
     if (operation.type === 'import' && metadata.legacy) return '历史起点'
-    if (operation.type === 'import') return '导入 PPTX'
-    if (operation.type === 'generate') return '首次生成'
-    if (operation.type === 'addPage') return '新增页面'
-    if (operation.type === 'retry') return operation.scope === 'page' ? '重试页面' : '重试失败页面'
-    if (operation.type === 'rollback') return '回退到历史版本'
-    if (operation.type === 'edit') {
-      if (operation.scope === 'deck') return '全局修改页面'
-      if (operation.scope === 'selector') return '局部修改页面元素'
-      if (operation.scope === 'page') return '编辑页面'
+    if (type === 'import') return '导入 PPTX'
+    if (type === 'generate') return '首次生成'
+    if (type === 'addPage' || type === 'add_page') return '新增页面'
+    if (type === 'reorder') return '调整页面顺序'
+    if (type === 'delete') return '删除页面'
+    if (type === 'retry') return scope === 'page' ? '重试页面' : '重试失败页面'
+    if (type === 'rollback') return '回退到历史版本'
+    if (type === 'edit') {
+      if (scope === 'deck') return '全局修改页面'
+      if (scope === 'selector') return '局部修改页面元素'
+      if (scope === 'page') return '编辑页面'
+      if (scope === 'session') return '调整页面'
+      if (scope === 'shell') return '调整页面容器'
     }
     return '历史版本'
   }

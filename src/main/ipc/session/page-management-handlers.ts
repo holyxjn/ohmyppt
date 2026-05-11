@@ -74,7 +74,7 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
     })
     await recordHistoryOperationStrict(ctx.db, {
       sessionId,
-      type: 'edit',
+      type: 'reorder',
       scope: 'session',
       projectDir,
       prompt: operationPrompt,
@@ -165,7 +165,7 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
     })
     await recordHistoryOperationStrict(ctx.db, {
       sessionId,
-      type: 'edit',
+      type: 'delete',
       scope: 'session',
       projectDir,
       prompt: deletePrompt,

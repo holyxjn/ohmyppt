@@ -18,7 +18,15 @@ type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
 type SessionPageStatus = schema.SessionPageStatus
-type SessionOperationType = 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+type SessionOperationType =
+  | 'generate'
+  | 'edit'
+  | 'addPage'
+  | 'retry'
+  | 'import'
+  | 'rollback'
+  | 'reorder'
+  | 'delete'
 type SessionOperationScope = 'session' | 'deck' | 'page' | 'selector' | 'shell'
 type SessionOperationStatus = 'committing' | 'completed' | 'failed' | 'noop'
 

@@ -271,7 +271,7 @@ export const ipc = {
     getIpc().invoke('history:rollbackToVersion', payload) as Promise<RollbackHistoryResult>,
   recordHistorySnapshot: (payload: {
     sessionId: string
-    type?: 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback'
+    type?: 'generate' | 'edit' | 'addPage' | 'retry' | 'import' | 'rollback' | 'reorder' | 'delete'
     scope?: 'session' | 'deck' | 'page' | 'selector' | 'shell'
     prompt?: string
     metadata?: Record<string, unknown>
