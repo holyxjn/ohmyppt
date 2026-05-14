@@ -84,10 +84,16 @@ const detectSourceCanvasSize = ($: cheerio.CheerioAPI): { width: number; height:
     .join('\n')
   const width =
     readCssPixelValue(css, '#deck', 'width') ||
+    readCssPixelValue(css, '#stage', 'width') ||
+    readCssPixelValue(css, 'main#stage', 'width') ||
+    readCssPixelValue(css, '.stage', 'width') ||
     readCssPixelValue(css, '.slide', 'width') ||
     TARGET_PAGE_WIDTH
   const height =
     readCssPixelValue(css, '#deck', 'height') ||
+    readCssPixelValue(css, '#stage', 'height') ||
+    readCssPixelValue(css, 'main#stage', 'height') ||
+    readCssPixelValue(css, '.stage', 'height') ||
     readCssPixelValue(css, '.slide', 'height') ||
     TARGET_PAGE_HEIGHT
   return { width, height }
