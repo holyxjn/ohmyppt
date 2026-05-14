@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@cfworker/json-schema':
+        specifier: ^4.1.1
+        version: 4.1.1
       '@chenglou/pretext':
         specifier: ^0.0.6
         version: 0.0.6
@@ -26,6 +29,9 @@ importers:
       '@electron-toolkit/utils':
         specifier: ^4.0.0
         version: 4.0.0(electron@39.8.8)
+      '@floating-ui/react-dom':
+        specifier: ^2.1.8
+        version: 2.1.8(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@joplin/turndown-plugin-gfm':
         specifier: ^1.0.64
         version: 1.0.64
@@ -44,9 +50,18 @@ importers:
       '@libsql/client':
         specifier: ^0.14.0
         version: 0.14.0
+      '@libsql/darwin-arm64':
+        specifier: 0.4.7
+        version: 0.4.7
       '@node-rs/jieba':
         specifier: ^2.0.1
         version: 2.0.1
+      '@node-rs/jieba-darwin-arm64':
+        specifier: 2.0.1
+        version: 2.0.1
+      '@radix-ui/react-arrow':
+        specifier: ^1.1.8
+        version: 1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@radix-ui/react-dialog':
         specifier: ^1.1.4
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -74,9 +89,39 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-use-effect-event':
+        specifier: ^0.0.2
+        version: 0.0.2(@types/react@19.2.14)(react@19.2.5)
+      '@radix-ui/react-use-escape-keydown':
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react@19.2.14)(react@19.2.5)
+      '@radix-ui/react-use-rect':
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react@19.2.14)(react@19.2.5)
+      '@radix-ui/react-use-size':
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react@19.2.14)(react@19.2.5)
+      '@radix-ui/rect':
+        specifier: ^1.1.1
+        version: 1.1.1
       '@tanstack/react-virtual':
         specifier: ^3.11.2
         version: 3.13.24(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      ansi-styles:
+        specifier: ^5.2.0
+        version: 5.2.0
+      bail:
+        specifier: ^2.0.2
+        version: 2.0.2
+      braces:
+        specifier: ^3.0.3
+        version: 3.0.3
+      camelcase:
+        specifier: ^6.3.0
+        version: 6.3.0
+      character-entities:
+        specifier: ^2.0.2
+        version: 2.0.2
       cheerio:
         specifier: ^1.2.0
         version: 1.2.0
@@ -89,33 +134,93 @@ importers:
       dayjs:
         specifier: ^1.11.20
         version: 1.11.20
+      decamelize:
+        specifier: 1.2.0
+        version: 1.2.0
       deepagents:
         specifier: ^1.9.0
         version: 1.9.0(langsmith@0.5.20(openai@6.34.0(ws@8.20.0)(zod@3.25.76))(ws@8.20.0))(openai@6.34.0(ws@8.20.0)(zod@3.25.76))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(ws@8.20.0)
+      detect-node-es:
+        specifier: ^1.1.0
+        version: 1.1.0
       domhandler:
         specifier: ^6.0.1
         version: 6.0.1
       drizzle-orm:
         specifier: ^0.44.5
         version: 0.44.7(@libsql/client@0.14.0)
+      dunder-proto:
+        specifier: ^1.0.1
+        version: 1.0.1
       electron-log:
         specifier: ^5.4.3
         version: 5.4.3
       electron-updater:
         specifier: ^6.3.9
         version: 6.8.3
+      extend:
+        specifier: ^3.0.2
+        version: 3.0.2
+      get-nonce:
+        specifier: ^1.0.1
+        version: 1.0.1
+      is-plain-obj:
+        specifier: ^4.1.0
+        version: 4.1.0
       isomorphic-git:
         specifier: ^1.37.6
         version: 1.37.6
       katex:
         specifier: ^0.16.45
         version: 0.16.45
+      lie:
+        specifier: ^3.3.0
+        version: 3.3.0
+      longest-streak:
+        specifier: ^3.1.0
+        version: 3.1.0
       lucide-react:
         specifier: ^0.574.0
         version: 0.574.0(react@19.2.5)
       mammoth:
         specifier: ^1.12.0
         version: 1.12.0
+      mdast-util-phrasing:
+        specifier: ^4.1.0
+        version: 4.1.0
+      mdast-util-to-string:
+        specifier: ^4.0.0
+        version: 4.0.0
+      micromark:
+        specifier: ^4.0.2
+        version: 4.0.2
+      micromark-util-character:
+        specifier: ^2.1.1
+        version: 2.1.1
+      micromark-util-decode-numeric-character-reference:
+        specifier: ^2.0.2
+        version: 2.0.2
+      micromark-util-decode-string:
+        specifier: ^2.0.1
+        version: 2.0.1
+      micromark-util-encode:
+        specifier: ^2.0.1
+        version: 2.0.1
+      micromark-util-normalize-identifier:
+        specifier: ^2.0.1
+        version: 2.0.1
+      micromark-util-symbol:
+        specifier: ^2.0.1
+        version: 2.0.1
+      mimic-response:
+        specifier: ^4.0.0
+        version: 4.0.0
+      ms:
+        specifier: ^2.1.3
+        version: 2.1.3
+      mustache:
+        specifier: ^4.2.0
+        version: 4.2.0
       nanoid:
         specifier: ^5.1.9
         version: 5.1.9
@@ -125,6 +230,9 @@ importers:
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1
+      picomatch:
+        specifier: ^4.0.4
+        version: 4.0.4
       pptxgenjs:
         specifier: ^4.0.1
         version: 4.0.1
@@ -134,9 +242,21 @@ importers:
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.14)(react@19.2.5)
+      react-remove-scroll-bar:
+        specifier: ^2.3.8
+        version: 2.3.8(@types/react@19.2.14)(react@19.2.5)
       react-router-dom:
         specifier: ^7.1.1
         version: 7.14.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react-style-singleton:
+        specifier: ^2.2.3
+        version: 2.2.3(@types/react@19.2.14)(react@19.2.5)
+      scheduler:
+        specifier: ^0.27.0
+        version: 0.27.0
+      setimmediate:
+        specifier: ^1.0.5
+        version: 1.0.5
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -146,15 +266,39 @@ importers:
       tiktoken:
         specifier: ^1.0.18
         version: 1.0.22
+      trough:
+        specifier: ^2.2.0
+        version: 2.2.0
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
+      unist-util-is:
+        specifier: ^6.0.1
+        version: 6.0.1
+      unist-util-visit-parents:
+        specifier: ^6.0.2
+        version: 6.0.2
+      use-callback-ref:
+        specifier: ^1.3.3
+        version: 1.3.3(@types/react@19.2.14)(react@19.2.5)
+      use-sidecar:
+        specifier: ^1.1.3
+        version: 1.1.3(@types/react@19.2.14)(react@19.2.5)
+      web-streams-polyfill:
+        specifier: ^4.2.0
+        version: 4.2.0
+      wrappy:
+        specifier: ^1.0.2
+        version: 1.0.2
       zod:
         specifier: ^3.24.1
         version: 3.25.76
       zustand:
         specifier: ^5.0.3
         version: 5.0.12(@types/react@19.2.14)(react@19.2.5)
+      zwitch:
+        specifier: ^2.0.4
+        version: 2.0.4
     devDependencies:
       '@electron-toolkit/eslint-config-prettier':
         specifier: ^3.0.0
@@ -1260,6 +1404,19 @@ packages:
 
   '@radix-ui/react-arrow@1.1.7':
     resolution: {integrity: sha512-F+M1tLhO+mlQaOWspE8Wstg+z6PwxwRd8oQ8IXceWz92kfAmalTRf0EjrouQeo7QssEPfCn05B4Ihs1K9WQ/7w==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
+  '@radix-ui/react-arrow@1.1.8':
+    resolution: {integrity: sha512-H/nt38MkzQos0v/4VSZeM4JCCe+cLWbLHH3aQ4nHwW245UbDunGtUsEurMo4/b69HttPbE/Zc6g5W6mqe1ikUA==}
     peerDependencies:
       '@types/react': '*'
       '@types/react-dom': '*'
@@ -3817,6 +3974,10 @@ packages:
     resolution: {integrity: sha512-z0yWI+4FDrrweS8Zmt4Ej5HdJmky15+L2e6Wgn3+iK5fWzb6T3fhNFq2+MeTRb064c6Wr4N/wv0DzQTjNzHNGQ==}
     engines: {node: '>=10'}
 
+  mimic-response@4.0.0:
+    resolution: {integrity: sha512-e5ISH9xMYU0DzrT+jl8q2ze9D6eWBto+I8CNpe+VI+K2J/F/k3PdkdTdz4wvGVH4NTpo+NRYTVIuMQEMMcsLqg==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
   minimatch@10.2.5:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
@@ -4872,6 +5033,10 @@ packages:
     resolution: {integrity: sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==}
     engines: {node: '>= 8'}
 
+  web-streams-polyfill@4.2.0:
+    resolution: {integrity: sha512-0rYDzGOh9EZpig92umN5g5D/9A1Kff7k0/mzPSSCY8jEQeYkgRMoY7LhbXtUCWzLCMX0TUE9aoHkjFNB7D9pfA==}
+    engines: {node: '>= 8'}
+
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
@@ -5767,8 +5932,7 @@ snapshots:
     dependencies:
       js-base64: 3.7.8
 
-  '@libsql/darwin-arm64@0.4.7':
-    optional: true
+  '@libsql/darwin-arm64@0.4.7': {}
 
   '@libsql/darwin-x64@0.4.7':
     optional: true
@@ -5838,8 +6002,7 @@ snapshots:
   '@node-rs/jieba-android-arm64@2.0.1':
     optional: true
 
-  '@node-rs/jieba-darwin-arm64@2.0.1':
-    optional: true
+  '@node-rs/jieba-darwin-arm64@2.0.1': {}
 
   '@node-rs/jieba-darwin-x64@2.0.1':
     optional: true
@@ -5939,6 +6102,15 @@ snapshots:
   '@radix-ui/react-arrow@1.1.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
     dependencies:
       '@radix-ui/react-primitive': 2.1.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react: 19.2.5
+      react-dom: 19.2.5(react@19.2.5)
+    optionalDependencies:
+      '@types/react': 19.2.14
+      '@types/react-dom': 19.2.3(@types/react@19.2.14)
+
+  '@radix-ui/react-arrow@1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
+    dependencies:
+      '@radix-ui/react-primitive': 2.1.4(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
     optionalDependencies:
@@ -8862,6 +9034,8 @@ snapshots:
 
   mimic-response@3.1.0: {}
 
+  mimic-response@4.0.0: {}
+
   minimatch@10.2.5:
     dependencies:
       brace-expansion: 5.0.5
@@ -10035,6 +10209,8 @@ snapshots:
       defaults: 1.0.4
 
   web-streams-polyfill@3.3.3: {}
+
+  web-streams-polyfill@4.2.0: {}
 
   whatwg-encoding@3.1.1:
     dependencies:

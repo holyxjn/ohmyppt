@@ -51,6 +51,7 @@ function resolveWindowBounds(): {
 }
 
 function configureLogging(): void {
+  log.transports.console.level = false
   log.transports.file.level = 'info'
   log.transports.file.maxSize = 20 * 1024 * 1024
   log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}'
