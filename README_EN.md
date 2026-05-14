@@ -10,7 +10,7 @@
 ![React](https://img.shields.io/badge/React-App-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6)
 
-**Oh My PPT - Local-first AI Slide Deck Generator & Editor**
+**ohmyppt - Local-first AI Slide Deck Generator & Editor**
 
 [中文](./README.md) | [Why](#why) • [Features](#features) • [Workflow](#workflow) • [Changelog](./CHANGELOG.md) • [Reference](#reference) • [Usage Notes](#usage-notes)
 
@@ -22,10 +22,12 @@
 
   <img src="https://arcsin1.github.io/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4) | [Download release package](https://github.com/arcsin1/oh-my-ppt/releases/)
+  [Watch upstream demo video](https://arcsin1.github.io/ohmyppt.mp4) | [Download this build](https://github.com/holyxjn/ohmyppt/releases/)
 </div>
 
 ---
+
+> This repository is an unofficial modified distribution based on [arcsin1/oh-my-ppt](https://github.com/arcsin1/oh-my-ppt). It is distributed under the MIT License and keeps the original copyright notice. This build adds local HTML import, improved editable PPTX export, export preview, and related workflow fixes.
 
 ## Table of Contents
 
@@ -98,7 +100,7 @@ If you do not have a document, you can still enter a topic and description direc
 <a id="animations"></a>
 ## 🎬 Animation Support
 
-Oh My PPT generates HTML slides and includes a local **Anime.js v4** runtime. During generation or chat-based editing, the AI can add basic presentation motion to whole slide elements such as titles, metric cards, images, chart containers, and step blocks.
+ohmyppt generates HTML slides and includes a local **Anime.js v4** runtime. During generation or chat-based editing, the AI can add basic presentation motion to whole slide elements such as titles, metric cards, images, chart containers, and step blocks.
 
 Whole-element animation is preferred over splitting text into many tiny moving fragments. It keeps slides readable, stable, and better suited for reports, pitches, classes, and live demos.
 
@@ -152,7 +154,7 @@ Supports keyboard navigation (Left/Right), presentation mode, fullscreen present
 <a id="export"></a>
 ### About export
 
-Oh My PPT currently supports three export modes:
+ohmyppt currently supports three export modes:
 
 - **PDF**: best for sharing, archiving, and printing.
 - **PNG**: batch-export every slide as an image for docs, Notion, articles, or social posts.
@@ -172,7 +174,7 @@ If macOS says the app cannot be opened, is damaged, or cannot verify the develop
 **Option 1: Right-click Open**
 
 1. Open Finder or the Applications folder.
-2. Find `OhMyPPT.app`.
+2. Find `ohmyppt.app`.
 3. Right-click the app and choose **Open**.
 4. Click **Open** again in the confirmation dialog.
 
@@ -183,7 +185,7 @@ This usually only needs to be done once.
 If right-click Open still does not work, run:
 
 ```bash
-xattr -cr /Applications/OhMyPPT.app
+xattr -cr /Applications/ohmyppt.app
 ```
 
 Then open the app again.
@@ -191,7 +193,7 @@ Then open the app again.
 If you placed the app somewhere else, replace the path with the actual location, for example:
 
 ```bash
-xattr -cr ~/Downloads/OhMyPPT.app
+xattr -cr ~/Downloads/ohmyppt.app
 ```
 
 ### Windows
@@ -201,12 +203,12 @@ Unsigned installers may trigger Windows SmartScreen, such as “Windows protecte
 Steps:
 
 1. Click **More info**.
-2. Confirm the app name is `OhMyPPT`.
+2. Confirm the app name is `ohmyppt`.
 3. Click **Run anyway**.
 
 If your browser or antivirus blocks the file, first confirm the installer came from this project’s GitHub Releases page, then choose to keep or allow the file.
 
-> Download builds only from the official Releases page when possible.
+> Download builds only from this repository's Releases page when possible.
 
 <a id="feedback"></a>
 ## 🙌 Feedback & Requests
@@ -229,4 +231,4 @@ Thanks to all contributors!
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) © 2026 arcsin1 &lt;zy19931129@gmail.com&gt;.
+This project is a modified distribution based on [arcsin1/oh-my-ppt](https://github.com/arcsin1/oh-my-ppt), licensed under the [MIT License](LICENSE). Original copyright notice: © 2026 arcsin1 &lt;zy19931129@gmail.com&gt;. This repository is not an official upstream release.

@@ -15,7 +15,7 @@ let db: PPTDatabase | null = null
 let agentManager: AgentManager | null = null
 let isShuttingDown = false
 
-const APP_NAME = 'OhMyPPT'
+const APP_NAME = 'ohmyppt'
 const DEFAULT_WINDOW_WIDTH = 1100
 const DEFAULT_WINDOW_HEIGHT = 760
 const BASE_MIN_WIDTH = 860
@@ -23,8 +23,8 @@ const BASE_MIN_HEIGHT = 680
 const TITLEBAR_HEIGHT = 48
 const TITLEBAR_BACKGROUND = '#f4eddf'
 const TITLEBAR_SYMBOL_COLOR = '#5d6b4d'
-const GITHUB_LATEST_RELEASE_API = 'https://api.github.com/repos/arcsin1/oh-my-ppt/releases/latest'
-const GITHUB_RELEASES_URL = 'https://github.com/arcsin1/oh-my-ppt/releases'
+const GITHUB_LATEST_RELEASE_API = 'https://api.github.com/repos/holyxjn/ohmyppt/releases/latest'
+const GITHUB_RELEASES_URL = 'https://github.com/holyxjn/ohmyppt/releases'
 
 function resolveWindowBounds(): {
   width: number
@@ -248,6 +248,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  app.setName(APP_NAME)
   configureLogging()
 
   const dbPath = is.dev ? join(process.cwd(), 'ohmyppt.dev.db') : undefined

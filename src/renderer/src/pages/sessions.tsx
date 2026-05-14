@@ -16,10 +16,17 @@ dayjs.extend(duration)
 
 const getSourceTag = (
   session: Session,
-  labels: { pptx: string; document: string; ai: string }
+  labels: { pptx: string; html: string; document: string; ai: string }
 ): { label: string; Icon: LucideIcon; className: string } => {
   const metadata = parseSessionMetadata(session.metadata)
   const source = typeof metadata.source === 'string' ? metadata.source : ''
+  if (source === 'html-import' || session.model === 'html-import') {
+    return {
+      label: labels.html,
+      Icon: FileText,
+      className: 'border-[#d4c4ec]/80 bg-[#f6f0ff] text-[#68508a]'
+    }
+  }
   if (source === 'pptx-import' || session.provider === 'import' || session.model === 'pptx-import') {
     return {
       label: labels.pptx,
@@ -170,6 +177,7 @@ export function SessionsPage(): React.JSX.Element {
                 : t('sessions.actionRegenerate')
             const sourceTag = getSourceTag(session, {
               pptx: t('sessions.sourcePptx'),
+              html: t('sessions.sourceHtml'),
               document: t('sessions.sourceDocument'),
               ai: t('sessions.sourceAi')
             })

@@ -11,6 +11,7 @@ import {
   FREEZE_PAGE_FOR_PPTX_SCRIPT,
   HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT,
   HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT,
+  WAIT_FOR_PPTX_ASSETS_SCRIPT,
   WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT
 } from './html-to-pptx-browser-scripts'
 
@@ -165,6 +166,7 @@ const capturePptxBackgroundWithRetry = async (
   const script = hideScript || HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
 
   for (let attempt = 1; attempt <= PPTX_BACKGROUND_CAPTURE_ATTEMPTS; attempt += 1) {
+    await win.webContents.executeJavaScript(WAIT_FOR_PPTX_ASSETS_SCRIPT, true)
     await win.webContents.executeJavaScript(script, true)
     await win.webContents.executeJavaScript(WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT, true)
     await sleep(process.platform === 'win32' ? 180 : 80)
@@ -244,15 +246,21 @@ export const extractHtmlPageToPptxSlide = async ({
     pageUrl.searchParams.set('printTimeoutMs', String(timeoutMs))
     pageUrl.searchParams.set('_ts', String(Date.now()))
 
-    const readyWaitPromise = waitForPrintReadySignal({
-      win,
-      pageId: page.pageId,
-      timeoutMs
-    })
-
     await win.loadURL(pageUrl.toString())
+    const isStaticHtmlImportPage = await win.webContents
+      .executeJavaScript(
+        `Boolean(document.querySelector('[data-html-imported="1"], .html-import-slide'))`,
+        true
+      )
+      .catch(() => false)
     await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
-    const readyResult = await readyWaitPromise
+    const readyResult = isStaticHtmlImportPage
+      ? { timedOut: false }
+      : await waitForPrintReadySignal({
+          win,
+          pageId: page.pageId,
+          timeoutMs
+        }).catch(() => ({ timedOut: true }))
     if (readyResult.timedOut) {
       log.warn('[export:pptx] a print rc ready timeout sin1', {
         pageId: page.pageId,
@@ -267,14 +275,16 @@ export const extractHtmlPageToPptxSlide = async ({
     await win.webContents.executeJavaScript(FREEZE_PAGE_FOR_PPTX_SCRIPT, true)
     await sleep(80)
 
-    const maxShapes = exportShapes ? 80 : 0
-    const maxImages = exportImages ? 40 : 0
+    const maxShapes = exportShapes ? 160 : 0
+    const maxImages = exportImages ? 120 : 0
     const extracted = await win.webContents.executeJavaScript(
       buildHtmlToPptxExtractScript({
         pageWidthPx: PPTX_CAPTURE_WIDTH,
         pageHeightPx: PPTX_CAPTURE_HEIGHT,
+        maxTextBoxes: 260,
         maxShapes,
-        maxImages
+        maxImages,
+        maxImageBytes: 8 * 1024 * 1024
       }),
       true
     )

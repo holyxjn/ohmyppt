@@ -241,7 +241,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
           ? settings.storage_path.trim()
           : ''
       const result = await dialog.showOpenDialog(targetWindow, {
-        title: '选择 OpenPPT 存储目录',
+        title: '选择 ohmyppt 存储目录',
         buttonLabel: '选择目录',
         ...(currentStoragePath ? { defaultPath: currentStoragePath } : {}),
         properties: ['openDirectory', 'createDirectory', 'promptToCreate']

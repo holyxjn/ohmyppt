@@ -153,6 +153,50 @@ export const HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT = `
 })()
 `
 
+export const WAIT_FOR_PPTX_ASSETS_SCRIPT = `
+(async () => {
+  const waitForImage = async (image) => {
+    if (!image) return true;
+    const rect = image.getBoundingClientRect?.();
+    const style = image instanceof Element ? getComputedStyle(image) : null;
+    const isVisible = rect && rect.width > 0 && rect.height > 0 &&
+      style && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0.02;
+    if (!isVisible) return true;
+    if (!image.complete || image.naturalWidth === 0) {
+      await new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          image.removeEventListener?.('load', finish);
+          image.removeEventListener?.('error', finish);
+          resolve(true);
+        };
+        image.addEventListener?.('load', finish, { once: true });
+        image.addEventListener?.('error', finish, { once: true });
+        setTimeout(finish, 2500);
+      });
+    }
+    try {
+      await image.decode?.();
+    } catch (_err) {}
+    return true;
+  };
+
+  try {
+    await Promise.all(Array.from(document.images || []).map(waitForImage));
+  } catch (_err) {}
+  if (document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch (_err) {}
+  }
+  void document.body.offsetHeight;
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return true;
+})()
+`
+
 export const WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT = `
 (async () => {
   void document.body.offsetHeight;

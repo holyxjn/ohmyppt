@@ -34,6 +34,7 @@ export function SessionToolbar({
   onExportPdf,
   onExportPng,
   onExportPptx,
+  onPreviewPptx,
   onOpenHistory,
   onOpenPreview,
   onRevealFile
@@ -45,6 +46,7 @@ export function SessionToolbar({
   onExportPdf: () => void
   onExportPng: () => void
   onExportPptx: (options?: { exportImages?: boolean; exportShapes?: boolean }) => void
+  onPreviewPptx: (options?: { exportImages?: boolean; exportShapes?: boolean }) => void
   onOpenHistory: () => void
   onOpenPreview: () => void
   onRevealFile: () => void
@@ -96,6 +98,10 @@ export function SessionToolbar({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[14rem]">
+            <DropdownMenuItem onClick={() => onPreviewPptx({ exportImages: true, exportShapes: true })}>
+              <FileSearch className={dropdownItemIconClass} />
+              {t('sessionDetail.previewPptx')}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onExportPptx({ exportImages: true, exportShapes: true })}>
               <Presentation className={dropdownItemIconClass} />
               {t('sessionDetail.exportPptxDefault')}

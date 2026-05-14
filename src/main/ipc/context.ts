@@ -1042,7 +1042,9 @@ export function createIpcContext(
         if (done) return
         done = true
         if (timeoutRef) clearTimeout(timeoutRef)
-        win.webContents.removeListener('console-message', onConsoleMessage)
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+          win.webContents.removeListener('console-message', onConsoleMessage)
+        }
         if (closedListenerBound) {
           win.removeListener('closed', onClosed)
         }

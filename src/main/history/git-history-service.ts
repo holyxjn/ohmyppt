@@ -192,7 +192,7 @@ export class GitHistoryService {
         dir: projectDir,
         message: this.buildCommitMessage(args, changedPages),
         author: {
-          name: 'Oh My PPT',
+          name: 'ohmyppt',
           email: 'history@oh-my-ppt.local'
         }
       })
@@ -485,7 +485,7 @@ export class GitHistoryService {
     const gitDir = path.join(projectDir, '.git')
     if (!fs.existsSync(gitDir)) {
       await git.init({ fs, dir: projectDir, defaultBranch: 'main' })
-      await git.setConfig({ fs, dir: projectDir, path: 'user.name', value: 'Oh My PPT' })
+      await git.setConfig({ fs, dir: projectDir, path: 'user.name', value: 'ohmyppt' })
       await git.setConfig({
         fs,
         dir: projectDir,

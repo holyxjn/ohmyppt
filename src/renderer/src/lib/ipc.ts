@@ -4,6 +4,9 @@ import type {
   GenerateRetryFailedPayload,
   GenerateRetrySinglePagePayload,
   GenerateStartPayload,
+  HtmlImportPayload,
+  HtmlImportProgressPayload,
+  HtmlImportResult,
   ParseDocumentPlanPayload,
   ParsedDocumentPlanResult,
   PptxImportPayload,
@@ -282,6 +285,8 @@ export const ipc = {
     getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
   importPptx: (payload: PptxImportPayload) =>
     getIpc().invoke('pptx:import', payload) as Promise<PptxImportResult>,
+  importHtml: (payload: HtmlImportPayload) =>
+    getIpc().invoke('html:import', payload) as Promise<HtmlImportResult>,
   chooseAndUploadAssets: (sessionId: string, assetType: 'image' | 'video' = 'image') =>
     getIpc().invoke('assets:chooseAndUpload', { sessionId, assetType }) as Promise<{
       assets: UploadedAsset[]
@@ -293,6 +298,8 @@ export const ipc = {
     getIpc().invoke('export:png', { sessionId }) as Promise<ExportDeckResult>,
   exportPptx: (sessionId: string, options?: { exportImages?: boolean; exportShapes?: boolean }) =>
     getIpc().invoke('export:pptx', { sessionId, ...options }) as Promise<ExportDeckResult>,
+  previewPptx: (sessionId: string, options?: { exportImages?: boolean; exportShapes?: boolean }) =>
+    getIpc().invoke('export:pptxPreview', { sessionId, ...options }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
   validateUploadPrerequisites: () =>
@@ -425,6 +432,13 @@ export const ipc = {
     const channel = 'pptx:import:progress'
     const handler = (_event: unknown, payload: unknown): void =>
       callback(payload as PptxImportProgressPayload)
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  },
+  onHtmlImportProgress: (callback: (payload: HtmlImportProgressPayload) => void): (() => void) => {
+    const channel = 'html:import:progress'
+    const handler = (_event: unknown, payload: unknown): void =>
+      callback(payload as HtmlImportProgressPayload)
     getIpc().on(channel, handler)
     return () => getIpc().removeListener(channel, handler)
   },

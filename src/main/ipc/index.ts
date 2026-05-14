@@ -16,6 +16,7 @@ import { registerTextEditorHandlers } from './editor/text-editor-handlers'
 import { registerElementAnchorHandlers } from './editor/element-anchor-handlers'
 import { registerDocumentParseHandlers } from './io/document-parse-handlers'
 import { registerPptxImportHandlers } from './io/pptx-import-handlers'
+import { registerHtmlImportHandlers } from './io/html-import-handlers'
 import { registerHistoryHandlers } from './history/history-handlers'
 
 export function setupIPC(
@@ -39,5 +40,6 @@ export function setupIPC(
   registerTextEditorHandlers(context)
   registerDocumentParseHandlers(context)
   registerPptxImportHandlers(context)
+  registerHtmlImportHandlers(context)
   registerHistoryHandlers(context)
 }

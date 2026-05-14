@@ -272,7 +272,7 @@ export async function resolveCommonContext(
     styleSkill,
     styleSkillPrompt: styleSkill.prompt,
     topic: String(sessionRecord.topic || '当前主题'),
-    deckTitle: String(sessionRecord.title || 'OpenPPT Preview'),
+    deckTitle: String(sessionRecord.title || 'ohmyppt Preview'),
     appLocale,
     projectId
   }

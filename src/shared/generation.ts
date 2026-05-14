@@ -52,6 +52,27 @@ export interface PptxImportResult {
   warnings: string[]
 }
 
+export interface HtmlImportPayload {
+  filePath: string
+  title?: string
+  styleId?: string | null
+}
+
+export interface HtmlImportProgressPayload {
+  sessionId?: string
+  stage: 'reading' | 'parsing' | 'pages' | 'index' | 'database' | 'completed'
+  progress: number
+  label: string
+  pageNumber?: number
+  totalPages?: number
+}
+
+export interface HtmlImportResult {
+  sessionId: string
+  pageCount: number
+  warnings: string[]
+}
+
 export interface GenerateStartPayload {
   sessionId: string
   userMessage: string

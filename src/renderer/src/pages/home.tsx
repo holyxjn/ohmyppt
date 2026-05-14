@@ -12,7 +12,7 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
-import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
+import { CircleAlert, Code2, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
@@ -32,6 +32,8 @@ const MAX_IMAGE_SIZE_MB = 5
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
 const MAX_PPTX_SIZE_MB = 80
 const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
+const MAX_HTML_SIZE_MB = 50
+const MAX_HTML_SIZE_BYTES = MAX_HTML_SIZE_MB * 1024 * 1024
 const IMAGE_STYLE_PARSE_DELAY_MS = 300
 const isImageFileName = (name: string): boolean => /\.(png|jpe?g|webp)$/i.test(name.trim())
 
@@ -80,12 +82,15 @@ export function HomePage(): ReactElement {
   >([])
   const [parsingDocument, setParsingDocument] = useState(false)
   const [importingPptx, setImportingPptx] = useState(false)
+  const [importingHtml, setImportingHtml] = useState(false)
   const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
+  const [htmlImportProgress, setHtmlImportProgress] = useState<string | null>(null)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [hasParsedSource, setHasParsedSource] = useState(false)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
   const pptxInputRef = useRef<HTMLInputElement | null>(null)
+  const htmlInputRef = useRef<HTMLInputElement | null>(null)
 
   const validateForm = (): string => {
     const topicText = topic.trim()
@@ -235,6 +240,12 @@ export function HomePage(): ReactElement {
     if (importingPptx) return
     if (!(await ensureUploadPrerequisites())) return
     pptxInputRef.current?.click()
+  }
+
+  const handleImportHtmlClick = async (): Promise<void> => {
+    if (importingHtml) return
+    if (!(await ensureUploadPrerequisites())) return
+    htmlInputRef.current?.click()
   }
 
   const parseImageStyle = async (file: File): Promise<StyleParseResult> => {
@@ -426,6 +437,67 @@ export function HomePage(): ReactElement {
     }
   }
 
+  const handleHtmlFilesSelected = async (files: FileList | null): Promise<void> => {
+    const selectedFiles = Array.from(files || [])
+    if (htmlInputRef.current) {
+      htmlInputRef.current.value = ''
+    }
+    if (selectedFiles.length === 0) return
+    if (!(await ensureUploadPrerequisites())) return
+    if (selectedFiles.length > 1) {
+      error(t('home.htmlSingleOnlyTitle'), {
+        description: t('home.htmlSingleOnly')
+      })
+      return
+    }
+    const selectedFile = selectedFiles[0]
+    if (!/\.html?$/i.test(selectedFile.name)) {
+      error(t('home.unsupportedFileTitle'), {
+        description: t('home.unsupportedHtml')
+      })
+      return
+    }
+    if (selectedFile.size > MAX_HTML_SIZE_BYTES) {
+      error(t('home.htmlTooLargeTitle'), {
+        description: t('home.htmlTooLarge', { maxSize: MAX_HTML_SIZE_MB })
+      })
+      return
+    }
+    const filePath = window.electron?.getPathForFile?.(selectedFile) || ''
+    if (!filePath) {
+      error(t('home.htmlPathFailedTitle'), {
+        description: t('home.htmlPathFailed')
+      })
+      return
+    }
+    setImportingHtml(true)
+    setHtmlImportProgress(t('home.htmlPreparing'))
+    try {
+      const result = await ipc.importHtml({
+        filePath,
+        title: selectedFile.name.replace(/\.html?$/i, ''),
+        styleId: selectedStyleId || null
+      })
+      success(t('home.htmlImportDone'), {
+        description:
+          result.warnings.length > 0
+            ? t('home.htmlImportedWithWarnings', {
+                pageCount: result.pageCount,
+                warningCount: result.warnings.length
+              })
+            : t('home.htmlImported', { pageCount: result.pageCount })
+      })
+      navigate(`/sessions/${result.sessionId}`)
+    } catch (err) {
+      error(t('home.htmlImportFailed'), {
+        description: err instanceof Error ? err.message : t('common.retryLater')
+      })
+    } finally {
+      setImportingHtml(false)
+      setHtmlImportProgress(null)
+    }
+  }
+
   useEffect(() => {
     void fetchSettings()
   }, [fetchSettings])
@@ -434,6 +506,12 @@ export function HomePage(): ReactElement {
     // 提前注册，避免主进程导入刚开始时的进度事件丢失。
     return ipc.onPptxImportProgress((payload) => {
       setPptxImportProgress(`${payload.label}${payload.progress ? ` · ${payload.progress}%` : ''}`)
+    })
+  }, [])
+
+  useEffect(() => {
+    return ipc.onHtmlImportProgress((payload) => {
+      setHtmlImportProgress(`${payload.label}${payload.progress ? ` · ${payload.progress}%` : ''}`)
     })
   }, [])
 
@@ -464,7 +542,7 @@ export function HomePage(): ReactElement {
                         onClick={() => {
                           void handleParseDocumentClick()
                         }}
-                        disabled={parsingDocument || importingPptx}
+                        disabled={parsingDocument || importingPptx || importingHtml}
                         className="shrink-0"
                       >
                         {parsingDocument ? (
@@ -494,7 +572,7 @@ export function HomePage(): ReactElement {
                         onClick={() => {
                           void handleImportPptxClick()
                         }}
-                        disabled={importingPptx || parsingDocument}
+                        disabled={importingPptx || parsingDocument || importingHtml}
                         className="shrink-0"
                       >
                         {importingPptx ? (
@@ -511,6 +589,33 @@ export function HomePage(): ReactElement {
                   </TooltipContent>
                 </Tooltip>
 
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          void handleImportHtmlClick()
+                        }}
+                        disabled={importingHtml || importingPptx || parsingDocument}
+                        className="shrink-0"
+                      >
+                        {importingHtml ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Code2 className="mr-2 h-4 w-4" />
+                        )}
+                        {importingHtml ? t('home.importingHtml') : t('home.importHtml')}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start">
+                    {t('home.importHtmlTooltip', { maxSize: MAX_HTML_SIZE_MB })}
+                  </TooltipContent>
+                </Tooltip>
+
                 {hasParsedSource && !parsingDocument ? (
                   <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-xs text-[#4f6340]">
                     {t('home.parsed')}
@@ -521,6 +626,9 @@ export function HomePage(): ReactElement {
 
             {pptxImportProgress ? (
               <p className="min-w-0 text-xs text-[#4f6340]">{pptxImportProgress}</p>
+            ) : null}
+            {htmlImportProgress ? (
+              <p className="min-w-0 text-xs text-[#4f6340]">{htmlImportProgress}</p>
             ) : null}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">{t('home.localOnly')}</p>
@@ -540,6 +648,14 @@ export function HomePage(): ReactElement {
             multiple={false}
             className="hidden"
             onChange={(event) => void handlePptxFilesSelected(event.target.files)}
+          />
+          <input
+            ref={htmlInputRef}
+            type="file"
+            accept=".html,.htm,text/html"
+            multiple={false}
+            className="hidden"
+            onChange={(event) => void handleHtmlFilesSelected(event.target.files)}
           />
         </div>
         {documentParseError && (

@@ -1,5 +1,5 @@
 appId: com.ohmyppt.app
-productName: OhMyPPT
+productName: ohmyppt
 directories:
   buildResources: build
 files:
@@ -59,7 +59,7 @@ linux:
     - AppImage
     - deb
   icon: build/icons/icon.png
-  maintainer: arcsin1
+  maintainer: holyxjn
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}

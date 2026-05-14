@@ -841,6 +841,37 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
+  const handlePreviewPptx = async (options?: { exportImages?: boolean; exportShapes?: boolean }): Promise<void> => {
+    const detailState = useSessionDetailUiStore.getState()
+    if (!id || detailState.isExportingPptx) return
+    detailState.setIsExportingPptx(true)
+    toastInfo(t('sessionDetail.pptxPreviewPreparing'), {
+      description: t('sessionDetail.pptxPreviewDescription'),
+      duration: 8000
+    })
+    try {
+      const result = await ipc.previewPptx(id, options)
+      if (!result.success || !result.path) {
+        toastError(t('sessionDetail.exportFailed'))
+        return
+      }
+      const exportNotice = getPptxExportNotice(result.warnings)
+      if (exportNotice) {
+        toastWarning(t('sessionDetail.pptxPreviewReady', { count: result.pageCount || 0 }), {
+          description: exportNotice
+        })
+        return
+      }
+      toastSuccess(t('sessionDetail.pptxPreviewReady', { count: result.pageCount || 0 }), {
+        description: t('sessionDetail.pptxPreviewOpened')
+      })
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
+    } finally {
+      useSessionDetailUiStore.getState().setIsExportingPptx(false)
+    }
+  }
+
   const selectedPagePendingDragCount = useMemo(() => {
     if (!selectedPage?.pageId) return 0
     return pendingDragEdits.filter((item) => item.pageId === selectedPage.pageId).length
@@ -1034,6 +1065,7 @@ export function SessionDetailPage(): React.JSX.Element {
                 onExportPdf={() => void handleExportPdf()}
                 onExportPng={() => void handleExportPng()}
                 onExportPptx={(options) => void handleExportPptx(options)}
+                onPreviewPptx={(options) => void handlePreviewPptx(options)}
                 onOpenHistory={() => void handleOpenHistory()}
                 onOpenPreview={() => void openProjectPreview()}
                 onRevealFile={() => {

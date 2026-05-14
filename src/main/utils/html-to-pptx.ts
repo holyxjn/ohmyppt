@@ -95,7 +95,7 @@ export interface HtmlToPptxExtractedSlide {
 const DEFAULT_SLIDE_WIDTH = 13.333
 const DEFAULT_SLIDE_HEIGHT = 7.5
 const DEFAULT_MAX_TEXT_CHARS = 1000
-const DEFAULT_MAX_IMAGE_BYTES = 2 * 1024 * 1024
+const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_EXPORT_FONT_SIZE_PT = 144
 const require = createRequire(import.meta.url)
 const PRETEXT_MODULE_URL = pathToFileURL(require.resolve('@chenglou/pretext')).toString()
@@ -144,15 +144,19 @@ const hasCjkText = (value: string): boolean => /[\u3400-\u9fff\uf900-\ufaff]/.te
 
 const resolveExportFontFace = (text: string, value: string | undefined): string => {
   const fontFace = sanitizeFontFace(value)
-  if (!hasCjkText(text)) return fontFace
-  if (/^(aptos|arial|helvetica|inter|system-ui|-apple-system|sans-serif|serif)$/i.test(fontFace)) {
-    return 'Microsoft YaHei'
+  const isSystemFontAlias =
+    /^(aptos|arial|helvetica|helvetica neue|inter|system-ui|ui-sans-serif|-apple-system|blinkmacsystemfont|sf pro text|sf pro display|segoe ui|sans-serif|serif)$/i.test(
+      fontFace
+    )
+  if (!hasCjkText(text)) return isSystemFontAlias ? 'Aptos' : fontFace
+  if (isSystemFontAlias) {
+    return process.platform === 'darwin' ? 'PingFang SC' : 'Microsoft YaHei'
   }
   return fontFace
 }
 
 const normalizeDataUriMime = (value: string): string => {
-  const match = value.match(/^data:(image\/(?:png|jpeg|jpg|gif));base64,/i)
+  const match = value.match(/^data:(image\/(?:png|jpeg|jpg|gif|webp|svg\+xml));base64,/i)
   if (!match) return ''
   return match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase()
 }
@@ -280,6 +284,27 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   };
   const isStyleElement = (element) =>
     ['SPAN', 'B', 'STRONG', 'I', 'EM', 'U', 'FONT', 'SUB', 'SUP', 'A', 'SMALL', 'BIG', 'MARK'].includes(element.tagName);
+  const safeScale = (value, fallback = 1) =>
+    Number.isFinite(value) && value > 0 ? value : fallback;
+  const visualScaleForElement = (element) => {
+    const fallback = safeScale(pageTransformScale, 1);
+    if (!(element instanceof HTMLElement)) return { x: fallback, y: fallback, avg: fallback };
+    const rect = element.getBoundingClientRect();
+    const scaleX = element.offsetWidth > 0 ? rect.width / element.offsetWidth : fallback;
+    const scaleY = element.offsetHeight > 0 ? rect.height / element.offsetHeight : scaleX;
+    const x = safeScale(scaleX, fallback);
+    const y = safeScale(scaleY, x);
+    return { x, y, avg: Math.min(x, y) };
+  };
+  const visualTextScaleFor = (element) => {
+    let current = element instanceof HTMLElement ? element : element?.parentElement || null;
+    while (current && current !== pageElement) {
+      const scale = visualScaleForElement(current);
+      if (Math.abs(scale.avg - 1) > 0.002) return scale.avg;
+      current = current.parentElement;
+    }
+    return safeScale(pageTransformScale, 1);
+  };
 
   const bodyStyle = window.getComputedStyle(pageElement);
   const htmlStyle = window.getComputedStyle(document.documentElement);
@@ -311,6 +336,54 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   const shapeNodes = Array.from(pageElement.querySelectorAll('section,main,article,header,footer,aside,div,figure,figcaption,table,td,th'));
   const shapes = [];
   const minShapeArea = layoutWidthPx * layoutHeightPx * 0.005;
+  const firstGradientColor = (value) => {
+    const source = String(value || '');
+    if (!/gradient\\(/i.test(source)) return '';
+    const match = source.match(/rgba?\\([^)]*\\)|#[0-9a-f]{3,8}\\b/i);
+    return match ? rgbToHex(match[0]) : '';
+  };
+  const pushShapeFromStyle = (style, rect, fallbackBackgroundColor = backgroundColor, allowGradientFill = false) => {
+    if (shapes.length >= maxShapes) return false;
+    if (!rect || rect.width < 2 || rect.height < 2) return false;
+    if (rect.left < pageLeft - 2 || rect.top < pageTop - 2) return false;
+    if (rect.right > pageLeft + layoutWidthPx + 2 || rect.bottom > pageTop + layoutHeightPx + 2) return false;
+    const solidFill = rgbToHex(style.backgroundColor);
+    const gradientFill = allowGradientFill ? firstGradientColor(style.backgroundImage) : '';
+    const fill = solidFill || gradientFill;
+    const borderColor = rgbToHex(style.borderColor);
+    const borderWidth = Number.parseFloat(style.borderWidth || '0') || 0;
+    const hasBorder = borderWidth > 0 && style.borderStyle !== 'none' && borderColor;
+    const opacity = Number(style.opacity || '1');
+    if ((!fill || fill === fallbackBackgroundColor) && !hasBorder) return false;
+    const radius = Number.parseFloat(style.borderTopLeftRadius || style.borderRadius || '0') || 0;
+    const minSide = Math.min(rect.width, rect.height);
+    const shapeType =
+      radius > 0 && Math.abs(rect.width - rect.height) < 1.5 && radius >= minSide / 2 - 0.5
+        ? 'ellipse'
+        : radius > 0
+          ? 'roundRect'
+          : 'rect';
+    shapes.push({
+      x: pxToInX(rect.left),
+      y: pxToInY(rect.top),
+      w: sizeToInX(rect.width),
+      h: sizeToInY(rect.height),
+      fill,
+      transparency: fill ? transparencyFor(solidFill ? style.backgroundColor : style.opacity, opacity) : 100,
+      radius,
+      shapeType,
+      rotate: parseRotate(style),
+      border: hasBorder
+        ? {
+            color: borderColor,
+            widthPt: borderWidth * 0.75,
+            transparency: transparencyFor(style.borderColor, opacity),
+            dash: style.borderStyle === 'dashed' ? 'dash' : 'solid'
+          }
+        : undefined
+    });
+    return true;
+  };
   for (const element of shapeNodes) {
     if (shapes.length >= maxShapes) break;
     const style = window.getComputedStyle(element);
@@ -324,39 +397,13 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     if ((!fill || fill === backgroundColor) && !hasBorder) continue;
     if (!hasBorder && rect.width * rect.height < minShapeArea) continue;
     if (rect.width < 24 || rect.height < 16) continue;
-    const radius = Number.parseFloat(style.borderTopLeftRadius || style.borderRadius || '0') || 0;
-    const minSide = Math.min(rect.width, rect.height);
-    const shapeType =
-      radius > 0 && Math.abs(rect.width - rect.height) < 1.5 && radius >= minSide / 2 - 0.5
-        ? 'ellipse'
-        : radius > 0
-          ? 'roundRect'
-          : 'rect';
-    shapes.push({
-      x,
-      y,
-      w,
-      h,
-      fill,
-      transparency: fill ? transparencyFor(style.backgroundColor, opacity) : 100,
-      radius,
-      shapeType,
-      rotate: parseRotate(style),
-      border: hasBorder
-        ? {
-            color: borderColor,
-            widthPt: borderWidth * 0.75,
-            transparency: transparencyFor(style.borderColor, opacity),
-            dash: style.borderStyle === 'dashed' ? 'dash' : 'solid'
-          }
-        : undefined
-    });
+    pushShapeFromStyle(style, rect);
   }
 
   const texts = [];
   const textSeen = new Set();
   const consumedTextElements = new Set();
-  const maxPreciseLineRunChars = 180;
+  const maxPreciseLineRunChars = 500;
   const isInsideConsumedTextElement = (element) => {
     for (const parent of consumedTextElements) {
       if (parent.contains(element)) return true;
@@ -366,8 +413,8 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   const textWidthIn = (x, width, fontSizePt, text, shouldWrap = false) => {
     if (shouldWrap) return Math.max(0.12, Math.min(slideWidthIn - x, width));
     const hasCjk = /[\\u3400-\\u9fff\\uf900-\\ufaff]/.test(text);
-    const factor = hasCjk ? 1.28 : 1.18;
-    const padding = Math.max(0.16, Math.min(0.6, fontSizePt / 72 * 0.4));
+    const factor = hasCjk ? 1.06 : 1.08;
+    const padding = Math.max(0.04, Math.min(0.22, fontSizePt / 72 * 0.18));
     return Math.max(0.12, Math.min(slideWidthIn - x, width * factor + padding));
   };
   const textHeightIn = (height, fontSizePt) => {
@@ -390,15 +437,17 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const familyToken = /^[a-z0-9 -]+$/i.test(family) ? family : '"' + family.replace(/"/g, '') + '"';
     return [italic, String(weight), fontSizePx.toFixed(2) + 'px', familyToken].filter(Boolean).join(' ');
   };
-  const layoutTextWithPretext = (text, rect, style) => {
+  const layoutTextWithPretext = (text, rect, style, element = null) => {
     if (!pretext || !text || rect.width < 4 || rect.height < 4) return null;
     if (parseRotate(style)) return null;
-    const fontSizePx = Number.parseFloat(style.fontSize || '16') || 16;
-    const lineHeightPx = resolveLineHeightPx(style, fontSizePx);
+    const visualScale = visualTextScaleFor(element);
+    const rawFontSizePx = Number.parseFloat(style.fontSize || '16') || 16;
+    const fontSizePx = rawFontSizePx * visualScale;
+    const lineHeightPx = resolveLineHeightPx(style, rawFontSizePx) * visualScale;
     try {
       const prepared = pretext.prepareWithSegments(text, buildCanvasFont(style, fontSizePx), {
         whiteSpace: 'pre-wrap',
-        letterSpacing: resolveLetterSpacingPx(style)
+        letterSpacing: resolveLetterSpacingPx(style) * visualScale
       });
       const result = pretext.layoutWithLines(prepared, Math.max(1, rect.width), lineHeightPx);
       if (!result?.lines?.length) return null;
@@ -435,6 +484,22 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const source = normalize(value).replace(/\\s+/g, '');
     if (!source) return '';
     return Array.from(source).join('\\n');
+  };
+  const normalizeCssContent = (value, element = null) => {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'none' || raw === 'normal') return '';
+    if (/^attr\\(/i.test(raw)) {
+      const attrName = raw.match(/^attr\\(\\s*([^\\s,)]+)/i)?.[1];
+      return attrName && element ? normalize(element.getAttribute?.(attrName) || '') : '';
+    }
+    const tokens = raw.match(/"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"|'([^'\\\\]*(?:\\\\.[^'\\\\]*)*)'/g);
+    const text = (tokens && tokens.length > 0 ? tokens : [raw])
+      .map((token) => token.replace(/^['"]|['"]$/g, ''))
+      .join('');
+    return normalize(text.replace(/\\\\([0-9a-f]{1,6})\\s?/gi, (_match, code) => {
+      const point = Number.parseInt(code, 16);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : '';
+    }));
   };
   const makeTextKey = (text, rect) =>
     [text.toLowerCase(), Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)].join('|');
@@ -476,7 +541,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       shouldWrap = false;
     }
     if (shouldWrap && !isVerticalText) {
-      const pretextLayout = layoutTextWithPretext(text, rect, parentStyle);
+      const pretextLayout = layoutTextWithPretext(text, rect, parentStyle, parentElement);
       if (pretextLayout && pretextLayout.lines.length > 0) {
         pretextLayout.lines.forEach((line) => pushTextBox(line.text, line.rect, parentStyle, parentElement, false));
         return;
@@ -485,7 +550,9 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const key = makeTextKey(text, rect);
     if (textSeen.has(key)) return;
     textSeen.add(key);
-    const fontSizePx = Number.parseFloat(parentStyle.fontSize || '16') || 16;
+    const visualScale = visualTextScaleFor(parentElement);
+    const rawFontSizePx = Number.parseFloat(parentStyle.fontSize || '16') || 16;
+    const fontSizePx = rawFontSizePx * visualScale;
     const fontSizePt = Math.max(6, Math.min(${MAX_EXPORT_FONT_SIZE_PT}, fontSizePx * pointsPerPx));
     const fontWeight = Number.parseInt(parentStyle.fontWeight || '400', 10) || 400;
     const fontFace = String(parentStyle.fontFamily || 'Aptos').split(',')[0].replace(/["']/g, '').trim() || 'Aptos';
@@ -524,14 +591,14 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       opacity: textPaint.opacity,
       rotate: parseRotate(parentStyle),
       lineSpacing: parentStyle.lineHeight && parentStyle.lineHeight !== 'normal'
-        ? Math.max(fontSizePt * 1.08, (Number.parseFloat(parentStyle.lineHeight) || 0) * pointsPerPx)
+        ? Math.max(fontSizePt * 1.08, (Number.parseFloat(parentStyle.lineHeight) || 0) * visualScale * pointsPerPx)
         : isVerticalText
           ? fontSizePt * 1.02
         : text.includes('\\n')
           ? fontSizePt * 1.18
           : undefined,
       charSpacing: parentStyle.letterSpacing && parentStyle.letterSpacing !== 'normal'
-        ? (Number.parseFloat(parentStyle.letterSpacing) || 0) * pointsPerPx
+        ? (Number.parseFloat(parentStyle.letterSpacing) || 0) * visualScale * pointsPerPx
         : undefined,
       wrap: shouldWrap
     });
@@ -565,10 +632,26 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       const text = clampBlockText(element.innerText || element.textContent);
       if (!isVisible(element, style, rect)) continue;
       if (!shouldExportElementText(element, style, text)) continue;
-      const fontSizePx = Number.parseFloat(style.fontSize || '16') || 16;
+      const fontScale = visualTextScaleFor(element);
+      const fontSizePx = (Number.parseFloat(style.fontSize || '16') || 16) * fontScale;
       const singleLine = rect.height <= fontSizePx * 1.55;
       const largeText = fontSizePx >= 28 || /^H[1-6]$/.test(element.tagName);
-      pushTextBox(text, rect, style, element, !(singleLine && largeText));
+      const constrainedTextBlock =
+        text.length >= 8 &&
+        rect.width < layoutWidthPx * 0.72 &&
+        !element.matches('h1,h2,.slide-title,.page-title');
+      const shouldWrap = constrainedTextBlock || !(singleLine && largeText);
+      if (
+        shouldWrap &&
+        !isVerticalWritingMode(style) &&
+        text.length <= maxPreciseLineRunChars &&
+        rect.width >= 4 &&
+        rect.height >= 4
+      ) {
+        // Let the text-node walker use browser Range rects instead of re-laying text.
+        continue;
+      }
+      pushTextBox(text, rect, style, element, shouldWrap);
       consumedTextElements.add(element);
     }
   };
@@ -632,7 +715,8 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const rect = range.getBoundingClientRect();
     const lineRects = Array.from(range.getClientRects());
     range.detach();
-    const fontSizePx = Number.parseFloat(parentStyle.fontSize || '16') || 16;
+    const fontScale = visualTextScaleFor(parentElement);
+    const fontSizePx = (Number.parseFloat(parentStyle.fontSize || '16') || 16) * fontScale;
     const isBrowserWrapped = lineRects.length > 1 || rect.height > fontSizePx * 1.7;
     if (isBrowserWrapped) {
       const runs = getLineTextRuns(node);
@@ -672,6 +756,115 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     traverseText(child, style, pageElement);
   });
 
+  const cssLengthToPx = (value, relative = 0, scale = 1) => {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'auto' || raw === 'none' || raw === 'normal') return Number.NaN;
+    if (raw.endsWith('%')) return Number.parseFloat(raw) / 100 * relative;
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed * scale : Number.NaN;
+  };
+  const pushPseudoTextBox = (text, rect, style, scale = 1) => {
+    if (texts.length >= maxTextBoxes) return;
+    text = clampText(text);
+    if (!text) return;
+    const key = makeTextKey(text + '|pseudo', rect);
+    if (textSeen.has(key)) return;
+    textSeen.add(key);
+    const fontSizePx = (Number.parseFloat(style.fontSize || '16') || 16) * safeScale(scale, 1);
+    const fontSizePt = Math.max(7, Math.min(${MAX_EXPORT_FONT_SIZE_PT}, fontSizePx * pointsPerPx * 1.06));
+    const fontWeight = Number.parseInt(style.fontWeight || '400', 10) || 400;
+    const fontFace = String(style.fontFamily || 'Aptos').split(',')[0].replace(/["']/g, '').trim() || 'Aptos';
+    const textPaint = resolveTextPaint(style);
+    const boxW = Math.max(sizeToInX(rect.width), fontSizePt / 72 * 1.2);
+    const boxH = Math.max(sizeToInY(rect.height), fontSizePt / 72 * 1.2);
+    texts.push({
+      text,
+      x: pxToInX(rect.left) + (sizeToInX(rect.width) - boxW) / 2,
+      y: pxToInY(rect.top) + (sizeToInY(rect.height) - boxH) / 2,
+      w: boxW,
+      h: boxH,
+      fontSize: fontSizePt,
+      fontFace,
+      color: textPaint.color,
+      bold: fontWeight >= 600,
+      italic: style.fontStyle === 'italic' || style.fontStyle === 'oblique',
+      underline: false,
+      strike: false,
+      align: 'center',
+      opacity: textPaint.opacity,
+      rotate: parseRotate(style),
+      lineSpacing: fontSizePt * 1.02,
+      wrap: false
+    });
+  };
+  const pseudoRectFor = (elementRect, style, text, scale = { x: 1, y: 1, avg: 1 }) => {
+    const scaleX = safeScale(scale.x, safeScale(scale.avg, 1));
+    const scaleY = safeScale(scale.y, safeScale(scale.avg, scaleX));
+    const textScale = safeScale(scale.avg, Math.min(scaleX, scaleY));
+    const rawFontSizePx = Number.parseFloat(style.fontSize || '16') || 16;
+    const fontSizePx = rawFontSizePx * textScale;
+    const lineHeightPx = resolveLineHeightPx(style, rawFontSizePx) * scaleY;
+    const width = cssLengthToPx(style.width, elementRect.width, scaleX);
+    const height = cssLengthToPx(style.height, elementRect.height, scaleY);
+    const boxWidth = Number.isFinite(width) && width > 0
+      ? width
+      : Math.max(4, text.length * fontSizePx * 0.72);
+    const boxHeight = Number.isFinite(height) && height > 0 ? height : Math.max(4, lineHeightPx);
+    const leftValue = cssLengthToPx(style.left, elementRect.width, scaleX);
+    const rightValue = cssLengthToPx(style.right, elementRect.width, scaleX);
+    const topValue = cssLengthToPx(style.top, elementRect.height, scaleY);
+    const bottomValue = cssLengthToPx(style.bottom, elementRect.height, scaleY);
+    const marginLeft = cssLengthToPx(style.marginLeft, elementRect.width, scaleX);
+    const marginRight = cssLengthToPx(style.marginRight, elementRect.width, scaleX);
+    const marginTop = cssLengthToPx(style.marginTop, elementRect.height, scaleY);
+    const marginBottom = cssLengthToPx(style.marginBottom, elementRect.height, scaleY);
+    const left = Number.isFinite(leftValue)
+      ? elementRect.left + leftValue + (Number.isFinite(marginLeft) ? marginLeft : 0)
+      : Number.isFinite(rightValue)
+        ? elementRect.right - rightValue - boxWidth - (Number.isFinite(marginRight) ? marginRight : 0)
+        : elementRect.left + (Number.isFinite(marginLeft) ? marginLeft : 0);
+    const top = Number.isFinite(topValue)
+      ? elementRect.top + topValue + (Number.isFinite(marginTop) ? marginTop : 0)
+      : Number.isFinite(bottomValue)
+        ? elementRect.bottom - bottomValue - boxHeight - (Number.isFinite(marginBottom) ? marginBottom : 0)
+        : elementRect.top + (Number.isFinite(marginTop) ? marginTop : 0);
+    return {
+      left,
+      top,
+      width: boxWidth,
+      height: boxHeight,
+      right: left + boxWidth,
+      bottom: top + boxHeight
+    };
+  };
+  const exportPseudoElements = () => {
+    const candidates = Array.from(pageElement.querySelectorAll('*'));
+    for (const element of candidates) {
+      if (texts.length >= maxTextBoxes && shapes.length >= maxShapes) break;
+      const elementStyle = window.getComputedStyle(element);
+      const elementRect = element.getBoundingClientRect();
+      if (!isVisible(element, elementStyle, elementRect)) continue;
+      for (const pseudo of ['::before', '::after']) {
+        if (texts.length >= maxTextBoxes && shapes.length >= maxShapes) break;
+        const pseudoStyle = window.getComputedStyle(element, pseudo);
+        if (!pseudoStyle || pseudoStyle.display === 'none' || pseudoStyle.visibility === 'hidden') continue;
+        if (Number(pseudoStyle.opacity || '1') < 0.04) continue;
+        const pseudoText = normalizeCssContent(pseudoStyle.content, element);
+        if (!pseudoText) continue;
+        const pseudoScale = visualScaleForElement(element);
+        const rect = pseudoRectFor(elementRect, pseudoStyle, pseudoText, pseudoScale);
+        if (rect.width < 2 || rect.height < 2) continue;
+        if (rect.right < pageLeft || rect.bottom < pageTop) continue;
+        if (rect.left > pageLeft + layoutWidthPx || rect.top > pageTop + layoutHeightPx) continue;
+        if (rect.width <= 96 && rect.height <= 96) {
+          pushShapeFromStyle(pseudoStyle, rect, backgroundColor, true);
+        }
+        pushPseudoTextBox(pseudoText, rect, pseudoStyle, pseudoScale.avg);
+      }
+    }
+  };
+  exportPseudoElements();
+
   const canvasToDataUri = (canvas) => {
     try {
       if (!canvas.width || !canvas.height) return '';
@@ -680,8 +873,30 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       return '';
     }
   };
+  const blobToDataUri = async (blob) =>
+    await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result || ''));
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    });
+  const sourceToDataUri = async (source) => {
+    const url = String(source || '').trim();
+    if (!url) return '';
+    if (/^data:image\\//i.test(url)) return url;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return '';
+      const blob = await response.blob();
+      return await blobToDataUri(blob);
+    } catch {
+      return '';
+    }
+  };
   const imageToDataUri = async (img) => {
     if (!img.currentSrc && !img.src) return '';
+    const sourceDataUri = await sourceToDataUri(img.currentSrc || img.src);
+    if (sourceDataUri) return sourceDataUri;
     try {
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth || img.width;
@@ -692,35 +907,40 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
       ctx.drawImage(img, 0, 0);
       return canvas.toDataURL('image/png');
     } catch {
-      try {
-        const response = await fetch(img.currentSrc || img.src);
-        if (!response.ok) return '';
-        const blob = await response.blob();
-        return await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(String(reader.result || ''));
-          reader.onerror = () => resolve('');
-          reader.readAsDataURL(blob);
-        });
-      } catch {
-        return '';
-      }
+      return '';
+    }
+  };
+  const svgToDataUri = async (svg) => {
+    try {
+      const rect = svg.getBoundingClientRect();
+      const clone = svg.cloneNode(true);
+      if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      if (!clone.getAttribute('width') && rect.width) clone.setAttribute('width', String(Math.round(rect.width)));
+      if (!clone.getAttribute('height') && rect.height) clone.setAttribute('height', String(Math.round(rect.height)));
+      const serialized = new XMLSerializer().serializeToString(clone);
+      return await blobToDataUri(new Blob([serialized], { type: 'image/svg+xml' }));
+    } catch {
+      return '';
     }
   };
 
   const images = [];
-  const imageNodes = Array.from(pageElement.querySelectorAll('img,canvas'));
+  const imageNodes = Array.from(pageElement.querySelectorAll('img,canvas,svg'));
   for (const element of imageNodes) {
     if (images.length >= maxImages) break;
     const style = window.getComputedStyle(element);
     const { rect, x, y, w, h } = elementToBox(element);
     if (!isVisible(element, style, rect)) continue;
-    const dataUri = element.tagName === 'CANVAS' ? canvasToDataUri(element) : await imageToDataUri(element);
-    if (!/^data:image\\/(?:png|jpeg|jpg|gif);base64,/i.test(dataUri)) continue;
+    const dataUri = element.tagName === 'CANVAS'
+      ? canvasToDataUri(element)
+      : element.tagName === 'svg' || element.tagName === 'SVG'
+        ? await svgToDataUri(element)
+        : await imageToDataUri(element);
+    if (!/^data:image\\/(?:png|jpeg|jpg|gif|webp|svg\\+xml);base64,/i.test(dataUri)) continue;
     if (maxImageDataUriLength > 128 && dataUri.length > maxImageDataUriLength) continue;
     images.push({
       dataUri,
-      mimeType: dataUri.match(/^data:(image\\/(?:png|jpeg|jpg|gif));base64,/i)?.[1] || 'image/png',
+      mimeType: dataUri.match(/^data:(image\\/(?:png|jpeg|jpg|gif|webp|svg\\+xml));base64,/i)?.[1] || 'image/png',
       x,
       y,
       w,
@@ -733,13 +953,18 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
   // 用已提取的 dataUri 去重，避免 background-image 与 img/canvas 重复提取
   const seenDataUris = new Set(images.map((img) => img.dataUri));
 
-  // 提取 CSS background-image 中的图片（仅 data URI 内联图片）
+  const extractCssUrl = (value) => {
+    const match = String(value || '').match(/url\\((["']?)(.*?)\\1\\)/i);
+    return match ? String(match[2] || '').trim() : '';
+  };
+
+  // 提取 CSS background-image 中的图片
   const bgImageCandidates = []
   for (const el of pageElement.querySelectorAll('*')) {
     if (bgImageCandidates.length >= maxImages) break
     const style = window.getComputedStyle(el)
     const bg = style.backgroundImage || ''
-    if (!/^url\\(/i.test(bg) || !/data:image\\//i.test(bg)) continue
+    if (!/^url\\(/i.test(bg)) continue
     bgImageCandidates.push({ el, style })
   }
 
@@ -748,12 +973,10 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const { rect, x, y, w, h } = elementToBox(el)
     if (!isVisible(el, style, rect)) continue
 
-    const bgMatch = (style.backgroundImage || '').match(
-      /url\\(["']?(data:image\\/[^;]+;base64,[^"')]+)["']?\\)/i
-    )
-    if (!bgMatch) continue
-    const dataUri = bgMatch[1]
-    if (!/^data:image\\/(?:png|jpeg|jpg|gif);base64,/i.test(dataUri)) continue
+    const bgUrl = extractCssUrl(style.backgroundImage)
+    if (!bgUrl || /^data:image\\/svg\\+xml,/i.test(bgUrl)) continue
+    const dataUri = await sourceToDataUri(bgUrl)
+    if (!/^data:image\\/(?:png|jpeg|jpg|gif|webp|svg\\+xml);base64,/i.test(dataUri)) continue
     if (maxImageDataUriLength > 128 && dataUri.length > maxImageDataUriLength) continue
     if (seenDataUris.has(dataUri)) continue
     seenDataUris.add(dataUri)
@@ -761,7 +984,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     images.push({
       dataUri,
       mimeType:
-        dataUri.match(/^data:(image\\/(?:png|jpeg|jpg|gif));base64,/i)?.[1] || 'image/png',
+        dataUri.match(/^data:(image\\/(?:png|jpeg|jpg|gif|webp|svg\\+xml));base64,/i)?.[1] || 'image/png',
       x,
       y,
       w,
@@ -891,10 +1114,10 @@ export const writeHtmlToPptx = async (
 const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
   const pptx = new PptxGenJS()
   pptx.layout = 'LAYOUT_WIDE'
-  pptx.author = document.author || 'OhMyPPT'
-  pptx.company = 'OhMyPPT'
-  pptx.subject = document.title || 'OhMyPPT'
-  pptx.title = document.title || 'OhMyPPT'
+  pptx.author = document.author || 'ohmyppt'
+  pptx.company = 'ohmyppt'
+  pptx.subject = document.title || 'ohmyppt'
+  pptx.title = document.title || 'ohmyppt'
   pptx.theme = {
     headFontFace: 'Aptos Display',
     bodyFontFace: 'Aptos'
@@ -928,7 +1151,7 @@ const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
               color: normalizeHexColor(shape.fill, 'FFFFFF'),
               transparency: clamp(shape.transparency ?? 0, 0, 100)
             }
-          : { transparency: 100 },
+          : { color: 'FFFFFF', transparency: 100 },
         line: shape.border
           ? {
               color: normalizeHexColor(shape.border.color, '000000'),
@@ -936,7 +1159,7 @@ const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
               transparency: clamp(shape.border.transparency ?? 0, 0, 100),
               dashType: shape.border.dash === 'dash' ? 'dash' : 'solid'
             }
-          : { transparency: 100 }
+          : { color: 'FFFFFF', transparency: 100 }
       })
     })
     ;(sourceSlide.images || []).forEach((image) => {
