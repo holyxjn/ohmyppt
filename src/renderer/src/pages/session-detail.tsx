@@ -806,7 +806,11 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleExportPptx = async (options?: { exportImages?: boolean; exportShapes?: boolean }): Promise<void> => {
+  const handleExportPptx = async (options?: {
+    exportBackground?: boolean
+    exportImages?: boolean
+    exportShapes?: boolean
+  }): Promise<void> => {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPptx) return
     detailState.setIsExportingPptx(true)
@@ -841,7 +845,11 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handlePreviewPptx = async (options?: { exportImages?: boolean; exportShapes?: boolean }): Promise<void> => {
+  const handlePreviewPptx = async (options?: {
+    exportBackground?: boolean
+    exportImages?: boolean
+    exportShapes?: boolean
+  }): Promise<void> => {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPptx) return
     detailState.setIsExportingPptx(true)

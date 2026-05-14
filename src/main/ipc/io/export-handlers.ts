@@ -9,6 +9,7 @@ import { extractHtmlPageToPptxSlide } from '../../utils/html-to-pptx-renderer'
 
 type ExportPayload = {
   sessionId?: unknown
+  exportBackground?: boolean
   exportImages?: boolean
   exportShapes?: boolean
 }
@@ -61,10 +62,11 @@ export function registerExportHandlers(ctx: IpcContext): void {
   const buildPptxSlides = async (args: {
     sessionId: string
     pages: Array<{ pageId: string; htmlPath: string; title?: string }>
+    exportBackground: boolean
     exportImages: boolean
     exportShapes: boolean
   }): Promise<{ slides: HtmlToPptxSlide[]; warnings: string[] }> => {
-    const { sessionId, pages, exportImages, exportShapes } = args
+    const { sessionId, pages, exportBackground, exportImages, exportShapes } = args
     const warnings: string[] = []
     let pagesWithoutText = 0
     let pagesWithoutImages = 0
@@ -76,6 +78,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
         sessionId,
         pageId: page.pageId,
         htmlPath: page.htmlPath,
+        exportBackground,
         exportImages,
         exportShapes
       })
@@ -84,6 +87,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
         timeoutMs: EXPORT_PAGE_READY_TIMEOUT_MS,
         settleMs: EXPORT_CAPTURE_SETTLE_MS,
         waitForPrintReadySignal,
+        exportBackground,
         exportImages,
         exportShapes
       })
@@ -285,8 +289,9 @@ export function registerExportHandlers(ctx: IpcContext): void {
     const exportOptions = payload && typeof payload === 'object'
       ? (payload as ExportPayload)
       : {}
-    const exportImages = exportOptions.exportImages !== false
-    const exportShapes = exportOptions.exportShapes !== false
+    const exportBackground = exportOptions.exportBackground !== false
+    const exportImages = exportOptions.exportImages === true
+    const exportShapes = exportOptions.exportShapes === true
 
     const { session, pages, projectDir } = await resolveSessionPageFiles(sessionId)
     const sessionTitle =
@@ -311,7 +316,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
     const warnings: string[] = []
 
     try {
-      const built = await buildPptxSlides({ sessionId, pages, exportImages, exportShapes })
+      const built = await buildPptxSlides({ sessionId, pages, exportBackground, exportImages, exportShapes })
       warnings.push(...built.warnings)
 
       await writeHtmlToPptx(saveResult.filePath, {
@@ -355,8 +360,9 @@ export function registerExportHandlers(ctx: IpcContext): void {
     }
 
     const exportOptions = payload && typeof payload === 'object' ? (payload as ExportPayload) : {}
-    const exportImages = exportOptions.exportImages !== false
-    const exportShapes = exportOptions.exportShapes !== false
+    const exportBackground = exportOptions.exportBackground !== false
+    const exportImages = exportOptions.exportImages === true
+    const exportShapes = exportOptions.exportShapes === true
     const { session, pages, projectDir } = await resolveSessionPageFiles(sessionId)
     const sessionTitle =
       typeof session.title === 'string' && session.title.trim().length > 0
@@ -372,7 +378,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
 
     try {
       await fs.promises.mkdir(previewDir, { recursive: true })
-      const built = await buildPptxSlides({ sessionId, pages, exportImages, exportShapes })
+      const built = await buildPptxSlides({ sessionId, pages, exportBackground, exportImages, exportShapes })
       warnings.push(...built.warnings)
       await writeHtmlToPptx(previewPath, {
         title: `${sessionTitle} Preview`,

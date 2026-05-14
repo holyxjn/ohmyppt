@@ -7,7 +7,8 @@ import {
   History,
   Image as ImageIcon,
   Loader2,
-  Presentation
+  Presentation,
+  Shapes
 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
@@ -45,8 +46,16 @@ export function SessionToolbar({
   canRevealFile: boolean
   onExportPdf: () => void
   onExportPng: () => void
-  onExportPptx: (options?: { exportImages?: boolean; exportShapes?: boolean }) => void
-  onPreviewPptx: (options?: { exportImages?: boolean; exportShapes?: boolean }) => void
+  onExportPptx: (options?: {
+    exportBackground?: boolean
+    exportImages?: boolean
+    exportShapes?: boolean
+  }) => void
+  onPreviewPptx: (options?: {
+    exportBackground?: boolean
+    exportImages?: boolean
+    exportShapes?: boolean
+  }) => void
   onOpenHistory: () => void
   onOpenPreview: () => void
   onRevealFile: () => void
@@ -98,19 +107,43 @@ export function SessionToolbar({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[14rem]">
-            <DropdownMenuItem onClick={() => onPreviewPptx({ exportImages: true, exportShapes: true })}>
+            <DropdownMenuItem
+              onClick={() =>
+                onPreviewPptx({ exportBackground: true, exportImages: false, exportShapes: false })
+              }
+            >
               <FileSearch className={dropdownItemIconClass} />
               {t('sessionDetail.previewPptx')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: true, exportShapes: true })}>
+            <DropdownMenuItem
+              onClick={() =>
+                onExportPptx({ exportBackground: true, exportImages: false, exportShapes: false })
+              }
+            >
               <Presentation className={dropdownItemIconClass} />
               {t('sessionDetail.exportPptxDefault')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: false, exportShapes: false })}>
+            <DropdownMenuItem
+              onClick={() =>
+                onExportPptx({ exportBackground: true, exportImages: true, exportShapes: true })
+              }
+            >
+              <Shapes className={dropdownItemIconClass} />
+              {t('sessionDetail.exportPptxEditableShapes')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                onExportPptx({ exportBackground: false, exportImages: false, exportShapes: false })
+              }
+            >
               <FileText className={dropdownItemIconClass} />
               {t('sessionDetail.exportPptxTextOnly')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExportPptx({ exportImages: true, exportShapes: false })}>
+            <DropdownMenuItem
+              onClick={() =>
+                onExportPptx({ exportBackground: true, exportImages: true, exportShapes: false })
+              }
+            >
               <ImageIcon className={dropdownItemIconClass} />
               {t('sessionDetail.exportPptxWithImages')}
             </DropdownMenuItem>

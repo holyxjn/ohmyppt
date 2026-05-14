@@ -130,6 +130,73 @@ export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
 })()
 `
 
+export const HIDE_IMAGES_AND_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
+(async () => {
+  let existing = document.getElementById('ohmyppt-pptx-hide-media-and-text');
+  if (existing) existing.remove();
+  existing = document.getElementById('ohmyppt-pptx-hide-text');
+  if (existing) existing.remove();
+  const isVisibleColor = (value) => {
+    const color = String(value || '').trim().toLowerCase();
+    return Boolean(color && color !== 'transparent' && !/^rgba?\\([^)]*,\\s*0\\s*\\)$/.test(color));
+  };
+  const resolveVisibleTextColor = (element) => {
+    let current = element;
+    while (current && current.nodeType === 1) {
+      const color = getComputedStyle(current).color;
+      if (isVisibleColor(color)) return color;
+      current = current.parentElement;
+    }
+    return '#111827';
+  };
+  const style = document.createElement('style');
+  style.id = 'ohmyppt-pptx-hide-media-and-text';
+  style.textContent = [
+    'img, canvas { opacity: 0 !important; visibility: hidden !important; }',
+    'svg { opacity: 0 !important; visibility: hidden !important; }',
+    'body :not(.katex):not(.katex *):not(canvas) { -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
+    'body :not(.katex):not(.katex *)::before, body :not(.katex):not(.katex *)::after { -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
+    '.katex, .katex * { -webkit-text-fill-color: currentColor !important; text-shadow: none !important; }',
+    'svg text, svg tspan { fill: transparent !important; stroke: transparent !important; }',
+    'input, textarea { color: transparent !important; -webkit-text-fill-color: transparent !important; }'
+  ].join('\\n');
+  document.head.appendChild(style);
+  document.querySelectorAll('.katex').forEach((element) => {
+    const node = element;
+    const color = resolveVisibleTextColor(node);
+    node.style.color = color;
+    node.style.webkitTextFillColor = color;
+    node.style.fontFamily = 'KaTeX_Main, "Times New Roman", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif';
+  });
+  const hideTextPaint = (node) => {
+    node.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+    node.style.setProperty('-webkit-text-stroke-color', 'transparent', 'important');
+    node.style.setProperty('text-shadow', 'none', 'important');
+    node.style.setProperty('text-decoration-color', 'transparent', 'important');
+    node.style.setProperty('caret-color', 'transparent', 'important');
+  };
+  const hasOwnTextNode = (element) =>
+    Array.from(element.childNodes || []).some((node) => node.nodeType === Node.TEXT_NODE && String(node.textContent || '').trim());
+  document.querySelectorAll('body *').forEach((element) => {
+    if (element.closest('.katex, .katex-mathml, script, style, noscript, canvas')) return;
+    if (hasOwnTextNode(element)) hideTextPaint(element);
+  });
+  document.querySelectorAll('svg text, svg tspan').forEach((element) => {
+    element.style.setProperty('fill', 'transparent', 'important');
+    element.style.setProperty('stroke', 'transparent', 'important');
+  });
+  void document.body.offsetHeight;
+  if (document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch (_err) {}
+  }
+  void document.body.offsetHeight;
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return true;
+})()
+`
+
 export const HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT = `
 (async () => {
   let existing = document.getElementById('ohmyppt-pptx-hide-elements');

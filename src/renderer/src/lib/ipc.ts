@@ -296,9 +296,15 @@ export const ipc = {
     getIpc().invoke('export:pdf', { sessionId }) as Promise<ExportDeckResult>,
   exportPng: (sessionId: string) =>
     getIpc().invoke('export:png', { sessionId }) as Promise<ExportDeckResult>,
-  exportPptx: (sessionId: string, options?: { exportImages?: boolean; exportShapes?: boolean }) =>
+  exportPptx: (
+    sessionId: string,
+    options?: { exportBackground?: boolean; exportImages?: boolean; exportShapes?: boolean }
+  ) =>
     getIpc().invoke('export:pptx', { sessionId, ...options }) as Promise<ExportDeckResult>,
-  previewPptx: (sessionId: string, options?: { exportImages?: boolean; exportShapes?: boolean }) =>
+  previewPptx: (
+    sessionId: string,
+    options?: { exportBackground?: boolean; exportImages?: boolean; exportShapes?: boolean }
+  ) =>
     getIpc().invoke('export:pptxPreview', { sessionId, ...options }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,

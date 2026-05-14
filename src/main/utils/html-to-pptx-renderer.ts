@@ -10,6 +10,7 @@ import {
 import {
   FREEZE_PAGE_FOR_PPTX_SCRIPT,
   HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT,
+  HIDE_IMAGES_AND_TEXT_FOR_PPTX_BACKGROUND_SCRIPT,
   HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT,
   WAIT_FOR_PPTX_ASSETS_SCRIPT,
   WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT
@@ -30,6 +31,7 @@ export interface HtmlPageToPptxSlideOptions {
     pageId: string
     timeoutMs: number
   }) => Promise<{ timedOut: boolean }>
+  exportBackground?: boolean
   exportImages?: boolean
   exportShapes?: boolean
 }
@@ -217,8 +219,9 @@ export const extractHtmlPageToPptxSlide = async ({
   timeoutMs,
   settleMs,
   waitForPrintReadySignal,
-  exportImages = true,
-  exportShapes = true
+  exportBackground = true,
+  exportImages = false,
+  exportShapes = false
 }: HtmlPageToPptxSlideOptions): Promise<HtmlPageToPptxSlideResult> => {
   const win = new BrowserWindow({
     show: false,
@@ -291,19 +294,25 @@ export const extractHtmlPageToPptxSlide = async ({
 
     const slide = normalizeExtractedHtmlToPptxSlide(extracted, page.title)
 
-    const hideScript = (exportImages || exportShapes)
-      ? HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT
-      : HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
-    const backgroundCapture = await capturePptxBackgroundWithRetry(win, page.pageId, slide.texts, hideScript)
-    const backgroundPng = backgroundCapture.image.toPNG()
-    slide.backgroundImage = {
-      dataUri: `data:image/png;base64,${backgroundPng.toString('base64')}`,
-      mimeType: 'image/png',
-      x: 0,
-      y: 0,
-      w: PPTX_SLIDE_WIDTH_IN,
-      h: PPTX_SLIDE_HEIGHT_IN,
-      alt: page.title
+    let backgroundWarning = ''
+    if (exportBackground) {
+      const hideScript = exportShapes
+        ? HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT
+        : exportImages
+          ? HIDE_IMAGES_AND_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
+          : HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT
+      const backgroundCapture = await capturePptxBackgroundWithRetry(win, page.pageId, slide.texts, hideScript)
+      const backgroundPng = backgroundCapture.image.toPNG()
+      slide.backgroundImage = {
+        dataUri: `data:image/png;base64,${backgroundPng.toString('base64')}`,
+        mimeType: 'image/png',
+        x: 0,
+        y: 0,
+        w: PPTX_SLIDE_WIDTH_IN,
+        h: PPTX_SLIDE_HEIGHT_IN,
+        alt: page.title
+      }
+      backgroundWarning = backgroundCapture.warning || ''
     }
 
     if (!exportShapes) {
@@ -319,7 +328,7 @@ export const extractHtmlPageToPptxSlide = async ({
         readyResult.timedOut
           ? `页面 ${page.pageId} 未收到打印就绪信号，已按当前状态导出`
           : '',
-        backgroundCapture.warning || ''
+        backgroundWarning
       ]
         .filter(Boolean)
         .join('；')
